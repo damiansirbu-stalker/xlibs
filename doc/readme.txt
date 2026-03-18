@@ -54,14 +54,12 @@ Compatibility:
 Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
 
 Development:
-Written against X-Ray Monolith engine source, Demonized exes source code,
-and Anomaly 1.5.3 unpacked gamedata. Code patterns and engine usage validated against established work
-by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb). The
-code is validated in real time by a multi-stage pipeline: luacheck, selene,
-tree-sitter AST analysis, contract rules, cross-file dependency
-resolution, cyclomatic complexity analysis, crash and vulnerability pattern
-detection, lua54 integration testing with X-Ray engine stubs, gitleaks
-secret scanning. Full report in doc/test-report.log.
+Source: https://github.com/damiansirbu-stalker/xlibs
+Releases: https://github.com/damiansirbu-stalker/xlibs/releases
+Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
+Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
+The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
+Full report in doc/test-report.log.
 
 Versions:
 
