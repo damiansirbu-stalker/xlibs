@@ -1,5 +1,5 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
-Latest: 1.0.4
+Latest: 1.0.5
 
 xlibs is a modder's toolbox. 19 modules covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 
@@ -62,6 +62,11 @@ The code is validated in real time by a multi-stage pipeline: luacheck, selene, 
 Full report in doc/test-report.log.
 
 Versions:
+
+1.0.5
+  xlevel pcall removal, nil guard improvements.
+  Fixed: get_game_hours unnecessary pcall, replaced with level.present() guard
+  Fixed: get_current_level_name missing level.present() guard
 
 1.0.4
   Renamed: is_protected -> is_unscriptable (xcreature), is_protected_squad -> is_unscriptable_squad (xsquad)
