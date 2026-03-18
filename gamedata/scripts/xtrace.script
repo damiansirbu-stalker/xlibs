@@ -1,0 +1,88 @@
+--- xtrace: Lightweight tracing (OTel-inspired) - id + path with push/pop
+
+local setmetatable = setmetatable
+
+local trace_counter = 0
+local op_counter = 0
+
+local _NULL = { id = 0, path = "" }
+function _NULL:push(_) return "" end
+function _NULL:pop(_) return self end
+
+local Trace = {}
+Trace.__index = Trace
+
+--- Push operation to trace path, returns segment for pop
+--- @param op_name string Operation name
+--- @return string segment (for pop)
+function Trace:push(op_name)
+    op_counter = op_counter + 1
+    local segment = op_name .. "(" .. op_counter .. ")"
+    if self.path == "" then
+        self.path = segment
+    else
+        self.path = self.path .. "/" .. segment
+    end
+    return segment
+end
+
+--- Pop segment from trace path
+--- @param segment string Segment returned by push
+--- @return table self (for chaining)
+function Trace:pop(segment)
+    if segment == "" then return self end
+    if self.path == segment then
+        self.path = ""
+    else
+        self.path = self.path:sub(1, -(#segment + 2))
+    end
+    return self
+end
+
+--- Create new trace (empty path, first push sets root)
+--- Increments global trace_counter for unique ID; path builds via push/pop string concatenation
+--- @safety SAFE - pure Lua table + metatable
+--- @complexity O(1) | 0 luabind
+--- @return table Trace object with id, path, push(), pop()
+function new()
+    trace_counter = trace_counter + 1
+    return setmetatable({
+        id = trace_counter,
+        path = "",
+    }, Trace)
+end
+
+--- Create trace only if condition true, else null trace
+--- Null trace has matching API (push/pop are no-ops); zero overhead when disabled
+--- @safety SAFE - null singleton is pure Lua table
+--- @complexity O(1) | 0 luabind
+--- @param condition boolean
+--- @return table Trace or null trace
+function new_if(condition)
+    if not condition then return _NULL end
+    return new()
+end
+
+--- Wrap function with trace push/pop
+--- Pushes op_name onto trace path, executes fn(trace), pops on return
+--- @safety SAFE - pure Lua; fn errors propagate (no pcall)
+--- @complexity O(1) + fn cost | 0 luabind
+--- @param trace table Trace object
+--- @param op_name string Operation name
+--- @param fn function Function to execute, receives trace as arg
+--- @return any result
+function wrap(trace, op_name, fn)
+    local seg = trace:push(op_name)
+    local result = fn(trace)
+    trace:pop(seg)
+    return result
+end
+
+--- Reset counters (testing only)
+--- Zeroes trace_counter and op_counter globals
+--- @safety SAFE - pure Lua
+--- @complexity O(1) | 0 luabind
+function reset()
+    trace_counter = 0
+    op_counter = 0
+end

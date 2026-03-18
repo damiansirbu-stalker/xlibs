@@ -1,0 +1,15 @@
+--- xlibs_mcm: MCM info page for xlibs
+
+function on_mcm_load()
+    return {
+        id = "xlibs",
+        sh = true,
+        gr = {
+            { id = "title", type = "slide", link = "ui_options_slider_player",
+                text = "ui_mcm_xlibs_title", size = {512, 50}, spacing = 20 },
+            { id = "desc", type = "desc", text = "ui_mcm_xlibs_desc" },
+            { id = "div_version", type = "line" },
+            { id = "version", type = "desc", text = "ui_mcm_xlibs_version", clr = {255, 0, 206, 209} },
+        },
+    }
+end

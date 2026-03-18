@@ -1,0 +1,174 @@
+--- xinspect: Deep inspection for tables and X-Ray userdata (ported from inspect.lua)
+
+local pairs, type, pcall, tostring = pairs, type, pcall, tostring
+local table_concat = table.concat
+local string_format, math_floor = string.format, math.floor
+
+OBJECT_TYPE = {
+    STALKER = "stalker",
+    MONSTER = "monster",
+    WEAPON = "weapon",
+    OUTFIT = "outfit",
+    HEADGEAR = "headgear",
+    ITEM = "item",
+    ANOMALY = "anomaly",
+    INVBOX = "invbox",
+    OBJECT = "object",
+}
+
+--- Get object type using game's type check functions
+--- Dispatches through IsStalker/IsMonster/IsWeapon/etc. global type checkers with clsid
+--- @safety SAFE - returns nil for nil obj, type checkers are nil-safe
+--- @complexity O(1) | 1-2 luabind (clsid + 1-8 Is* calls)
+--- @see anomaly/_g.script(2820), xray/xrGame/script_game_object_script.cpp
+--- @param obj userdata Game object
+--- @param cls number|nil Class ID (optional, will fetch if nil)
+--- @return string Type name: "stalker"|"monster"|"weapon"|"outfit"|"headgear"|"item"|"anomaly"|"invbox"|"object"
+function get_type(obj, cls)
+    cls = cls or (obj and obj.clsid and obj:clsid())
+    if not cls then return nil end
+    if IsStalker and IsStalker(nil, cls) then return OBJECT_TYPE.STALKER end
+    if IsMonster and IsMonster(nil, cls) then return OBJECT_TYPE.MONSTER end
+    if IsWeapon and IsWeapon(nil, cls) then return OBJECT_TYPE.WEAPON end
+    if IsOutfit and IsOutfit(nil, cls) then return OBJECT_TYPE.OUTFIT end
+    if IsHeadgear and IsHeadgear(nil, cls) then return OBJECT_TYPE.HEADGEAR end
+    if IsItem and IsItem(nil, cls) then return OBJECT_TYPE.ITEM end
+    if IsAnomaly and IsAnomaly(nil, cls) then return OBJECT_TYPE.ANOMALY end
+    if IsInvbox and IsInvbox(nil, cls) then return OBJECT_TYPE.INVBOX end
+    return OBJECT_TYPE.OBJECT
+end
+
+--- Format userdata (X-Ray game object) with rich info
+--- Extracts id/name/section/community/alive/rank via pcall; output: @type{id=N, name="x", sec="y", ...}
+--- @safety pcall: game objects may be released/invalid, methods crash
+--- @complexity O(1) | 5-10 luabind (clsid, id, name, section, community, alive, rank per pcall)
+--- @see xray/xrGame/script_game_object_script.cpp, anomaly/_g.script(2820)
+--- @param obj userdata Game object
+--- @return string Formatted representation
+function userdata(obj)
+    if type(obj) ~= "userdata" then
+        return tostring(obj)
+    end
+
+    local parts = {}
+    local obj_type
+
+    local ok_cls, cls = pcall(function() return obj:clsid() end)
+    if ok_cls and cls then
+        obj_type = get_type(obj, cls)
+    end
+
+    local ok_id, id = pcall(function() return obj:id() end)
+    if ok_id and id then parts[#parts + 1] = "id=" .. id end
+
+    local ok_name, name = pcall(function() return obj:name() end)
+    if ok_name and name then parts[#parts + 1] = "name=\"" .. name .. "\"" end
+
+    local ok_sec, sec = pcall(function() return obj:section() end)
+    if not ok_sec then ok_sec, sec = pcall(function() return obj:section_name() end) end
+    if ok_sec and sec then parts[#parts + 1] = "sec=\"" .. sec .. "\"" end
+
+    if obj_type == OBJECT_TYPE.STALKER or obj_type == OBJECT_TYPE.MONSTER then
+        local ok_comm, comm = pcall(function() return character_community(obj) end)
+        if ok_comm and comm then parts[#parts + 1] = "community=\"" .. comm .. "\"" end
+
+        local ok_alive, alive = pcall(function() return obj:alive() end)
+        if ok_alive then parts[#parts + 1] = "alive=" .. (alive and "true" or "false") end
+    end
+
+    if obj_type == OBJECT_TYPE.STALKER then
+        local ok_rank, rank = pcall(function() return ranks and ranks.get_obj_rank_name and ranks.get_obj_rank_name(obj) end)
+        if ok_rank and rank then parts[#parts + 1] = "rank=\"" .. rank .. "\"" end
+    end
+
+    local ok_parent, parent = pcall(function() return obj.parent_id end)
+    if ok_parent and parent and parent ~= 65535 then parts[#parts + 1] = "parent=" .. parent end
+
+    local ok_squad, squad = pcall(function() return obj.group_id end)
+    if ok_squad and squad and squad ~= 65535 then parts[#parts + 1] = "squad=" .. squad end
+
+    if #parts == 0 then
+        return obj_type and ("@" .. obj_type .. "{}") or "userdata"
+    end
+    local prefix = obj_type and ("@" .. obj_type) or "@obj"
+    return prefix .. "{" .. table_concat(parts, ", ") .. "}"
+end
+
+local SIMPLE_TYPES = {
+    ["nil"] = function() return "nil" end,
+    ["boolean"] = function(v) return v and "true" or "false" end,
+    ["number"] = function(v)
+        if v == math_floor(v) then return tostring(v) end
+        return string_format("%.4f", v)
+    end,
+    ["string"] = function(v)
+        local truncated = v:len() > 64 and (v:sub(1, 64) .. "...") or v
+        return "\"" .. truncated:gsub("\n", "\\n"):gsub("\r", "\\r"):gsub("\t", "\\t") .. "\""
+    end,
+    ["function"] = function() return "function" end,
+    ["thread"] = function() return "thread" end,
+    ["userdata"] = function(v) return userdata(v) end,
+}
+
+local format_value
+
+local function _format_key(k)
+    local kt = type(k)
+    if kt == "string" then
+        return k:match("^[_%a][_%w]*$") and k or ("[\"" .. k .. "\"]")
+    end
+    return "[" .. (kt == "number" and k or tostring(k)) .. "]"
+end
+
+local function _format_table(v, depth, ctx)
+    ctx.seen[v] = true
+    local parts = {}
+    local count = 0
+    local max_items = 20
+
+    for k, val in pairs(v) do
+        count = count + 1
+        if count > max_items then
+            parts[#parts + 1] = "...(truncated)"
+            break
+        end
+        parts[#parts + 1] = _format_key(k) .. "=" .. format_value(val, depth + 1, ctx)
+    end
+
+    ctx.seen[v] = nil
+    return "{" .. table_concat(parts, ", ") .. "}"
+end
+
+format_value = function(v, depth, ctx)
+    local vt = type(v)
+
+    local simple = SIMPLE_TYPES[vt]
+    if simple then return simple(v) end
+
+    if vt ~= "table" then return tostring(v) end
+    if ctx.seen[v] then return "<cycle:" .. tostring(v) .. ">" end
+    if depth >= ctx.max_depth then return "{...}" end
+    return _format_table(v, depth, ctx)
+end
+
+--- Inspect any value with cycle detection and depth limiting
+--- @param value any Value to inspect
+--- @param opts table|nil Options: { depth = number (default 3) }
+--- @return string Human-readable representation
+function inspect(value, opts)
+    opts = opts or {}
+    local ctx = { max_depth = opts.depth or 3, seen = {} }
+    return format_value(value, 0, ctx)
+end
+
+--- Format table (alias for compatibility)
+--- @param t table Table to format
+--- @param max_depth number|nil Maximum depth (default 2)
+--- @return string Formatted table
+function format_table(t, max_depth)
+    if type(t) ~= "table" then
+        return tostring(t)
+    end
+    local ctx = { max_depth = max_depth or 2, seen = {} }
+    return format_value(t, 0, ctx)
+end

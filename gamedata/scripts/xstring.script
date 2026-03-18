@@ -1,0 +1,19 @@
+--- xstring: String utilities (format with named placeholders, split, trim)
+
+local tostring, string_gsub = tostring, string.gsub
+
+--- Interpolate string with named placeholders
+--- Replaces {key} patterns via string.gsub with values from vars table; preserves unmatched placeholders
+--- @safety SAFE - pure Lua string operations, nil-guarded
+--- @complexity O(n) pattern matches | 0 luabind
+--- @param str string Template with {key} placeholders
+--- @param vars table Key-value pairs for substitution
+--- @return string Interpolated string
+--- @usage xstring.interpolate("{name} is {age}", {name="John", age=30})
+function interpolate(str, vars)
+    if not vars then return str end
+    return string_gsub(str, "{(%w+)}", function(key)
+        local v = vars[key]
+        return v ~= nil and tostring(v) or "{" .. key .. "}"
+    end)
+end

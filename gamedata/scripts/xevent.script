@@ -1,0 +1,96 @@
+--- xevent: Synthetic callback system via function hooking
+
+local _hooks = {}
+local _originals = {}
+
+local type, rawget, pairs = type, rawget, pairs
+
+local function _get_module(name)
+    return rawget(_G, name)
+end
+
+local function _make_key(module_name, func_name)
+    return module_name .. "." .. func_name
+end
+
+--- Hook a module function with a wrapper
+--- Reads module from _G via rawget, stores original, replaces with wrapper(original, ...) closure
+--- @safety SAFE - rawget never crashes, type-checks function before replacing
+--- @complexity O(1) | 0 luabind
+--- @param module_name string Module name (e.g., "xr_eat_medkit")
+--- @param func_name string Function name (e.g., "consume_medkit")
+--- @param wrapper function Wrapper fn(original, ...) -> return original(...)
+--- @return boolean success
+function hook(module_name, func_name, wrapper)
+    local key = _make_key(module_name, func_name)
+    if _hooks[key] then return false end
+
+    local mod = _get_module(module_name)
+    if not mod then return false end
+
+    local original = mod[func_name]
+    if not original or type(original) ~= "function" then return false end
+
+    _originals[key] = original
+    _hooks[key] = wrapper
+
+    mod[func_name] = function(...)
+        return wrapper(original, ...)
+    end
+    return true
+end
+
+--- Unhook a previously hooked function
+--- Restores original function from _originals table, clears hook state
+--- @safety SAFE - no-op if not hooked, restores original reference
+--- @complexity O(1) | 0 luabind
+--- @param module_name string Module name
+--- @param func_name string Function name
+--- @return boolean success
+function unhook(module_name, func_name)
+    local key = _make_key(module_name, func_name)
+    local original = _originals[key]
+    if not original then return false end
+
+    local mod = _get_module(module_name)
+    if mod then mod[func_name] = original end
+
+    _originals[key] = nil
+    _hooks[key] = nil
+    return true
+end
+
+--- Emit a synthetic callback
+--- Delegates to SendScriptCallback which dispatches to all registered handlers
+--- @safety SAFE - SendScriptCallback is nil-safe, handlers run in pcall internally
+--- @complexity O(k) handlers | 1 luabind (SendScriptCallback)
+--- @see anomaly/_g.script(112)
+--- @param name string Callback name
+--- @param ... any Callback arguments
+function emit(name, ...)
+    SendScriptCallback(name, ...)
+end
+
+--- Check if a function is hooked
+--- Looks up key in _hooks table
+--- @safety SAFE - pure Lua table lookup
+--- @complexity O(1) | 0 luabind
+--- @param module_name string Module name
+--- @param func_name string Function name
+--- @return boolean
+function is_hooked(module_name, func_name)
+    return _hooks[_make_key(module_name, func_name)] ~= nil
+end
+
+--- Get list of active hooks
+--- Iterates _hooks table keys into array
+--- @safety SAFE - pure Lua table iteration
+--- @complexity O(n) hooks | 0 luabind
+--- @return table Array of "module.function" strings
+function list_hooks()
+    local result = {}
+    for key in pairs(_hooks) do
+        result[#result + 1] = key
+    end
+    return result
+end

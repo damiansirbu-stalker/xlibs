@@ -1,0 +1,278 @@
+--- xtable: Table utilities (filter, find, count, shuffle, sort, memoize)
+
+local pairs, ipairs, type, assert, error = pairs, ipairs, type, assert, error
+local clock = os.clock
+local getmetatable, rawget = getmetatable, rawget
+local table, table_sort, table_insert = table, table.sort, table.insert
+local math_random, math_floor = math.random, math.floor
+
+local function identity(x)
+    return x
+end
+
+local function _is_array(x)
+    return type(x) == "table" and rawget(x, 1) ~= nil
+end
+
+local function _clone(tbl)
+    local result = {}
+    for k, v in pairs(tbl) do result[k] = v end
+    return result
+end
+
+local function _is_callable(x)
+    if type(x) == "function" then return true end
+    local mt = getmetatable(x)
+    return mt and mt.__call ~= nil
+end
+
+local function _get_iterator(x)
+    if _is_array(x) then return ipairs end
+    if type(x) == "table" then return pairs end
+    error("expected table", 3)
+end
+
+local function _to_predicate(x)
+    if x == nil then return identity end
+    if _is_callable(x) then return x end
+    if type(x) == "table" then
+        return function(z)
+            for k, v in pairs(x) do
+                if z[k] ~= v then return false end
+            end
+            return true
+        end
+    end
+    return function(z) return z[x] end
+end
+
+--- Check if table is an array (has numeric key 1)
+--- Uses rawget to avoid metatable __index; key 1 present = array heuristic
+--- @safety SAFE - pure Lua, rawget never crashes
+--- @complexity O(1) | 0 luabind
+--- @param x table Table to check
+--- @return boolean
+function is_array(x)
+    return _is_array(x)
+end
+
+--- Shallow clone a table
+--- Copies all key-value pairs via pairs(); does not clone nested tables or metatables
+--- @safety SAFE - pure Lua table iteration
+--- @complexity O(n) | 0 luabind
+--- @param t table Table to clone
+--- @return table Cloned table
+function clone(t)
+    return _clone(t)
+end
+
+--- Count elements, optionally matching predicate
+--- Fast path for arrays without predicate (#t); iterates with predicate or pairs for hash tables
+--- @safety SAFE - pure Lua, predicate coerced via _to_predicate
+--- @complexity O(n) with predicate, O(1) array without | 0 luabind
+--- @param t table Table to count
+--- @param fn function|table|string|nil Predicate (optional)
+--- @return number Count
+function count(t, fn)
+    local total = 0
+    local iter = _get_iterator(t)
+    if fn then
+        fn = _to_predicate(fn)
+        for _, v in iter(t) do
+            if fn(v) then total = total + 1 end
+        end
+    else
+        if _is_array(t) then
+            return #t
+        end
+        for _ in iter(t) do total = total + 1 end
+    end
+    return total
+end
+
+--- Filter table by predicate
+--- Returns new table with matching elements; retain_keys preserves original keys, otherwise re-indexes
+--- @safety SAFE - pure Lua, allocates new table
+--- @complexity O(n) | 0 luabind
+--- @param t table Table to filter
+--- @param fn function|table|string Predicate
+--- @param opts table|nil { retain_keys: boolean }
+--- @return table Filtered table
+function filter(t, fn, opts)
+    fn = _to_predicate(fn)
+    local iter = _get_iterator(t)
+    local result = {}
+    local retain_keys = opts and opts.retain_keys
+    if retain_keys then
+        for k, v in iter(t) do
+            if fn(v) then result[k] = v end
+        end
+    else
+        for _, v in iter(t) do
+            if fn(v) then result[#result + 1] = v end
+        end
+    end
+    return result
+end
+
+--- Find first element matching predicate
+--- Short-circuits on first match; predicate can be function, partial-match table, or key name
+--- @safety SAFE - pure Lua iteration
+--- @complexity O(n) worst case, O(1) best case | 0 luabind
+--- @param t table Table to search
+--- @param fn function|table|string Predicate: function(v)->bool, table for partial match, or key name
+--- @return any|nil value First matching value, or nil
+--- @return any|nil key Key of the match, or nil
+--- @usage local squad = xtable.find(squads, function(s) return s.alive end)
+--- @usage if xtable.find(members, is_alive) then ... end
+function find(t, fn)
+    fn = _to_predicate(fn)
+    local iter = _get_iterator(t)
+    for k, v in iter(t) do
+        if fn(v) then return v, k end
+    end
+    return nil
+end
+
+--- Reduce table to single value
+--- Folds elements left-to-right with accumulator; asserts non-empty if no initial value
+--- @safety SAFE - pure Lua, asserts on empty table without initial value
+--- @complexity O(n) | 0 luabind
+--- @param t table Table to reduce
+--- @param fn function Reducer function(acc, v)
+--- @param first any|nil Initial value
+--- @return any Reduced value
+function reduce(t, fn, first)
+    local started = first ~= nil
+    local acc = first
+    local iter = _get_iterator(t)
+    for _, v in iter(t) do
+        if started then
+            acc = fn(acc, v)
+        else
+            acc = v
+            started = true
+        end
+    end
+    assert(started, "reduce of an empty table with no first value")
+    return acc
+end
+
+--- Return shuffled copy of array
+--- Fisher-Yates shuffle into new table; original unchanged
+--- @safety SAFE - pure Lua, allocates new table
+--- @complexity O(n) | 0 luabind
+--- @param t table Array to shuffle
+--- @return table Shuffled copy
+function shuffle(t)
+    local result = {}
+    for i = 1, #t do
+        local rand_idx = math_random(i)
+        if rand_idx ~= i then
+            result[i] = result[rand_idx]
+        end
+        result[rand_idx] = t[i]
+    end
+    return result
+end
+
+--- Find leftmost insertion point in sorted array (bisect left)
+--- Binary search for insertion index; equal elements go after existing (stable)
+--- @safety SAFE - pure Lua, compare_fn defaults to operator <
+--- @complexity O(log n) | 0 luabind
+--- @param arr table Sorted array
+--- @param value any Value to find position for
+--- @param compare_fn function|nil Comparator (a < b), default: operator <
+--- @return number Insertion index (1-based)
+function bisect_left(arr, value, compare_fn)
+    compare_fn = compare_fn or function(a, b) return a < b end
+    local lo, hi = 1, #arr + 1
+    while lo < hi do
+        local mid = math_floor((lo + hi) / 2)
+        if compare_fn(arr[mid], value) then
+            lo = mid + 1
+        else
+            hi = mid
+        end
+    end
+    return lo
+end
+
+--- Insert value into sorted array at correct position
+--- Delegates to bisect_left for position, then table.insert shifts elements right
+--- @safety SAFE - pure Lua, mutates input table
+--- @complexity O(log n) search + O(n) shift | 0 luabind
+--- @param arr table Sorted array (mutated in-place)
+--- @param value any Value to insert
+--- @param compare_fn function|nil Comparator (a < b), default: operator <
+--- @return table The array (for chaining)
+function binary_insert(arr, value, compare_fn)
+    local pos = bisect_left(arr, value, compare_fn)
+    table_insert(arr, pos, value)
+    return arr
+end
+
+--- Return sorted copy of table
+--- Clones then sorts; comparator can be function or string key name for field-based sort
+--- @safety SAFE - pure Lua, allocates new table
+--- @complexity O(n log n) | 0 luabind
+--- @param t table Table to sort
+--- @param comparator function|string|nil Comparator or key name
+--- @return table Sorted copy
+function sort(t, comparator)
+    local result = _clone(t)
+    if comparator then
+        if type(comparator) == "string" then
+            table_sort(result, function(a, b) return a[comparator] < b[comparator] end)
+        else
+            table_sort(result, comparator)
+        end
+    else
+        table_sort(result)
+    end
+    return result
+end
+
+--- Create memoized version of a function (caches results by arguments)
+--- Single-arg fast path (direct table key); multi-arg uses NUL-joined string key
+--- @safety SAFE - pure Lua; cache grows unbounded (caller manages lifecycle)
+--- @complexity O(1) cached hit, O(fn) miss | 0 luabind
+--- @param fn function Function to memoize
+--- @return function Memoized function
+--- @usage local get_config = xtable.memoize(function(key) return expensive_lookup(key) end)
+function memoize(fn)
+    local cache = {}
+    return function(arg1, arg2, ...)
+        if arg2 == nil then
+            if cache[arg1] == nil then cache[arg1] = fn(arg1) end
+            return cache[arg1]
+        end
+        local key = table.concat({arg1, arg2, ...}, "\0")
+        if cache[key] == nil then
+            cache[key] = fn(arg1, arg2, ...)
+        end
+        return cache[key]
+    end
+end
+
+local _locks = {}
+
+--- Acquire keyed lock, returns false if still in time window
+--- Compares os.clock() against stored expiry; sets new expiry on acquire
+--- @safety SAFE - pure Lua + os.clock (standard C API)
+--- @complexity O(1) | 0 luabind
+--- @param key string Lock key
+--- @param sec number Time window in seconds
+--- @return boolean true if acquired, false if in window
+function acquire_lock(key, sec)
+    local now = clock()
+    if _locks[key] and now < _locks[key] then return false end
+    _locks[key] = now + sec
+    return true
+end
+
+--- Clear all locks
+--- Replaces _locks with empty table; old references become stale
+--- @safety SAFE - pure Lua
+--- @complexity O(1) | 0 luabind
+function clear_locks() _locks = {} end

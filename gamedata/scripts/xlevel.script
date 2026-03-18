@@ -1,0 +1,126 @@
+--- xlevel: Level/map and time queries
+
+local pcall = pcall
+
+local gg = nil
+
+-- Invalid level vertex ID (0xFFFFFFFF) - offline/transitioning entities have this value
+local INVALID_LVID = 4294967295
+
+--- @safety pcall: game_graph() crashes during level transitions
+local function get_game_graph()
+    if gg then return gg end
+    local ok, result = pcall(game_graph)
+    if ok and result then gg = result end
+    return gg
+end
+
+--- Get total game hours (days * 24 + hours)
+--- C++ get_time_hours/days have built-in fallback: check g_pGameLevel, fall back to
+--- ai().alife().time_manager().game_time() if NULL (level_script.cpp:258-272).
+--- level.present() guard ensures alife() exists (no game session = no alife singleton).
+--- @safety guard: level.present() before call (semantic, not crash prevention)
+--- @complexity O(1) | 2 luabind (get_time_hours + get_time_days)
+--- @see xray/xrGame/level_script.cpp:258-272, anomaly/_g.script
+--- @return number Total hours since game start (0 when no level)
+function get_game_hours()
+    if not level.present() then return 0 end
+    return level.get_time_hours() + level.get_time_days() * 24
+end
+
+--- Get level_id from server entity
+--- Chains game_graph():vertex(gvid):level_id() for any server object with m_game_vertex_id
+--- @safety nil guard on se_obj + game_graph (NULL singleton during transitions)
+--- @see xray/xrGame/game_graph_script.cpp, anomaly/_g.script
+--- @complexity O(1) | 3 luabind (m_game_vertex_id + vertex + level_id)
+--- @param se_obj table Server object
+--- @return number|nil Level ID (nil during transitions)
+function get_level_id(se_obj)
+    if not se_obj then return nil end
+    local graph = get_game_graph()
+    if not graph then return nil end
+    return graph:vertex(se_obj.m_game_vertex_id):level_id()
+end
+
+--- Get actor's current level_id
+--- Resolves actor via alife():actor() then chains game_graph for level_id
+--- @safety nil guard on sim, actor, gvid, game_graph (NULL singleton via get_game_graph pcall)
+--- @complexity O(1) | 4 luabind (alife + actor + vertex + level_id)
+--- @see xray/xrGame/game_graph_script.cpp, anomaly/_g.script
+--- @return number|nil Level ID (nil during transitions)
+function get_actor_level_id()
+    local sim = alife()
+    if not sim then return nil end
+    local actor = sim:actor()
+    if not actor then return nil end
+    local gvid = actor.m_game_vertex_id
+    if not gvid then return nil end
+    local graph = get_game_graph()
+    if not graph then return nil end
+    return graph:vertex(gvid):level_id()
+end
+
+local function get_current_level_name()
+    if not level.present() then return "the Zone" end
+    local lname = level.name()
+    if not lname then return "the Zone" end
+    local translated = game.translate_string(lname)
+    return (translated and translated ~= lname) and translated or lname
+end
+
+--- Get translated smart terrain display name
+--- Builds st_<name>_name key and passes to game.translate_string; falls back to cleaned section name
+--- @safety SAFE - returns "unknown" for nil, cleans underscores if translation missing
+--- @complexity O(1) | 2 luabind (:name() + game.translate_string)
+--- @see anomaly/smart_terrain.script(1209), xray/xrGame/script_game_object_script.cpp
+--- @param smart userdata Smart terrain server object
+--- @return string Translated name or cleaned section name
+function get_smart_display_name(smart)
+    if not smart or not smart.name then return "unknown" end
+    local smart_name = smart:name()
+    if not smart_name then return "unknown" end
+    local key = "st_" .. smart_name .. "_name"
+    local translated = game.translate_string(key)
+    if translated and translated ~= key then
+        return translated:gsub(" %- ", " ")
+    end
+    return smart_name:gsub("_", " ")
+end
+
+--- Get translated location name from nearest smart terrain
+--- Finds nearest smart via xsmart.find_smart then translates its name
+--- @safety SAFE - falls back to current level name if no smart found
+--- @complexity O(n) smarts | 1 luabind per smart (delegates to xsmart.find_smart)
+--- @see anomaly/smart_terrain.script(1209), anomaly/sim_board.script(96)
+--- @param pos vector Position to search from
+--- @param lvl_id number Level ID filter
+--- @return string Location name
+function get_location_name(pos, lvl_id)
+    if not pos or not lvl_id then
+        return get_current_level_name()
+    end
+
+    local smart = xsmart.find_smart(pos, { level_id = lvl_id })
+    if not smart or not smart.name then return get_current_level_name() end
+    local smart_name = smart:name()
+    if not smart_name then return get_current_level_name() end
+    local key = "st_" .. smart_name .. "_name"
+    local translated = game.translate_string(key)
+    if translated and translated ~= key then
+        return translated:gsub(" %- ", " ")
+    end
+    return smart_name:gsub("_", " ")
+end
+
+--- Check if server object has valid level vertex ID
+--- Offline or transitioning entities may have 0xFFFFFFFF (invalid) as their level vertex
+--- @safety SAFE - pure field read, nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see doc/library/modding/alife-safety.md(38), anomaly/sim_squad_scripted.script(276)
+--- @param se_obj cse_alife_object Server object
+--- @return boolean True if m_level_vertex_id is valid
+function is_valid_lvid(se_obj)
+    if not se_obj then return false end
+    if not se_obj.m_level_vertex_id then return false end
+    return se_obj.m_level_vertex_id < INVALID_LVID
+end

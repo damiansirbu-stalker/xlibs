@@ -1,0 +1,412 @@
+--- xsquad: Squad queries and operations (SIMBOARD interaction)
+
+local pairs, type, next, tostring = pairs, type, next, tostring
+local string_format, table_concat = string.format, table.concat
+local alife, alife_object = alife, alife_object
+
+local INVALID_GROUP = 65535
+
+local function _EMPTY_ITER() return nil end
+
+-- Cache: weak keys so entries are removed when squad is GC'd
+local _unscriptable_cache = setmetatable({}, { __mode = "k" })
+
+local function _is_task_giver(squad_id, cmd_id)
+    if not task_manager then return false end
+    local tm = task_manager.get_task_manager()
+    if not tm or not tm.task_info then return false end
+    for _, tsk in pairs(tm.task_info) do
+        if tsk.status == "fail" or tsk.status == "completed" then goto continue end
+        local gid = tsk.task_giver_id
+        if not gid then goto continue end
+        if gid == squad_id or gid == cmd_id then return true end
+        ::continue::
+    end
+    return false
+end
+
+local function _check_unscriptable(squad)
+    if not squad then return true end
+    -- Fast path: story squads (no commander lookup needed)
+    if get_object_story_id(squad.id) then return true end
+    -- Commander ID: computed once, used by task giver check and community/section checks
+    local cmd_id = squad:commander_id()
+    -- Task giver check: squad or commander NPC is referenced by an active task
+    if _is_task_giver(squad.id, cmd_id) then return true end
+    -- Companion check: companion_squads stores false during load (not nil), so ~= nil required
+    if axr_companions and axr_companions.companion_squads[squad.id] ~= nil then return true end
+    -- Slow path: need commander for community/section checks
+    local se_cmd = cmd_id and alife_object(cmd_id)
+    if not se_cmd then return false end
+    -- Attribute check first (single string comparison, guard with IsStalker)
+    if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == "trader" then return true end
+    -- Hash lookup last (O(1), data in xdata.unscriptable_npcs)
+    return xdata.unscriptable_npcs[se_cmd:section_name()] or false
+end
+
+--- Check if squad is unscriptable (traders, leaders, quest givers, task givers, companions, story chars)
+--- These squads cannot be scripted (scripted_target) - fixed to their role/location
+--- Checks story_id, active task_giver_id, axr_companions.companion_squads, commander community/section against xdata.unscriptable_npcs hash; cached per squad
+--- @safety SAFE - returns true for nil (fail-safe), alife_object returns nil for invalid
+--- @complexity O(1) cached | O(1) uncached with 4-5 luabind + O(t) task_info scan (t = active tasks, typically 3-10)
+--- @see anomaly/_g.script(2674), anomaly/_g.script(2437), anomaly/axr_companions.script(25,150)
+--- @param squad se_squad Squad server object
+--- @return boolean True if unscriptable (nil squad returns true for safety)
+function is_unscriptable_squad(squad)
+    if not squad then return true end
+    local cached = _unscriptable_cache[squad]
+    if cached ~= nil then return cached end
+    local result = _check_unscriptable(squad)
+    _unscriptable_cache[squad] = result
+    return result
+end
+
+-- =============================================================================
+-- QUERIES
+-- =============================================================================
+
+--- Get squad containing an NPC by member ID
+--- Looks up se_npc via alife_object, reads group_id, resolves squad via alife_object
+--- @safety SAFE - returns nil for invalid IDs, group_id >= 65535 means no squad
+--- @complexity O(1) | 2 luabind (alife_object for NPC + alife_object for squad)
+--- @see anomaly/_g.script(2044), xray/xrServerEntities/xrServer_Objects_ALife_script.cpp
+--- @param npc_id number NPC ID (can be offline)
+--- @return se_squad|nil Squad server object or nil if not in squad
+function get_squad_by_member(npc_id)
+    if not npc_id then return nil end
+    local se_npc = alife_object(npc_id)
+    if not se_npc then return nil end
+    local group_id = se_npc.group_id
+    if not group_id or group_id >= INVALID_GROUP then return nil end
+    return alife_object(group_id)
+end
+
+--- Get translated squad community name
+--- Safe wrapper: nil-guarded get_squad_community + game.translate_string
+--- @safety SAFE - nil-guarded, falls back to "stalker" translation key
+--- @complexity O(1) | 2 luabind (get_squad_community + translate_string)
+--- @see anomaly/sim_squad_scripted.script(105), anomaly/_g.script(2273)
+--- @param squad userdata Squad server object
+--- @return string Translated community name (never nil)
+function get_community_name(squad)
+    local comm = squad and squad.get_squad_community and squad:get_squad_community() or "stalker"
+    return game.translate_string(comm)
+end
+
+local function _is_excluded(squad_id, exclude_squad_id, exclude_ids)
+    if squad_id == exclude_squad_id then return true end
+    if exclude_ids and exclude_ids[squad_id] then return true end
+    return false
+end
+
+local function _matches_faction(comm, factions)
+    if not factions then return true end
+    if type(factions) == "table" then return factions[comm] end
+    return comm == factions
+end
+
+local function _squad_base_valid(squad, level_id, exclude_at_smart_id, exclude_unscriptable)
+    if not squad or not squad.position then return false end
+    if squad.npc_count and squad:npc_count() == 0 then return false end
+    -- player_id: granular mutant factions (monster_predatory_day, etc.)
+    -- get_squad_community() collapses all mutants to "monster" (vanilla _g.script:2354)
+    -- filter tables (ap_data) use granular factions, so player_id is required here
+    local faction = squad.player_id
+    if not faction then return false end
+    if level_id and xlevel.get_level_id(squad) ~= level_id then return false end
+    -- Exclusions last (smart_id = physical location, NOT assigned_target_id = simulation intent)
+    if exclude_at_smart_id and squad.smart_id == exclude_at_smart_id then return false end
+    if exclude_unscriptable and is_unscriptable_squad(squad) then return false end
+    return true, faction
+end
+
+--- Iterate all SIMBOARD squads as resolved server entities
+--- Handles SIMBOARD/alife nil guards and skips deleted squads (nil from alife_object)
+--- @safety SAFE - alife_object returns nil for deleted, skipped automatically
+--- @complexity O(n) squads | 1 luabind per squad (alife_object)
+--- @see anomaly/sim_board.script(84), anomaly/_g.script(2044)
+--- @return function Iterator yielding squad server objects
+function iter_squads()
+    if not SIMBOARD or not SIMBOARD.squads then return _EMPTY_ITER end
+    local sim = alife()
+    if not sim then return _EMPTY_ITER end
+    local tbl = SIMBOARD.squads
+    local id = nil
+    return function()
+        local squad
+        repeat
+            id = next(tbl, id)
+            if not id then return nil end
+            squad = sim:object(id)
+        until squad
+        return squad
+    end
+end
+
+--- Iterate squad member IDs as plain numbers
+--- Wraps engine member iterator with nil/empty guard, yields k.id per member
+--- @safety SAFE - nil-guarded, engine iterator yields nil on empty squad
+--- @complexity O(n) members | 0 luabind (iterator is C++ but no additional bridge calls)
+--- @see xray/xrServerEntities/xrServer_Objects_ALife_script.cpp, anomaly/sim_squad_scripted.script(413)
+--- @param squad se_squad Squad server object
+--- @return function Iterator yielding member IDs (numbers)
+function iter_member_ids(squad)
+    if not squad or not squad.squad_members then return _EMPTY_ITER end
+    if squad:npc_count() == 0 then return _EMPTY_ITER end
+    local iter = squad:squad_members()
+    return function()
+        local k = iter()
+        return k and k.id
+    end
+end
+
+--- Dump all SIMBOARD squads as a diagnostic string
+--- Shows raw engine fields: player_id, smart_id (physical location), assigned_target_id (simulation intent)
+--- @safety SAFE - iter_squads handles nil SIMBOARD, read-only field access
+--- @complexity O(n) squads | 4 luabind per squad (alife_object + get_squad_community + npc_count + get_level_id)
+--- @see anomaly/sim_squad_scripted.script(35,39)
+--- @return string Diagnostic dump (e.g. "squads=5 [123:stalker:pid=stalker:lv2:npc3:at=17769:tgt=17780, ...]")
+function dump_squads()
+    local parts = {}
+    for squad in iter_squads() do
+        parts[#parts + 1] = string_format("%d:%s:pid=%s:lv%s:npc%d:at=%s:tgt=%s",
+            squad.id,
+            squad.get_squad_community and squad:get_squad_community() or "?",
+            tostring(squad.player_id or "?"),
+            tostring(xlevel.get_level_id(squad) or "?"),
+            squad:npc_count(),
+            tostring(squad.smart_id or "?"),
+            tostring(squad.assigned_target_id or "?"))
+    end
+    if #parts == 0 then return "no_simboard" end
+    return string_format("squads=%d [%s]", #parts, table_concat(parts, ", "))
+end
+
+--- Find squad matching criteria within distance range
+--- Iterates SIMBOARD.squads, resolves each via alife_object, filters by faction/distance/level
+--- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
+--- @complexity O(n) squads | 2 luabind per squad (alife_object + distance_to_sqr)
+--- @see anomaly/sim_board.script(84), anomaly/_g.script(2044)
+--- @param pos vector Origin position
+--- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id, exclude_at_smart_id, exclude_unscriptable, exclude_ids }
+--- @return table|nil Nearest matching squad
+function find_squad(pos, opts)
+    if not pos or not opts or not opts.max_distance then return nil end
+    if not SIMBOARD or not SIMBOARD.squads then return nil end
+
+    local sim = alife()
+    if not sim then return nil end
+
+    local factions, exclude_squad_id, exclude_ids = opts.factions, opts.exclude_squad_id, opts.exclude_ids
+    local max_dist_sqr = opts.max_distance * opts.max_distance
+    local min_dist_sqr = (opts.min_distance or 0) ^ 2
+
+    local best_squad, best_dist = nil, max_dist_sqr
+
+    for squad_id in pairs(SIMBOARD.squads) do
+        if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
+        local squad = sim:object(squad_id)
+        local ok, comm = _squad_base_valid(squad, opts.level_id, opts.exclude_at_smart_id, opts.exclude_unscriptable)
+        if not ok or not _matches_faction(comm, factions) then goto continue end
+        local dist_sqr = pos:distance_to_sqr(squad.position)
+        if dist_sqr < best_dist and dist_sqr >= min_dist_sqr then
+            best_squad, best_dist = squad, dist_sqr
+        end
+        ::continue::
+    end
+
+    return best_squad
+end
+
+--- Find multiple squads matching criteria
+--- Same as find_squad but returns up to max_count results via random sampling
+--- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
+--- @complexity O(n) squads | 2 luabind per squad (alife_object + distance_to_sqr)
+--- @see anomaly/sim_board.script(84), anomaly/_g.script(2044)
+--- @param pos vector Origin position
+--- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id, max_count, exclude_at_smart_id, exclude_unscriptable, exclude_ids }
+--- @return table Array of squad server objects
+function find_squads(pos, opts)
+    if not pos or not opts or not opts.max_distance then return {} end
+    if not SIMBOARD or not SIMBOARD.squads then return {} end
+
+    local sim = alife()
+    if not sim then return {} end
+
+    local factions, exclude_squad_id, exclude_ids = opts.factions, opts.exclude_squad_id, opts.exclude_ids
+    local max_dist_sqr = opts.max_distance * opts.max_distance
+    local min_dist_sqr = (opts.min_distance or 0) ^ 2
+    local max_count = opts.max_count or 3
+
+    local candidates = {}
+
+    for squad_id in pairs(SIMBOARD.squads) do
+        if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
+        local squad = sim:object(squad_id)
+        local ok, comm = _squad_base_valid(squad, opts.level_id, opts.exclude_at_smart_id, opts.exclude_unscriptable)
+        if not ok or not _matches_faction(comm, factions) then goto continue end
+        local dist_sqr = pos:distance_to_sqr(squad.position)
+        if dist_sqr < max_dist_sqr and dist_sqr >= min_dist_sqr then
+            candidates[#candidates + 1] = squad
+        end
+        ::continue::
+    end
+
+    if #candidates == 0 then return candidates end
+    local _, take = xmath.sample_n(candidates, max_count)
+    local result = {}
+    for i = 1, take do result[i] = candidates[i] end
+    return result
+end
+
+--- Find online squads matching criteria (uses game_objects_iter for speed)
+--- Iterates online game objects, deduplicates by squad.id, filters by faction/distance
+--- @safety SAFE - game_objects_iter returns nil-safe iterator
+--- @complexity O(n) online objects | 3-4 luabind per object (IsStalker, alive, squad, distance)
+--- @see Demonized/game_objects_iter (modded exe), anomaly/_g.script(2437)
+--- @param pos vector|nil Origin position (nil = no distance filter)
+--- @param opts table { factions, max_distance, min_distance, exclude_unscriptable, max_count }
+--- @return table Array of squad server objects
+function find_online_squads(pos, opts)
+    if not game_objects_iter then return {} end
+    opts = opts or {}
+
+    local max_dist_sqr = opts.max_distance and opts.max_distance * opts.max_distance
+    local min_dist_sqr = (opts.min_distance or 0) ^ 2
+    local max_count = opts.max_count or 20
+    local seen = {}
+    local result = {}
+
+    for obj in game_objects_iter() do
+        if not IsStalker(obj) or not obj:alive() then goto continue end
+        if opts.exclude_unscriptable and xcreature.is_unscriptable(obj) then goto continue end
+        local squad = get_object_squad(obj)
+        if not squad or seen[squad.id] then goto continue end
+        if opts.factions and not opts.factions[squad.player_id] then goto continue end
+        if pos and max_dist_sqr then
+            local dist_sqr = pos:distance_to_sqr(squad.position)
+            if dist_sqr > max_dist_sqr or dist_sqr < min_dist_sqr then goto continue end
+        end
+        seen[squad.id] = true
+        result[#result + 1] = squad
+        if #result >= max_count then break end
+        ::continue::
+    end
+
+    return result
+end
+
+--- Get squad's current smart terrain
+--- Reads smart_id or assigned_target_id, resolves via alife_object, rejects non-smart entities via clsid check
+--- @safety SAFE - returns nil for nil squad, missing entity, or non-smart entity
+--- @complexity O(1) | 2 luabind (alife_object + clsid)
+--- @see anomaly/sim_squad_scripted.script(102,288), anomaly/_g.script(2044)
+--- @param squad se_squad Squad object
+--- @return se_smart|nil Current smart terrain or nil
+function get_squad_smart(squad)
+    if not squad then return nil end
+    local smart_id = squad.smart_id or squad.assigned_target_id
+    if not smart_id then return nil end
+    local se = alife_object(smart_id)
+    if not se or se:clsid() ~= clsid.smart_terrain then return nil end
+    return se
+end
+
+--- Check if squad is at a base
+--- Resolves smart via get_squad_smart then delegates to xsmart.is_base
+--- @safety SAFE - returns false for nil
+--- @complexity O(1) | 1 luabind (alife_object for smart)
+--- @see anomaly/sim_board.script(96), anomaly/simulation_objects.script(117)
+--- @param squad se_squad Squad object
+--- @return boolean True if at base
+function is_squad_at_base(squad)
+    local smart = get_squad_smart(squad)
+    return smart and xsmart.is_base(smart) or false
+end
+
+-- =============================================================================
+-- OPERATIONS
+-- =============================================================================
+
+--- Take scripted control of squad, directing it to a smart terrain
+--- Sets scripted_target which overrides simulation targeting; rejects nil/empty name; squad stays bound until release_squad
+--- @safety SAFE - pure field writes on squad userdata, rejects nil/empty :name()
+--- @complexity O(1) | 1 luabind (:name() on target_smart)
+--- @see anomaly/sim_squad_scripted.script(258), anomaly/sim_board.script(242)
+--- @param squad table Squad server object
+--- @param target_smart table Target smart terrain
+--- @param rush boolean|nil Rush to target
+--- @return boolean Success
+function control_squad(squad, target_smart, rush)
+    if not squad or not target_smart then return false end
+    local name = target_smart:name()
+    if not name or name == "" then return false end
+
+    squad.scripted_target = name
+    squad.rush_to_target = rush == true
+    squad.assigned_target_id = target_smart.id
+    squad.current_action = 0
+
+    return true
+end
+
+--- Release squad from scripted control
+--- Clears scripted_target and rush flag so engine resumes autonomous behavior
+--- @safety SAFE - pure field writes, nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/sim_squad_scripted.script(258)
+--- @param squad table Squad server object
+function release_squad(squad)
+    if not squad then return end
+    squad.scripted_target = nil
+    squad.rush_to_target = false
+end
+
+--- Target player directly
+--- Sets scripted_target to "actor" which engine interprets as pursue-player behavior
+--- @safety SAFE - pure field writes, nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/sim_squad_scripted.script(102)
+--- @param squad se_squad Squad to command
+--- @param rush boolean Sprint to target
+--- @return boolean Success
+function target_actor(squad, rush)
+    if not squad then return false end
+    squad.scripted_target = "actor"
+    squad.rush_to_target = rush == true
+    squad.current_action = 0
+    return true
+end
+
+--- Release squads from SIMBOARD (delete from world)
+--- Collects IDs first to avoid mutating SIMBOARD.squads during iteration, then calls remove_squad on each
+--- @safety SAFE - iter_squads handles nil SIMBOARD; remove_squad is engine standard cleanup
+--- @complexity O(n) squads | 1 luabind per squad (alife_object via iter_squads)
+--- @see anomaly/debug_cmd_list.script(2146), anomaly/sim_squad_scripted.script(413)
+--- @param opts table|nil { common_only = bool } - if common_only, skip non-common squads
+--- @return number Count of squads released
+function release_squads(opts)
+    local common_only = opts and opts.common_only
+    local sim = alife()
+    if not sim or not SIMBOARD or not SIMBOARD.squads then return 0 end
+
+    local ids = {}
+    for squad in iter_squads() do
+        if common_only and not squad.common then goto continue end
+        if is_unscriptable_squad(squad) then goto continue end
+        ids[#ids + 1] = squad.id
+        ::continue::
+    end
+
+    local count = 0
+    for i = 1, #ids do
+        local se_squad = sim:object(ids[i])
+        if se_squad then
+            se_squad:remove_squad()
+            count = count + 1
+        end
+    end
+
+    return count
+end
+

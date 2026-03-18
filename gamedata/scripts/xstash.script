@@ -1,0 +1,201 @@
+--- xstash: Stash/treasure operations
+
+local pairs, ipairs, pcall, type, table_concat = pairs, ipairs, pcall, type, table.concat
+
+local NOTABLE_PREFIXES = {
+    "wpn_", "outfit_", "stalker_outfit", "novice_outfit", "bandit_outfit",
+    "helm_", "af_", "toolkit", "medkit", "drug_", "antirad", "stimpack",
+}
+
+local NOTABLE_SET = {}
+for _, prefix in ipairs(NOTABLE_PREFIXES) do
+    NOTABLE_SET[prefix] = true
+end
+
+local function is_notable_item(section)
+    for prefix in pairs(NOTABLE_SET) do
+        if section:sub(1, #prefix) == prefix then return true end
+    end
+    return false
+end
+
+--- Find stashes matching criteria
+--- Iterates treasure_manager.caches, excludes player-created stashes, filters by distance/level/fill state
+--- @safety SAFE - xobject.se returns nil for invalid, distance_to_sqr is nil-guarded
+--- @complexity O(n) caches | 1-2 luabind per stash (alife_object + distance_to_sqr)
+--- @see anomaly/treasure_manager.script(33), anomaly/_g.script(2044), anomaly/item_backpack.script(27)
+--- @param pos vector Origin position
+--- @param opts table { max_distance, min_distance, max_count, level_id, filled }
+--- @return table Array of stash {id, position, filled}
+function find_stashes(pos, opts)
+    if not pos or not opts or not opts.max_distance then return {} end
+    if not treasure_manager or not treasure_manager.caches then return {} end
+
+    local max_dist_sqr = opts.max_distance * opts.max_distance
+    local min_dist_sqr = (opts.min_distance or 0) ^ 2
+    local max_count = opts.max_count or 3
+    local filter_filled = opts.filled
+    local m_data = alife_storage_manager.get_state()
+    local player_stashes = m_data and m_data.player_created_stashes
+
+    local candidates = {}
+
+    for stash_id, state in pairs(treasure_manager.caches) do
+        if player_stashes and player_stashes[stash_id] then goto next_stash end
+        local is_filled = type(state) == "string"
+        if filter_filled ~= nil and is_filled ~= filter_filled then goto next_stash end
+
+        local se = xobject.se(stash_id)
+        if not se or not se.position then goto next_stash end
+        if opts.level_id and xlevel.get_level_id(se) ~= opts.level_id then goto next_stash end
+
+        local dist_sqr = pos:distance_to_sqr(se.position)
+        if dist_sqr >= max_dist_sqr or dist_sqr < min_dist_sqr then goto next_stash end
+
+        candidates[#candidates + 1] = { id = stash_id, position = se.position, filled = is_filled }
+        ::next_stash::
+    end
+
+    if #candidates == 0 then return candidates end
+    if #candidates > max_count then
+        xmath.partial_shuffle(candidates, max_count)
+        local result = {}
+        for i = 1, max_count do result[i] = candidates[i] end
+        return result
+    end
+    return candidates
+end
+
+--- Mark stash as looted in treasure_manager
+--- Sets treasure_manager.caches[id] = true which engine interprets as looted
+--- @safety SAFE - pure Lua table write, nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/treasure_manager.script(33)
+--- @param stash_id number Stash object ID
+--- @return boolean success
+function mark_stash_looted(stash_id)
+    if not stash_id then return false end
+    if not treasure_manager or not treasure_manager.caches then return false end
+    treasure_manager.caches[stash_id] = true
+    return true
+end
+
+--- Check if stash is available (revealed but not looted)
+--- Checks treasure_manager.caches[id] is a string (comma-separated item list means filled)
+--- @safety SAFE - pure Lua table read, nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/treasure_manager.script(33)
+--- @param stash_id number Stash object ID
+--- @return boolean
+function is_stash_available(stash_id)
+    if not stash_id then return false end
+    if not treasure_manager or not treasure_manager.caches then return false end
+    return type(treasure_manager.caches[stash_id]) == "string"
+end
+
+--- Check if stash was looted
+--- Checks treasure_manager.caches[id] == true (boolean true means looted)
+--- @safety SAFE - pure Lua table read, nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/treasure_manager.script(33)
+--- @param stash_id number Stash object ID
+--- @return boolean
+function is_stash_looted(stash_id)
+    if not stash_id then return false end
+    if not treasure_manager or not treasure_manager.caches then return false end
+    return treasure_manager.caches[stash_id] == true
+end
+
+--- Clear stash (mark as looted, remove marker)
+--- Sets caches[id] = true and removes "treasure" map spot via pcall
+--- @safety pcall: map_remove_object_spot crashes during transitions
+--- @complexity O(1) | 1 luabind (map_remove_object_spot)
+--- @see anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(403)
+--- @param stash_id number Stash object ID
+--- @return boolean true if cleared
+function clear_stash(stash_id)
+    if not stash_id then return false end
+    if not treasure_manager or not treasure_manager.caches then return false end
+
+    local contents = treasure_manager.caches[stash_id]
+    if type(contents) ~= "string" then return false end
+
+    treasure_manager.caches[stash_id] = true
+    pcall(function() level.map_remove_object_spot(stash_id, "treasure") end)
+
+    return true
+end
+
+--- Loot stash contents (marks as looted, returns item list)
+--- Reads comma-separated contents string, marks as looted, removes map spot
+--- @safety pcall: map_remove_object_spot crashes during transitions
+--- @complexity O(1) | 1 luabind (map_remove_object_spot)
+--- @see anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(403)
+--- @param stash_id number Stash object ID
+--- @param _npc_id number NPC object ID (unused, kept for API compat)
+--- @return table|nil Array of section names
+function loot_stash_to_npc(stash_id, _npc_id)
+    if not stash_id then return nil end
+    if not treasure_manager or not treasure_manager.caches then return nil end
+
+    local contents = treasure_manager.caches[stash_id]
+    if type(contents) ~= "string" then return nil end
+
+    local items = str_explode(contents, ",")
+
+    treasure_manager.caches[stash_id] = true
+    pcall(function() level.map_remove_object_spot(stash_id, "treasure") end)
+
+    return items
+end
+
+--- Filter stash items to notable ones (weapons, armor, artefacts, medical)
+--- Matches section prefixes against NOTABLE_SET hash; returns up to max_count matches
+--- @safety SAFE - pure Lua string comparison
+--- @complexity O(n) items * O(k) prefixes | 0 luabind
+--- @param items table Array of section names
+--- @param max_count number|nil Maximum items to return (default 2)
+--- @return table Array of notable section names
+function filter_notable_stash_items(items, max_count)
+    if not items then return {} end
+    max_count = max_count or 2
+    local found = {}
+    for _, section in ipairs(items) do
+        if is_notable_item(section) then
+            found[#found + 1] = section
+            if #found >= max_count then break end
+        end
+    end
+    return found
+end
+
+
+--- Fill stash with items (always safe to call)
+--- Appends to existing contents string or creates new; optionally adds "treasure" map spot
+--- @safety pcall: map_add_object_spot crashes during transitions
+--- @complexity O(1) | 0-1 luabind (map_add_object_spot if add_marker)
+--- @see anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(378)
+--- @param stash_id number Stash object ID
+--- @param items table Array of section names
+--- @param add_marker boolean|nil Add map marker (default false)
+--- @return boolean Success
+function fill_stash(stash_id, items, add_marker)
+    if not stash_id then return false end
+    if not items or #items == 0 then return false end
+    if not treasure_manager or not treasure_manager.caches then return false end
+
+    local existing = treasure_manager.caches[stash_id]
+    local new_contents = table_concat(items, ",")
+
+    if type(existing) == "string" then
+        treasure_manager.caches[stash_id] = existing .. "," .. new_contents
+    else
+        treasure_manager.caches[stash_id] = new_contents
+    end
+
+    if add_marker then
+        pcall(function() level.map_add_object_spot(stash_id, "treasure", "") end)
+    end
+
+    return true
+end

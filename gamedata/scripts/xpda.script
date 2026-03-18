@@ -1,0 +1,126 @@
+--- xpda: PDA map marker helpers. Transient: do nothing. Persistent: save in save_state, hydrate in actor_on_first_update.
+
+local pairs, pcall = pairs, pcall
+
+local DEFAULT_MARKER_TYPE = "red_location"
+local squad_markers = {}
+
+--- Remove map marker from squad
+--- Calls level.map_remove_object_spot via pcall; clears stored marker_type from squad_markers table
+--- @safety pcall: map_spot crashes during transitions
+--- @complexity O(1) | 1 luabind (map_remove_object_spot)
+--- @see xray/xrGame/level_script.cpp(403)
+--- @param squad_id number Squad ID
+function unmark_squad(squad_id)
+    if not squad_id or not level then return end
+    local stored_type = squad_markers[squad_id]
+    if not stored_type then return end
+    pcall(function() level.map_remove_object_spot(squad_id, stored_type) end)
+    squad_markers[squad_id] = nil
+end
+
+--- Add map marker to squad
+--- Removes existing marker if any, then calls level.map_add_object_spot via pcall
+--- @safety pcall: map_spot crashes during transitions
+--- @complexity O(1) | 1-2 luabind (remove old + add new)
+--- @see xray/xrGame/level_script.cpp(378)
+--- @param squad_id number Squad ID
+--- @param opts table { label, marker_type }
+--- @return boolean Success (false during transitions)
+function mark_squad(squad_id, opts)
+    if not squad_id or not level then return false end
+    opts = opts or {}
+    local marker_type = opts.marker_type or DEFAULT_MARKER_TYPE
+    local label = opts.label or "Squad"
+
+    -- Remove existing marker if any
+    local stored_type = squad_markers[squad_id]
+    if stored_type then
+        pcall(function() level.map_remove_object_spot(squad_id, stored_type) end)
+    end
+
+    local ok = pcall(function() level.map_add_object_spot(squad_id, marker_type, label) end)
+
+    if ok then
+        squad_markers[squad_id] = marker_type
+        return true
+    end
+
+    return false
+end
+
+--- Clear all squad markers
+--- Iterates squad_markers table and removes each via pcall; resets table
+--- @safety pcall: map_spot crashes during transitions
+--- @complexity O(n) markers | 1 luabind per marker (map_remove_object_spot)
+--- @see xray/xrGame/level_script.cpp(403)
+function clear_squad_markers()
+    for sid, marker_type in pairs(squad_markers) do
+        pcall(level.map_remove_object_spot, sid, marker_type)
+    end
+    squad_markers = {}
+end
+
+--- Mark an entity (NPC, long-lived marker - caller owns persistence)
+--- Removes existing marker of same type then adds new one via pcall
+--- @safety pcall: map_spot crashes during transitions
+--- @complexity O(1) | 2 luabind (remove + add)
+--- @see xray/xrGame/level_script.cpp(378)
+--- @param id number Entity ID
+--- @param opts table { marker_type, label }
+--- @return boolean Success (false during transitions)
+function mark_entity(id, opts)
+    if not id or not level then return false end
+    opts = opts or {}
+    local marker_type = opts.marker_type or DEFAULT_MARKER_TYPE
+    local label = opts.label or "Entity"
+    pcall(function() level.map_remove_object_spot(id, marker_type) end)
+    local ok = pcall(function() level.map_add_object_spot(id, marker_type, label) end)
+    return ok
+end
+
+--- Remove entity marker
+--- Calls level.map_remove_object_spot via pcall with marker_type
+--- @safety pcall: map_spot crashes during transitions
+--- @complexity O(1) | 1 luabind (map_remove_object_spot)
+--- @see xray/xrGame/level_script.cpp(403)
+--- @param id number Entity ID
+--- @param marker_type string|nil Marker type (default: red_location)
+function unmark_entity(id, marker_type)
+    if not id or not level then return end
+    marker_type = marker_type or DEFAULT_MARKER_TYPE
+    pcall(function() level.map_remove_object_spot(id, marker_type) end)
+end
+
+--- Re-apply markers from saved data table (caller provides persisted data)
+--- Iterates saved markers, delegates to mark_entity per entry (pcall internally)
+--- @safety pcall: mark_entity wraps map_add_object_spot via pcall
+--- @complexity O(n) markers | 2 luabind per marker (remove + add via mark_entity)
+--- @see xray/xrGame/level_script.cpp(378)
+--- @param markers table { [id] = { marker_type = "...", label = "..." }, ... }
+--- @return number Count of markers applied
+function hydrate_markers(markers)
+    if not markers or not level then return 0 end
+    local count = 0
+    for id, data in pairs(markers) do
+        if mark_entity(id, data) then count = count + 1 end
+    end
+    return count
+end
+
+--- Send PDA message (dumb pipe, no sound, no color)
+--- Calls db.actor:give_game_news which is the engine notification API
+--- @safety SAFE - returns false if db.actor unavailable (main menu, loading)
+--- @complexity O(1) | 1 luabind (give_game_news)
+--- @see xray/xrGame/script_game_object_script3.cpp(208)
+--- @param caption string Sender caption (e.g. "Vasya, Loner")
+--- @param msg string Message text (caller adds color prefix)
+--- @param icon string|nil Icon texture (default: generic)
+--- @return boolean
+function send(caption, msg, icon)
+    if not caption or not msg then return false end
+    local actor = db and db.actor
+    if not actor then return false end
+    actor:give_game_news(caption, msg, icon or "ui_inGame2_PDA_unknown", 0, 7000)
+    return true
+end

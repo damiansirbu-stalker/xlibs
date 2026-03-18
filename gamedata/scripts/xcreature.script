@@ -1,0 +1,393 @@
+--- xcreature: Creature/entity identification and properties (stalkers, mutants, NPCs)
+
+local pairs, ipairs, type, pcall, setmetatable = pairs, ipairs, type, pcall, setmetatable
+local string = string
+
+ENTITY = {
+    STALKER = "stalker",
+    MUTANT = "mutant",
+}
+
+--- Get class ID from entity
+--- Accepts ID, game_object, or server object; resolves to clsid via xobject.se + :clsid() luabind
+--- @safety SAFE - returns nil for invalid/missing entities, :clsid() never crashes
+--- @complexity O(1) | 1-2 luabind (alife_object + clsid)
+--- @see anomaly/_g.script(2044), xray/xrGame/script_game_object_script.cpp
+--- @param input number|userdata|table Entity ID or object
+--- @return number|nil Class ID
+function get_clsid(input)
+    if not input then return nil end
+    local input_type = type(input)
+    if input_type == "number" and input > 0 and input < 1000 then return input end
+    if input_type == "number" then input = xobject.se(input) end
+    if not input then return nil end
+    if input.clsid then return input:clsid() end
+    return nil
+end
+
+--- Get entity type (stalker or mutant)
+--- Uses IsStalker/IsMonster with clsid; nil-first parameter is the fast check path (no game_object needed)
+--- @safety SAFE - nil input returns nil, IsStalker/IsMonster are nil-safe with clsid
+--- @complexity O(1) | 1-2 luabind (clsid + IsStalker/IsMonster)
+--- @see anomaly/_g.script(2820), anomaly/_g.script(2827)
+--- @param input number|userdata|table Entity ID or object
+--- @return string|nil "stalker", "mutant", or nil
+function entity_type(input)
+    local cls = get_clsid(input)
+    if not cls then return nil end
+    if IsMonster(nil, cls) then return ENTITY.MUTANT end
+    if IsStalker(nil, cls) then return ENTITY.STALKER end
+    return nil
+end
+
+--- Check if entity is a stalker
+--- Shorthand: get_clsid + IsStalker(nil, cls) fast path
+--- @safety SAFE - returns false for nil/invalid
+--- @complexity O(1) | 1-2 luabind (clsid + IsStalker)
+--- @see anomaly/_g.script(2820)
+--- @param input number|userdata|table Entity ID or object
+--- @return boolean
+function is_stalker(input) local cls = get_clsid(input) return cls and IsStalker(nil, cls) or false end
+
+--- Check if entity is a mutant
+--- Shorthand: get_clsid + IsMonster(nil, cls) fast path
+--- @safety SAFE - returns false for nil/invalid
+--- @complexity O(1) | 1-2 luabind (clsid + IsMonster)
+--- @see anomaly/_g.script(2827)
+--- @param input number|userdata|table Entity ID or object
+--- @return boolean
+function is_mutant(input) local cls = get_clsid(input) return cls and IsMonster(nil, cls) or false end
+
+--- Check if entity is an NPC (stalker or mutant)
+--- @param input number|userdata|table Entity ID or object
+--- @return boolean
+--- Check if entity is an NPC (stalker or mutant)
+--- Shorthand: delegates to is_stalker || is_mutant
+--- @safety SAFE - returns false for nil/invalid
+--- @complexity O(1) | 2-4 luabind (clsid + IsStalker, possibly + clsid + IsMonster)
+--- @param input number|userdata|table Entity ID or object
+--- @return boolean
+function is_npc(input) return is_stalker(input) or is_mutant(input) end
+
+local _stalker_filter = function(e) return is_stalker(e) end
+local _mutant_filter = function(e) return is_mutant(e) end
+local _npc_filter = function(e) return is_npc(e) end
+local _alive_filter = function(se) return se.alive and se:alive() end
+
+--- Get faction community from entity
+--- Resolves via xobject.se then tries get_squad_community (squads) or alife_character_community (NPCs)
+--- @safety SAFE - returns nil for invalid entities
+--- @complexity O(1) | 2-3 luabind (alife_object + get_squad_community or alife_character_community)
+--- @see anomaly/_g.script(2273), anomaly/_g.script(2437)
+--- @param input number|userdata|table Entity ID or object
+--- @return string|nil Faction community
+function community(input)
+    local entity = xobject.se(input)
+    if not entity then return nil end
+    if entity.get_squad_community then
+        return entity:get_squad_community()
+    end
+    return alife_character_community(entity)
+end
+
+-- Mutant section prefix -> display name (inv_name often missing for mutants)
+local MUTANT_NAMES = {
+    gigant = "Pseudogiant",
+    pseudo_gigant = "Pseudogiant",
+    pseudogiant = "Pseudogiant",
+    bloodsucker = "Bloodsucker",
+    boar = "Boar",
+    burer = "Burer",
+    cat = "Cat",
+    chimera = "Chimera",
+    controller = "Controller",
+    dog = "Dog",
+    flesh = "Flesh",
+    fracture = "Fracture",
+    poltergeist = "Poltergeist",
+    pseudodog = "Pseudodog",
+    psy_dog = "Psy Dog",
+    psysucker = "Psysucker",
+    snork = "Snork",
+    tushkano = "Tushkano",
+    zombie = "Zombie",
+    lurker = "Lurker",
+    karlik = "Karlik",
+}
+
+-- Hash lookup for O(1) mutant name resolution
+-- Handles compound names (psy_dog) by checking part pairs
+local function _get_mutant_display_name(section)
+    local lower = section:lower()
+    local parts = {}
+    for part in lower:gmatch("[^_]+") do
+        parts[#parts + 1] = part
+    end
+
+    -- Check single parts and consecutive pairs against MUTANT_NAMES hash
+    for i = 1, #parts do
+        local part = parts[i]
+        if MUTANT_NAMES[part] then return MUTANT_NAMES[part] end
+        -- Check compound name (e.g., "psy" + "dog" = "psy_dog")
+        if i < #parts then
+            local compound = part .. "_" .. parts[i + 1]
+            if MUTANT_NAMES[compound] then return MUTANT_NAMES[compound] end
+        end
+    end
+    return nil
+end
+
+local function _translate_or_nil(key)
+    local translated = game.translate_string(key)
+    return (translated and translated ~= key) and translated or nil
+end
+
+local function _get_mutant_name(section)
+    local display = _get_mutant_display_name(section)
+    if display then return display end
+
+    local inv_name = ini_sys:r_string_ex(section, "inv_name")
+    local translated = inv_name and _translate_or_nil(inv_name) or _translate_or_nil(section)
+    if translated then return translated end
+
+    local clean = section:gsub("_normal", ""):gsub("_weak", ""):gsub("_strong", "")
+    return clean:gsub("_", " "):gsub("^%l", string.upper)
+end
+
+--- Get translated name for entity (stalker or mutant)
+--- Stalkers use character_name(); mutants use hash table then ini_sys:r_string_ex fallback
+--- @safety SAFE - returns "unknown" for nil, "stalker"/"mutant" for missing names
+--- @complexity O(1) stalkers | O(k) mutants where k = section parts (typically 2-3 luabind)
+--- @see anomaly/_g.script(2044), xray/xrGame/script_game_object_script.cpp
+--- @param input number|table Entity ID or server object
+--- @return string Translated name
+function get_name(input)
+    local entity = xobject.se(input)
+    if not entity then return "unknown" end
+
+    if is_stalker(entity) then
+        local name = entity.character_name and entity:character_name()
+        return (name and name ~= "") and name or "stalker"
+    end
+
+    local section = entity:section_name()
+    return section and _get_mutant_name(section) or "mutant"
+end
+
+--- Get position from entity
+--- Tries server object .position field first, falls back to game_object :position() method
+--- @safety SAFE - returns nil for nil/invalid entities
+--- @complexity O(1) | 0-1 luabind (0 if se.position field, 1 if :position() method)
+--- @see xray/xrServerEntities/xrServer_Objects_ALife_script.cpp
+--- @param input number|userdata|table Entity ID or object
+--- @return vector|nil Position
+function pos(input)
+    if not input then return nil end
+    local entity = xobject.se(input)
+    if entity and entity.position then return entity.position end
+    if input.position then return type(input.position) == "function" and input:position() or input.position end
+    return nil
+end
+
+--- Give money to game_object (actor or NPC)
+--- Wraps engine give_money which accepts negative values and clamps balance at 0
+--- @safety SAFE - nil-guarded, engine clamps balance at 0
+--- @complexity O(1) | 1 luabind (give_money)
+--- @see xray/xrGame/script_game_object_script3.cpp, anomaly/dialogs.script(1354)
+--- @param obj game_object Target (actor or NPC)
+--- @param amount number Amount (positive = add, negative = subtract)
+--- @return boolean Success
+function give_money(obj, amount)
+    if not obj or not amount or amount == 0 then return false end
+    obj:give_money(amount)
+    return true
+end
+
+local function iterate_online(callback)
+    local sim = alife()
+    if not sim then return end
+
+    for obj in game_objects_iter() do
+        local se = sim:object(obj:id())
+        if se and callback(se) then return end
+    end
+end
+
+local server_objects_iterator = {}
+server_objects_iterator.__index = server_objects_iterator
+
+function server_objects_iterator:new()
+    return setmetatable({
+        _filters = {},
+        _level_id = nil,
+        _online_only = false,
+    }, self)
+end
+
+function server_objects_iterator:online()
+    self._online_only = true
+    return self
+end
+
+function server_objects_iterator:on_level(lvl_id)
+    self._level_id = lvl_id
+    return self
+end
+
+function server_objects_iterator:filter(fn)
+    self._filters[#self._filters + 1] = fn
+    return self
+end
+
+function server_objects_iterator:stalkers() return self:filter(_stalker_filter) end
+function server_objects_iterator:mutants() return self:filter(_mutant_filter) end
+function server_objects_iterator:npcs() return self:filter(_npc_filter) end
+function server_objects_iterator:alive() return self:filter(_alive_filter) end
+
+function server_objects_iterator:_passes(se_obj)
+    if self._level_id and xlevel.get_level_id(se_obj) ~= self._level_id then
+        return false
+    end
+    for i = 1, #self._filters do
+        if not self._filters[i](se_obj) then return false end
+    end
+    return true
+end
+
+--- @safety pcall: filter predicates may error on invalid objects
+function server_objects_iterator:_iterate(callback)
+    local sim = alife()
+    if not sim then return end
+
+    if self._online_only then
+        iterate_online(function(se)
+            local ok, passes = pcall(self._passes, self, se)
+            if ok and passes then return callback(se) end
+        end)
+        return
+    end
+
+    sim:iterate_objects(function(se)
+        local ok, passes = pcall(self._passes, self, se)
+        if ok and passes then return callback(se) end
+    end)
+end
+
+function server_objects_iterator:each(callback)
+    self:_iterate(function(se_obj)
+        callback(se_obj)
+        return false
+    end)
+    return self
+end
+
+function server_objects_iterator:collect()
+    local results = {}
+    self:_iterate(function(se_obj)
+        results[#results + 1] = se_obj
+        return false
+    end)
+    return results
+end
+
+function server_objects_iterator:get_npc_counts()
+    local counts = { stalkers = 0, stalkers_online = 0, stalkers_offline = 0, mutants = 0, mutants_online = 0, mutants_offline = 0 }
+    local storage = db and db.storage
+    self:_iterate(function(entity)
+        local etype = entity and entity_type(entity)
+        if not etype then return false end
+        local key = etype == ENTITY.STALKER and "stalkers" or "mutants"
+        local online = storage and storage[entity.id] ~= nil
+        counts[key] = counts[key] + 1
+        counts[key .. (online and "_online" or "_offline")] = counts[key .. (online and "_online" or "_offline")] + 1
+        return false
+    end)
+    return counts
+end
+
+function server_objects_iterator:count()
+    local total = 0
+    self:_iterate(function()
+        total = total + 1
+        return false
+    end)
+    return total
+end
+
+function server_objects_iterator:first()
+    local found = nil
+    self:_iterate(function(se_obj)
+        found = se_obj
+        return true
+    end)
+    return found
+end
+
+--- Create fluent server objects iterator
+--- Wraps alife():iterate_objects or game_objects_iter with chainable filter/collect API
+--- @safety pcall: iteration uses pcall per entity to isolate invalid object errors
+--- @complexity O(n) entities | 1+ luabind per entity (clsid, alive, level_id per filter)
+--- @see anomaly/_g.script(2044), Demonized/game_objects_iter (modded exe)
+--- @return table server_objects_iterator
+--- @usage xcreature.query():stalkers():alive():on_level(lvl):collect()
+function query()
+    return server_objects_iterator:new()
+end
+
+-- Cache: weak keys so entries are removed when obj is GC'd
+local _unscriptable_cache = setmetatable({}, { __mode = "k" })
+
+local function _check_unscriptable(obj)
+    if not obj then return true end
+    local id = obj:id()
+    if get_object_story_id(id) then return true end
+    if IsStalker(obj) then
+        if obj:has_info("npcx_is_companion") then return true end
+        if xdata.unscriptable_npcs[obj:section()] then return true end
+    end
+    local squad = get_object_squad(obj)
+    if squad and get_object_story_id(squad.id) then return true end
+    return false
+end
+
+--- Check if creature is unscriptable (traders, leaders, companions, story chars)
+--- These NPCs cannot be scripted (scripted_target) - fixed to their role/location
+--- Checks story_id, companion info, xdata.unscriptable_npcs hash, and squad story_id; cached per game_object
+--- @safety SAFE - returns true for nil (fail-safe), all APIs return nil for invalid objects
+--- @complexity O(1) cached | O(1) uncached with 3-5 luabind (id, story_id, has_info, section, get_object_squad)
+--- @see anomaly/_g.script(2674), anomaly/_g.script(2437)
+--- @param obj game_object Game object
+--- @return boolean True if unscriptable (nil returns true for safety)
+function is_unscriptable(obj)
+    if not obj then return true end
+    local cached = _unscriptable_cache[obj]
+    if cached ~= nil then return cached end
+    local result = _check_unscriptable(obj)
+    _unscriptable_cache[obj] = result
+    return result
+end
+
+--- Check if creature is an active task giver (has task referencing its NPC ID or squad ID)
+--- Scans task_manager.task_info for active tasks where task_giver_id matches NPC ID or squad ID
+--- @safety SAFE - returns false for nil, task_manager nil-guarded
+--- @complexity O(t) where t = active tasks (typically 3-10) | 1-2 luabind (id + get_object_squad)
+--- @see anomaly/axr_task_manager.script(793)
+--- @param obj game_object Game object
+--- @return boolean True if NPC is referenced by an active task
+function is_task_giver(obj)
+    if not obj then return false end
+    if not task_manager then return false end
+    local tm = task_manager.get_task_manager()
+    if not tm or not tm.task_info then return false end
+    local npc_id = obj:id()
+    local squad = get_object_squad(obj)
+    local squad_id = squad and squad.id
+    for _, tsk in pairs(tm.task_info) do
+        if tsk.status == "fail" or tsk.status == "completed" then goto continue end
+        local gid = tsk.task_giver_id
+        if not gid then goto continue end
+        if gid == npc_id or gid == squad_id then return true end
+        ::continue::
+    end
+    return false
+end

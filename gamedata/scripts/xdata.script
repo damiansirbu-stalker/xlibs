@@ -1,0 +1,84 @@
+--- xdata: Static data tables for xlibs (unscriptable NPCs, faction lists)
+
+-- Unscriptable NPCs: traders, mechanics, leaders, medics, barmen, guides, story chars
+-- These NPCs cannot be scripted (scripted_target) - they are fixed to their role/location
+-- src: grok_no_north_faction_in_south.script, surge_manager_ignore_npc.script
+unscriptable_npcs = {
+    -- Cordon
+    ["esc_m_trader"] = true, ["m_trader"] = true,
+    ["esc_2_12_stalker_nimble"] = true, ["esc_2_12_stalker_wolf"] = true,
+    ["esc_2_12_stalker_fanat"] = true, ["esc_2_12_stalker_trader"] = true,
+    ["esc_smart_terrain_5_7_loner_mechanic_stalker"] = true,
+    ["devushka"] = true, ["esc_main_base_trader_mlr"] = true,
+    ["esc_3_16_military_trader"] = true, ["army_south_mechan_mlr"] = true,
+    -- Great Swamps
+    ["mar_smart_terrain_doc_doctor"] = true, ["mar_smart_terrain_base_stalker_leader_marsh"] = true,
+    ["mar_base_stalker_tech"] = true, ["mar_base_owl_stalker_trader"] = true,
+    ["mar_smart_terrain_base_doctor"] = true, ["guid_marsh_mlr"] = true,
+    ["mar_base_stalker_barmen"] = true,
+    -- Darkscape
+    ["dasc_tech_mlr"] = true, ["dasc_trade_mlr"] = true, ["ds_domik_isg_leader"] = true,
+    -- Garbage
+    ["hunter_gar_trader"] = true,
+    -- Agroprom
+    ["agr_smart_terrain_1_6_near_2_military_colonel_kovalski"] = true,
+    ["agr_1_6_medic_army_mlr"] = true, ["agr_smart_terrain_1_6_army_trader_stalker"] = true,
+    ["agr_1_6_barman_army_mlr"] = true, ["agr_smart_terrain_1_6_army_mechanic_stalker"] = true,
+    ["agr_u_bandit_boss"] = true,
+    -- Dark Valley
+    ["zat_b7_bandit_boss_sultan"] = true, ["val_smart_terrain_7_3_bandit_mechanic_stalker"] = true,
+    ["guid_dv_mal_mlr"] = true, ["val_smart_terrain_7_4_bandit_trader_stalker"] = true,
+    -- Rostok
+    ["bar_visitors_barman_stalker_trader"] = true, ["bar_visitors_zhorik_stalker_guard2"] = true,
+    ["bar_visitors_garik_stalker_guard"] = true, ["bar_informator_mlr"] = true,
+    ["guid_bar_stalker_navigator"] = true, ["bar_arena_manager"] = true, ["bar_arena_guard"] = true,
+    ["bar_dolg_leader"] = true, ["bar_dolg_general_petrenko_stalker"] = true,
+    ["bar_dolg_medic"] = true, ["bar_visitors_stalker_mechanic"] = true,
+    ["bar_zastava_2_commander"] = true, ["bar_duty_security_squad_leader"] = true,
+    -- Yantar
+    ["yan_stalker_sakharov"] = true, ["mechanic_army_yan_mlr"] = true,
+    ["yan_povar_army_mlr"] = true, ["yan_ecolog_kruglov"] = true,
+    -- Army Warehouses
+    ["mil_smart_terrain_7_7_freedom_leader_stalker"] = true, ["mil_freedom_medic"] = true,
+    ["mil_smart_terrain_7_10_freedom_trader_stalker"] = true,
+    ["mil_smart_terrain_7_7_freedom_mechanic_stalker"] = true,
+    ["mil_freedom_guid"] = true, ["stalker_gatekeeper"] = true,
+    -- Dead City
+    ["cit_killers_merc_mechanic_stalker"] = true, ["cit_killers_merc_trader_stalker"] = true,
+    ["ds_killer_guide_main_base"] = true, ["cit_killers_merc_barmen_mlr"] = true,
+    ["cit_killers_merc_medic_stalker"] = true,
+    -- Red Forest
+    ["red_forester_tech"] = true, ["red_greh_trader"] = true, ["red_greh_tech"] = true,
+    -- Deserted Hospital
+    ["kat_greh_sabaoth"] = true, ["gen_greh_sabaoth"] = true, ["sar_greh_sabaoth"] = true,
+    -- Jupiter
+    ["jup_b220_trapper"] = true, ["jup_a6_stalker_barmen"] = true,
+    ["guid_jup_stalker_garik"] = true, ["jup_a6_stalker_medik"] = true,
+    ["zat_a2_stalker_mechanic"] = true, ["jup_b217_stalker_tech"] = true,
+    ["jup_a6_freedom_trader_ashot"] = true, ["jup_a6_freedom_leader"] = true,
+    ["jup_b6_scientist_tech"] = true, ["jup_b6_scientist_nuclear_physicist"] = true,
+    ["jup_b6_scientist_biochemist"] = true, ["jup_depo_isg_leader"] = true,
+    ["jup_cont_mech_bandit"] = true, ["jup_cont_trader_bandit"] = true,
+    ["jup_depo_isg_tech"] = true,
+    -- Zaton
+    ["zat_stancia_mech_merc"] = true, ["zat_stancia_trader_merc"] = true,
+    ["zat_a2_stalker_nimble"] = true, ["zat_b30_owl_stalker_trader"] = true,
+    ["zat_tech_mlr"] = true, ["zat_b22_stalker_medic"] = true,
+    ["zat_a2_stalker_barmen"] = true, ["zat_b18_noah"] = true,
+    ["guid_zan_stalker_locman"] = true, ["zat_b106_stalker_gonta"] = true,
+    ["zat_b106_stalker_garmata"] = true, ["zat_b106_stalker_crab"] = true,
+    ["army_degtyarev_jup"] = true, ["army_degtyarev"] = true,
+    ["stalker_rogue"] = true, ["stalker_rogue_ms"] = true, ["stalker_rogue_oa"] = true,
+    ["zat_b7_stalker_victim_1"] = true,
+    -- Pripyat Outskirts
+    ["pri_monolith_monolith_trader_stalker"] = true, ["lider_monolith_haron"] = true,
+    ["pri_monolith_monolith_mechanic_stalker"] = true, ["monolith_eidolon"] = true,
+    ["guid_pri_a15_mlr"] = true, ["trader_pri_a15_mlr"] = true,
+    ["pri_medic_stalker"] = true, ["merc_pri_a18_mech_mlr"] = true,
+    ["pri_special_trader_mlr"] = true, ["merc_pri_grifon_mlr"] = true,
+    ["mechanic_monolith_kbo"] = true, ["trader_monolith_kbo"] = true,
+    -- Story characters
+    ["stalker_stitch"] = true, ["stalker_stitch_ms"] = true, ["stalker_stitch_oa"] = true,
+    ["lost_stalker_strelok"] = true, ["stalker_strelok_hb"] = true, ["stalker_strelok_oa"] = true,
+    ["lazarus_stalker"] = true,
+}

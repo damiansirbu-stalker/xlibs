@@ -1,0 +1,200 @@
+--- xttltable: Time-expiring table structures
+---
+--- TTL Table: key-value store with auto-expiry.
+---   - :get() and :has() are pure table lookups (zero bridge calls)
+---   - :remaining_ttl() calls os.clock for accurate expiry checks
+---   - _cleanup() sweeps expired entries, piggybacked on :set() and :size()
+---   - Error margin: expired entries visible for up to cleanup_interval (default 10s)
+---
+--- TTL Counter: sliding window occurrence counter.
+---
+--- Timing: os.clock (Lua C API, zero bridge overhead). All durations in seconds.
+
+local pairs, type, setmetatable = pairs, type, setmetatable
+local clock = os.clock
+
+-- Shared cleanup buffer (Demonized pattern: collect keys, then remove)
+local _remove_buf = {}
+
+local function _flush_buf(tbl, count)
+    for idx = 1, #_remove_buf do
+        tbl[_remove_buf[idx]] = nil
+        count[1] = count[1] - 1
+        _remove_buf[idx] = nil
+    end
+end
+
+local function _aggregate_value(agg, key, val)
+    local vtype = type(val)
+    if vtype == "string" then
+        agg[key] = agg[key] or {}
+        agg[key][val] = (agg[key][val] or 0) + 1
+    elseif vtype == "number" then
+        agg[key] = (agg[key] or 0) + val
+    end
+end
+
+local function _aggregate_event(agg, event)
+    for key, val in pairs(event) do
+        if key ~= "time" then _aggregate_value(agg, key, val) end
+    end
+end
+
+--------------------------------------------------------------------------------
+-- TTL Table: key-value store with auto-expiry
+--------------------------------------------------------------------------------
+local _ttl_table_mt = {}
+_ttl_table_mt.__index = _ttl_table_mt
+
+function _ttl_table_mt:_cleanup()
+    local now = clock()
+    if now - self._last_cleanup < self._cleanup_interval then return end
+    self._last_cleanup = now
+    for key, entry in pairs(self._entries) do
+        if entry.expires and entry.expires <= now then
+            _remove_buf[#_remove_buf + 1] = key
+        end
+    end
+    _flush_buf(self._entries, self._total)
+end
+
+function _ttl_table_mt:set(key, value, ttl)
+    self:_cleanup()
+    if self._capacity and self._total[1] >= self._capacity and not self._entries[key] then return false end
+    if not self._entries[key] then self._total[1] = self._total[1] + 1 end
+    local entry = { value = value }
+    local effective_ttl = ttl or self._default_ttl
+    if effective_ttl then entry.expires = clock() + effective_ttl end
+    self._entries[key] = entry
+    return true
+end
+
+--- Pure table lookup. No bridge calls.
+function _ttl_table_mt:get(key)
+    local entry = self._entries[key]
+    return entry and entry.value or nil
+end
+
+--- Pure table lookup. No bridge calls.
+function _ttl_table_mt:has(key) return self._entries[key] ~= nil end
+
+--- Calls os.clock for accurate expiry check
+--- @param key string
+--- @return number|nil Remaining seconds, or nil if expired/missing
+function _ttl_table_mt:remaining_ttl(key)
+    local entry = self._entries[key]
+    if not entry or not entry.expires then return nil end
+    local remaining = entry.expires - clock()
+    return remaining > 0 and remaining or nil
+end
+
+function _ttl_table_mt:remove(key)
+    if not self._entries[key] then return end
+    self._entries[key] = nil
+    self._total[1] = self._total[1] - 1
+end
+
+function _ttl_table_mt:clear() self._entries = {}; self._total[1] = 0 end
+function _ttl_table_mt:size() self:_cleanup(); return self._total[1] end
+
+--- Return all entries as {key = value}
+function _ttl_table_mt:all()
+    self:_cleanup()
+    local result = {}
+    for key, entry in pairs(self._entries) do
+        result[key] = entry.value
+    end
+    return result
+end
+
+--- Export for save/load (values only, TTLs not preserved)
+function _ttl_table_mt:export()
+    self:_cleanup()
+    local result = {}
+    for key, entry in pairs(self._entries) do
+        result[key] = entry.value
+    end
+    return result
+end
+
+--- Import from save data (entries with default_ttl get fresh TTL from load time)
+function _ttl_table_mt:import(data)
+    if not data then return end
+    self._entries, self._total[1] = {}, 0
+    local now = self._default_ttl and clock() or nil
+    for key, value in pairs(data) do
+        local entry = { value = value }
+        if now then entry.expires = now + self._default_ttl end
+        self._entries[key] = entry
+        self._total[1] = self._total[1] + 1
+    end
+end
+
+--- Create TTL table
+--- Returns metatable-backed store with auto-expiry via os.clock; cleanup piggybacked on set/size
+--- @safety SAFE - pure Lua tables + os.clock (standard C API, not luabind)
+--- @complexity O(1) creation | 0 luabind
+--- @param opts table { default_ttl?, capacity?, cleanup_interval? } durations in seconds
+--- @return table TTL table instance with :get(), :has(), :set(), :remove(), :size(), :all()
+function create_ttl_table(opts)
+    opts = opts or {}
+    return setmetatable({
+        _default_ttl = opts.default_ttl, _capacity = opts.capacity,
+        _cleanup_interval = opts.cleanup_interval or 10,
+        _entries = {}, _total = {0}, _last_cleanup = 0,
+    }, _ttl_table_mt)
+end
+
+--------------------------------------------------------------------------------
+-- TTL Counter: sliding window occurrence counter with metadata aggregation
+--------------------------------------------------------------------------------
+local _ttl_counter_mt = {}
+_ttl_counter_mt.__index = _ttl_counter_mt
+
+function _ttl_counter_mt:add(key, metadata)
+    if not self._buckets[key] then self._buckets[key] = {} end
+    local entry = { time = clock() }
+    if metadata then
+        for meta_key, meta_val in pairs(metadata) do entry[meta_key] = meta_val end
+    end
+    self._buckets[key][#self._buckets[key] + 1] = entry
+end
+
+function _ttl_counter_mt:count(key)
+    local entries = self._buckets[key]
+    if not entries or #entries == 0 then return 0, {} end
+    if not self._ttl then return #entries, {} end
+
+    local now = clock()
+    local valid_count, valid_entries, aggregated = 0, {}, {}
+    for idx = 1, #entries do
+        local event = entries[idx]
+        if now - event.time >= self._ttl then goto next_event end
+        valid_count = valid_count + 1
+        valid_entries[valid_count] = event
+        _aggregate_event(aggregated, event)
+        ::next_event::
+    end
+    if valid_count < #entries then self._buckets[key] = valid_entries end
+    return valid_count, aggregated
+end
+
+function _ttl_counter_mt:reset(key) self._buckets[key] = nil end
+function _ttl_counter_mt:clear() self._buckets = {} end
+
+function _ttl_counter_mt:all()
+    local result = {}
+    for key in pairs(self._buckets) do result[key] = self:count(key) end
+    return result
+end
+
+--- Create TTL-based occurrence counter for sliding window rate limiting
+--- Returns metatable-backed counter with per-key buckets; expired entries pruned on count()
+--- @safety SAFE - pure Lua tables + os.clock
+--- @complexity O(1) creation | 0 luabind
+--- @param opts table { ttl? } duration in seconds
+--- @return table Counter instance with :add(), :count(), :reset()
+function create_ttl_counter(opts)
+    opts = opts or {}
+    return setmetatable({ _ttl = opts.ttl, _buckets = {} }, _ttl_counter_mt)
+end

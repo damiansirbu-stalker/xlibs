@@ -1,0 +1,414 @@
+--- xsmart: Smart terrain queries and checks
+
+local pairs, next, type, alife_object, tostring = pairs, next, type, alife_object, tostring
+local math, table = math, table
+
+--- Stalker faction community names used as props keys in simulation_objects_props.ltx
+local STALKER_FACTIONS = {
+    "bandit", "dolg", "ecolog", "freedom", "killer", "army",
+    "monolith", "stalker", "csky", "zombied", "greh", "isg", "renegade",
+}
+local _factions_cache = {}
+
+--- Check if smart terrain is a base
+--- Reads props.base from simulation_objects_props.ltx; >0 means base type (surge shelter, faction HQ)
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/simulation_objects.script(117), Vintar0/smart_terrain_warfare.script(316)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if base
+function is_base(smart)
+    return smart and smart.props and smart.props.base and smart.props.base > 0 or false
+end
+
+--- Check if smart terrain is a lair (mutant nest)
+--- Reads props.lair from simulation_objects_props.ltx; >0 means mutant nest
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/simulation_objects.script(117)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if lair
+function is_lair(smart)
+    return smart and smart.props and smart.props.lair and smart.props.lair > 0 or false
+end
+
+--- Check if smart terrain is a resource point
+--- Reads props.resource from simulation_objects_props.ltx; >0 means resource point
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/simulation_objects.script(117)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if resource
+function is_resource(smart)
+    return smart and smart.props and smart.props.resource and smart.props.resource > 0 or false
+end
+
+--- Check if smart terrain is a territory
+--- Reads props.territory from simulation_objects_props.ltx; >0 means contestable territory
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/simulation_objects.script(117)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if territory
+function is_territory(smart)
+    return smart and smart.props and smart.props.territory and smart.props.territory > 0 or false
+end
+
+--- Check if smart terrain is important (base, resource, or territory)
+--- Composite check of the three props that matter for A-Life simulation targeting
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/simulation_objects.script(117)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if important
+function is_smart_important(smart)
+    if not smart or not smart.props then return false end
+    local props = smart.props
+    return (props.base and props.base > 0) or (props.resource and props.resource > 0) or (props.territory and props.territory > 0)
+end
+
+--- Get nearest smart terrain to actor
+--- Reads engine-maintained nearest_to_actor_smart table (updated every online smart tick, zero search cost)
+--- @safety SAFE - nil-guarded, alife_object returns nil for invalid IDs
+--- @complexity O(1) | 1 luabind (alife_object)
+--- @see anomaly/smart_terrain.script(11,1262), anomaly/se_actor.script(96), anomaly/axr_companions.script(412)
+--- @return se_smart|nil Nearest smart terrain to actor
+function get_actor_smart()
+    local data = smart_terrain and smart_terrain.nearest_to_actor_smart
+    if not data or not data.id then return nil end
+    return alife_object(data.id)
+end
+
+--- Check if smart terrain accepts a specific faction
+--- Reads props[faction] from simulation_objects_props.ltx; >0 means faction is welcome
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
+--- @param smart smart_terrain Smart terrain to check
+--- @param faction string Faction community name
+--- @return boolean True if faction is welcome
+function has_faction(smart, faction)
+    if not smart or not smart.props or not faction then return false end
+    local val = smart.props[faction]
+    return val and val > 0 or false
+end
+
+--- Check if smart terrain accepts any faction from a set
+--- Iterates factions table, returns true on first match via has_faction
+--- @safety SAFE - pure Lua, nil-guarded
+--- @complexity O(k) factions | 0 luabind
+--- @see anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
+--- @param smart smart_terrain Smart terrain to check
+--- @param factions table Faction set {[faction]=true, ...}
+--- @return boolean True if any faction is welcome
+function has_factions(smart, factions)
+    if not smart or not factions then return false end
+    for faction in pairs(factions) do
+        if has_faction(smart, faction) then return true end
+    end
+    return false
+end
+
+--- Get all stalker factions accepted by smart terrain
+--- Builds {[faction]=true} from props keys with value >0; cached per smart.id (props are static INI)
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(13) factions | 0 luabind (cached after first call)
+--- @see anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
+--- @param smart smart_terrain Smart terrain to check
+--- @return table Faction set {[faction]=true, ...} or empty table
+function get_smart_factions(smart)
+    if not smart then return {} end
+    local cached = _factions_cache[smart.id]
+    if cached then return cached end
+    local result = {}
+    if not smart.props then
+        _factions_cache[smart.id] = result
+        return result
+    end
+    for i = 1, #STALKER_FACTIONS do
+        local faction = STALKER_FACTIONS[i]
+        local val = smart.props[faction]
+        if val and val > 0 then
+            result[faction] = true
+        end
+    end
+    _factions_cache[smart.id] = result
+    return result
+end
+
+--- Get smart terrain's owning faction
+--- Falls back: warfare owning_faction -> runtime faction -> props-based first faction -> "none"
+--- @safety SAFE - pure Lua field reads (no luabind), nil-guarded
+--- @complexity O(1) | 0 luabind (get_smart_factions is cached)
+--- @see anomaly/smart_terrain.script(1209), anomaly/smart_terrain_warfare.script(167), anomaly/simulation_objects.script(117)
+--- @param smart smart_terrain Smart terrain to check
+--- @return string Faction community or "none"
+function get_smart_faction(smart)
+    if not smart then return "none" end
+    if smart.owning_faction then return smart.owning_faction end
+    if smart.faction then return smart.faction end
+    return next(get_smart_factions(smart)) or "none"
+end
+
+--- Check if smart terrain is empty (no squads assigned)
+--- Reads SIMBOARD.smarts[id].squads; next() is cheapest empty check (no luabind)
+--- @safety SAFE - pure Lua, nil-guarded at every level
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/sim_board.script(96), xcvb/night_mutants.script(92)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if empty
+function is_smart_empty(smart)
+    if not smart then return true end
+    if not SIMBOARD or not SIMBOARD.smarts then return true end
+    local data = SIMBOARD.smarts[smart.id]
+    if not data or not data.squads then return true end
+    return next(data.squads) == nil
+end
+
+--- Find nearest smart terrain matching criteria
+--- Iterates smarts_by_names; cheapest filters first (exclude_id, factions, level_id), distance_to_sqr last
+--- @safety SAFE - nil-guarded; xlevel.get_level_id uses pcall internally
+--- @complexity O(n) smarts | 1 luabind per non-filtered smart (distance_to_sqr)
+--- @see anomaly/sim_board.script(96), anomaly/simulation_objects.script(117)
+--- @param pos vector Position to search from
+--- @param opts table { level_id, factions, min_distance, max_distance, exclude_id, filter }
+--- @return smart_terrain|nil Nearest matching smart
+function find_smart(pos, opts)
+    if not pos or not opts or not SIMBOARD or not SIMBOARD.smarts_by_names then return nil end
+
+    local level_id = opts.level_id
+    local exclude_id = opts.exclude_id
+    local factions = opts.factions
+    local filter = opts.filter
+    local factions_check = factions and (type(factions) == "table" and has_factions or has_faction) or nil
+    local min_dist_sqr = opts.min_distance and (opts.min_distance * opts.min_distance) or -1
+    local max_dist_sqr = opts.max_distance and (opts.max_distance * opts.max_distance) or math.huge
+    local best, best_dist = nil, max_dist_sqr
+
+    for _, smart in pairs(SIMBOARD.smarts_by_names) do
+        if not smart or not smart.position then goto continue end
+        if exclude_id and smart.id == exclude_id then goto continue end
+        if factions_check and not factions_check(smart, factions) then goto continue end
+        if level_id and xlevel.get_level_id(smart) ~= level_id then goto continue end
+        if filter and not filter(smart) then goto continue end
+        local dist_sqr = pos:distance_to_sqr(smart.position)
+        if dist_sqr > min_dist_sqr and dist_sqr < best_dist then
+            best, best_dist = smart, dist_sqr
+        end
+        ::continue::
+    end
+
+    return best
+end
+
+--- Check if squad has arrived at smart terrain
+--- Delegates to engine's am_i_reached: same game vertex -> true, different level -> false, distance <= arrive_dist^2
+--- @safety SAFE - am_i_reached used by engine without pcall in specific_update
+--- @complexity O(1) | 1 luabind (am_i_reached)
+--- @see anomaly/smart_terrain.script(1440), anomaly/sim_squad_scripted.script(304)
+--- @param squad se_squad Squad to check
+--- @param smart smart_terrain Target smart terrain
+--- @return boolean True if arrived
+function is_arrived(squad, smart)
+    if not squad or not smart then return false end
+    if not smart.am_i_reached then return false end
+    return smart:am_i_reached(squad)
+end
+
+--- Get spatial proximity between squad and smart terrain
+--- Mirrors am_i_reached decision tree; returns distance, threshold, and match conditions for diagnostics
+--- @safety SAFE - game_graph() is engine singleton, distance_to_sqr is pure C++ math
+--- @complexity O(1) | 2 luabind worst case (game_graph vertex, distance_to_sqr); 0 on gvid match
+--- @see anomaly/smart_terrain.script(1440-1456)
+--- @param squad se_squad Squad to check
+--- @param smart se_smart_terrain Target smart terrain
+--- @return number dist Meters (0 = gvid match, -1 = different level)
+--- @return number threshold Applicable arrive threshold in meters
+--- @return boolean gvid_match Game vertex IDs match
+--- @return boolean same_level Both on same level
+function get_proximity(squad, smart)
+    if not squad or not smart then return -1, 0, false, false end
+    local sq_gvid = squad.m_game_vertex_id
+    local sm_gvid = smart.m_game_vertex_id
+    local threshold = smart.arrive_dist or 0
+    if sq_gvid == sm_gvid then
+        return 0, threshold, true, true
+    end
+    local gg = game_graph()
+    local same_level = gg:vertex(sq_gvid):level_id() == gg:vertex(sm_gvid):level_id()
+    if not same_level then
+        return -1, threshold, false, false
+    end
+    if is_squad_monster and is_squad_monster[squad.player_id] and not squad.scripted_target then
+        threshold = 25
+    end
+    return math.sqrt(squad.position:distance_to_sqr(smart.position)), threshold, false, true
+end
+
+--- Check if smart terrain has capacity for more squads
+--- Counts squads in SIMBOARD.smarts[id].squads vs smart.max_population; optionally filters by faction
+--- @safety SAFE - nil guards, returns true when data unavailable (safe default = allow)
+--- @complexity O(k) squads at smart | 1 luabind per squad when faction filter used (get_squad_community)
+--- @see anomaly/smart_terrain.script(1521), anomaly/sim_board.script(84)
+--- @param smart smart_terrain Smart terrain to check
+--- @param faction string|nil Faction to count (nil = all factions)
+--- @return boolean True if has capacity
+function has_capacity(smart, faction)
+    if not smart or not smart.max_population then return true end
+    if not SIMBOARD or not SIMBOARD.smarts then return true end
+
+    local data = SIMBOARD.smarts[smart.id]
+    if not data or not data.squads then return true end
+
+    local count = 0
+    for id in pairs(data.squads) do
+        if not faction then
+            count = count + 1
+            goto continue
+        end
+        local squad = alife_object(id)
+        if squad and squad.get_squad_community and squad:get_squad_community() == faction then
+            count = count + 1
+        end
+        ::continue::
+    end
+    return count < smart.max_population
+end
+
+-- =============================================================================
+-- FACTION CONTROLLED
+-- =============================================================================
+
+--- Faction -> generic simulation squad sections (novice, advanced, veteran)
+--- Copy of smart_terrain.script:16-29, pre-parsed as arrays
+local SQUADS_BY_FACTION = {
+    army     = {"army_sim_squad_novice", "army_sim_squad_advanced", "army_sim_squad_veteran"},
+    bandit   = {"bandit_sim_squad_novice", "bandit_sim_squad_advanced", "bandit_sim_squad_veteran"},
+    csky     = {"csky_sim_squad_novice", "csky_sim_squad_advanced", "csky_sim_squad_veteran"},
+    dolg     = {"duty_sim_squad_novice", "duty_sim_squad_advanced", "duty_sim_squad_veteran"},
+    ecolog   = {"ecolog_sim_squad_novice", "ecolog_sim_squad_advanced", "ecolog_sim_squad_veteran"},
+    freedom  = {"freedom_sim_squad_novice", "freedom_sim_squad_advanced", "freedom_sim_squad_veteran"},
+    killer   = {"merc_sim_squad_novice", "merc_sim_squad_advanced", "merc_sim_squad_veteran"},
+    monolith = {"monolith_sim_squad_novice", "monolith_sim_squad_advanced", "monolith_sim_squad_veteran"},
+    stalker  = {"stalker_sim_squad_novice", "stalker_sim_squad_advanced", "stalker_sim_squad_veteran"},
+    renegade = {"renegade_sim_squad_novice", "renegade_sim_squad_advanced", "renegade_sim_squad_veteran"},
+    greh     = {"greh_sim_squad_novice", "greh_sim_squad_advanced", "greh_sim_squad_veteran"},
+    isg      = {"isg_sim_squad_novice", "isg_sim_squad_advanced", "isg_sim_squad_veteran"},
+}
+local ALL_FACTIONS_FC = "army, bandit, csky, dolg, ecolog, freedom, killer, monolith, stalker, renegade, greh, isg"
+
+--- Set faction_controlled on smart terrain at runtime, enabling faction-aware respawns
+--- Mirrors engine read_params (smart_terrain.script:246-267) for all 12 factions
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @complexity O(12) factions | 0 luabind (parse_condlist is pure Lua)
+--- @see anomaly/smart_terrain.script(246-267,1665-1672)
+--- @param smart se_smart_terrain Smart terrain to mutate
+--- @param faction string Conqueror faction community name (sets smart.faction)
+--- @param spawn_num number|nil Max squads per faction entry (default 2)
+--- @return boolean True if mutation applied
+function set_faction_controlled(smart, faction, spawn_num)
+    if not smart then return false end
+    if not SQUADS_BY_FACTION[faction] then return false end
+    smart.faction_controlled = ALL_FACTIONS_FC
+    smart.respawn_params = smart.respawn_params or {}
+    smart.already_spawned = smart.already_spawned or {}
+    smart.respawn_point = true
+    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 2))
+    for fac, squads in pairs(SQUADS_BY_FACTION) do
+        local key = "faction_controlled_" .. fac
+        smart.respawn_params[key] = { num = condlist, squads = squads, faction = fac }
+        smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
+    end
+    smart.faction = faction
+    return true
+end
+
+--- Clear faction_controlled from smart terrain, reverting to default behavior
+--- Removes all faction_controlled entries from respawn_params
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @complexity O(12) factions | 0 luabind
+--- @see anomaly/smart_terrain.script(246-267)
+--- @param smart se_smart_terrain Smart terrain to revert
+--- @return boolean True if cleared
+function clear_faction_controlled(smart)
+    if not smart then return false end
+    smart.faction_controlled = nil
+    if smart.respawn_params then
+        for fac in pairs(SQUADS_BY_FACTION) do
+            smart.respawn_params["faction_controlled_" .. fac] = nil
+        end
+    end
+    smart.faction = smart.default_faction
+    return true
+end
+
+-- =============================================================================
+-- POPULATION RESET
+-- =============================================================================
+
+--- Diagnostic dump of all smarts with faction and level info
+--- Iterates SIMBOARD.smarts, collects id:name:level:factions per smart for debug logging
+--- @safety SAFE - pure Lua iteration, nil-guarded
+--- @complexity O(n) smarts | 1 luabind per smart (get_level_id)
+--- @see anomaly/sim_board.script(96), anomaly/smart_terrain.script(1209)
+--- @param factions table|nil Faction filter for context
+--- @param level_id number|nil Level filter for context
+--- @return string Debug summary string
+function dump_smarts(factions, level_id)
+    if not SIMBOARD or not SIMBOARD.smarts then return "no_simboard" end
+    local parts = {}
+    for id, data in pairs(SIMBOARD.smarts) do
+        local smart = data.smrt
+        if smart then
+            local sf = {}
+            for k in pairs(get_smart_factions(smart)) do sf[#sf + 1] = k end
+            parts[#parts + 1] = id .. ":" .. (smart:name() or "?")
+                .. ":lv" .. tostring(xlevel.get_level_id(smart) or "?")
+                .. ":fac=" .. (#sf > 0 and table.concat(sf, "/") or "none")
+        end
+    end
+    local fac_keys = {}
+    if factions then for k in pairs(factions) do fac_keys[#fac_keys + 1] = k end end
+    return "filter_fac=" .. (#fac_keys > 0 and table.concat(fac_keys, "/") or "nil")
+        .. " filter_lv=" .. tostring(level_id or "nil")
+        .. " smarts=" .. #parts .. " [" .. table.concat(parts, ", ") .. "]"
+end
+
+--- Reset all smart terrain spawn counters to zero
+--- Zeros already_spawned[k].num and clears last_respawn_update on all respawn-capable smarts
+--- @safety SAFE - pure Lua field writes on smart terrain objects, nil-guarded
+--- @complexity O(n) smarts * O(k) spawn sections | 0 luabind (SIMBOARD.smarts holds direct refs)
+--- @see anomaly/smart_terrain.script(251,886,1625), anomaly/sim_board.script(302)
+--- @return number Count of smarts reset
+function reset_spawns()
+    if not SIMBOARD or not SIMBOARD.smarts then return 0 end
+
+    local count = 0
+    for _, data in pairs(SIMBOARD.smarts) do
+        local smart = data.smrt
+        if not smart then goto continue end
+        if not smart.already_spawned then goto continue end
+        for _, entry in pairs(smart.already_spawned) do
+            entry.num = 0
+        end
+        smart.last_respawn_update = nil
+        count = count + 1
+        ::continue::
+    end
+
+    return count
+end
+
+--- Reset population and re-seed world from simulation preset
+--- Resets spawn counters, clears start_position_filled flag, calls fill_start_position
+--- @safety SAFE - delegates to engine's fill_start_position (runs on every new game start)
+--- @complexity O(n) smarts for reset + O(n) smarts for fill | see fill_start_position
+--- @see anomaly/se_actor.script(14), anomaly/sim_board.script(284)
+--- @return boolean True if repopulate ran
+function repopulate()
+    if not SIMBOARD then return false end
+    reset_spawns()
+    SIMBOARD.start_position_filled = false
+    SIMBOARD:fill_start_position()
+    return true
+end

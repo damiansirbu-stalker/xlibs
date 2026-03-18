@@ -1,0 +1,101 @@
+--- xobject: Generic object helpers (ID extraction, server/game object lookup, item creation)
+
+local type, alife_object, alife_create_item = type, alife_object, alife_create_item
+local level, alife, ini_sys = level, alife, ini_sys
+
+local _box_size_cache = {}
+
+local function _extract_id(input)
+    if not input then return nil end
+    local input_type = type(input)
+    if input_type == "number" then return input end
+    if input_type ~= "userdata" and input_type ~= "table" then return nil end
+    local id = input.id
+    if id ~= nil then return type(id) == "function" and input:id() or id end
+    return nil
+end
+
+--- Get server object from ID, game object, or server object
+--- Normalizes any entity reference to cse_alife_object via alife_object() lookup
+--- @safety SAFE - alife_object returns nil for invalid IDs, no crash
+--- @complexity O(1) | 0-1 luabind (0 if already server object, 1 alife_object call otherwise)
+--- @see anomaly/_g.script(2044), xray/xrServerEntities/xrServer_Objects_ALife_script.cpp
+--- @param input number|userdata|table ID, game object, or server object
+--- @return cse_alife_object|nil Server object
+function se(input)
+    if not input then return nil end
+    if type(input) == "number" then return alife_object(input) end
+    if input.m_game_vertex_id ~= nil then return input end
+    local id = _extract_id(input)
+    return id and alife_object(id) or nil
+end
+
+--- Get online game object by ID
+--- Complement to se(); returns nil when entity is offline or ID is invalid
+--- @safety SAFE - level.object_by_id returns nil for invalid/offline IDs via net_Find + smart_cast
+--- @complexity O(1) | 1 luabind (level.object_by_id)
+--- @see xray/xrGame/level_script.cpp(125), xray/xrGame/level_script.cpp(2363)
+--- @param id number Entity ID
+--- @return game_object|nil Online game object
+function go(id)
+    if not id then return nil end
+    return level.object_by_id(id)
+end
+
+--- Get ammo box size for a given ammo section
+--- Reads box_size from system INI (parsed at load, in-memory lookup); result cached per section
+--- @safety SAFE - ini_sys:r_u32 returns nil for missing keys, nil-guarded
+--- @complexity O(1) | 0-1 luabind (0 on cache hit, 1 ini_sys:r_u32 on miss)
+--- @see xray/xrServerEntities/script_ini_file.cpp, anomaly/_g.script(3241)
+--- @param sec string Ammo section name
+--- @return number|nil Box size or nil if section/key missing
+function get_box_size(sec)
+    if not sec then return nil end
+    local v = _box_size_cache[sec]
+    if v then return v end
+    v = ini_sys:r_u32(sec, "box_size")
+    if v then _box_size_cache[sec] = v end
+    return v
+end
+
+--- Create item for any NPC (online, offline, any map)
+--- Falls back to smart terrain position when NPC's level vertex ID is invalid (offline on other map)
+--- @safety SAFE - lvid validation per doc/library/modding/alife-safety.md; returns nil on failure
+--- @complexity O(1) | 1-3 luabind (object_by_id or alife_object + alife_create_item or alife():create)
+--- @see doc/library/modding/alife-safety.md(38), anomaly/sim_squad_scripted.script(276), anomaly/itms_manager.script(1254)
+--- @param section string Item section to create
+--- @param npc_id number NPC ID (can be offline, any map)
+--- @param t table|nil Optional params forwarded to alife_create_item ({ammo=num, cond=num, uses=num})
+--- @return cse_alife_object|nil Created item or nil
+function create_item(section, npc_id, t)
+    if not section then return nil end
+    if not npc_id then return nil end
+
+    local npc = level.object_by_id(npc_id)
+    if npc then
+        return alife_create_item(section, npc, t)
+    end
+
+    local se_npc = alife_object(npc_id)
+    if not se_npc then return nil end
+
+    if xlevel.is_valid_lvid(se_npc) then
+        return alife_create_item(section, se_npc, t)
+    end
+
+    local smart_id = se_npc.m_smart_terrain_id
+    if not smart_id then return nil end
+
+    local smart = alife_object(smart_id)
+    if not smart then return nil end
+
+    if not xlevel.is_valid_lvid(smart) then return nil end
+
+    return alife():create(
+        section,
+        smart.position,
+        smart.m_level_vertex_id,
+        smart.m_game_vertex_id,
+        npc_id
+    )
+end

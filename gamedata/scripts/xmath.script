@@ -1,0 +1,86 @@
+--- xmath: Math utilities (random selection, clamping, distance)
+
+local pairs, math_random, math_min = pairs, math.random, math.min
+
+--- Return random element from array
+--- Uses math.random for index selection; assumes #t > 0
+--- @safety SAFE - pure Lua, crashes on empty table (caller's responsibility)
+--- @complexity O(1) | 0 luabind
+--- @param t table Array to sample from
+--- @return any Random element
+function sample(t)
+    return t[math_random(#t)]
+end
+
+--- Shuffle first n elements of array in-place
+--- Fisher-Yates partial shuffle: swaps each position with random later element
+--- @safety SAFE - pure Lua, mutates input table
+--- @complexity O(n) | 0 luabind
+--- @param t table Array to shuffle
+--- @param n number|nil Number of elements to shuffle (default: all)
+--- @return table Same array, shuffled
+function partial_shuffle(t, n)
+    n = n or #t
+    for i = 1, n do
+        local j = math_random(i, #t)
+        t[i], t[j] = t[j], t[i]
+    end
+    return t
+end
+
+--- Return true with given probability
+--- Compares math.random(100) against threshold; 0 = never, 100 = always
+--- @safety SAFE - pure Lua
+--- @complexity O(1) | 0 luabind
+--- @param percent number Chance percentage (0-100)
+--- @return boolean
+--- @usage if xmath.chance(25) then ... end
+function chance(percent)
+    return math_random(100) <= percent
+end
+
+--- Pick random key from table with weighted probabilities
+--- Sums weights, picks random point in range, iterates until cumulative weight exceeds it
+--- @safety SAFE - pure Lua, returns nil for empty table (pairs order non-deterministic)
+--- @complexity O(n) keys | 0 luabind
+--- @param weights table Keys with numeric weights, e.g. {bandit=50, army=30, freedom=20}
+--- @return any Selected key
+--- @usage local faction = xmath.weighted_choice({bandit=50, army=30, freedom=20})
+function weighted_choice(weights)
+    local sum = 0
+    for _, v in pairs(weights) do
+        sum = sum + v
+    end
+    local rnd = math_random() * sum
+    for k, v in pairs(weights) do
+        if rnd < v then return k end
+        rnd = rnd - v
+    end
+end
+
+--- Sample up to n random elements from array (in-place partial shuffle)
+--- Delegates to partial_shuffle then picks random count up to available
+--- @safety SAFE - pure Lua, mutates input table
+--- @complexity O(n) | 0 luabind
+--- @param t table Source array
+--- @param n number Max elements to sample
+--- @return table Same array (first k elements are the sample), number k
+function sample_n(t, n)
+    if #t == 0 then return t, 0 end
+    local available = math_min(#t, n)
+    partial_shuffle(t, available)
+    return t, math_random(1, available)
+end
+
+--- Vary value by +/- percent
+--- Generates uniform random in [value - range, value + range] where range = value * percent / 100
+--- @safety SAFE - pure Lua arithmetic
+--- @complexity O(1) | 0 luabind
+--- @param value number Base value
+--- @param percent number Variance (10 = +/-10%)
+--- @return number
+--- @usage local reward = xmath.vary(5000, 10)
+function vary(value, percent)
+    local range = value * percent / 100
+    return value + math_random() * range * 2 - range
+end

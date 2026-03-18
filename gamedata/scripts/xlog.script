@@ -1,0 +1,354 @@
+--- xlog: Structured file logging with rotation and buffering
+
+local LEVELS = {
+    FATAL = 1,
+    ERROR = 2,
+    WARN  = 3,
+    INFO  = 4,
+    DEBUG = 5,
+    TRACE = 6,
+}
+
+local LEVEL_NAMES = { "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE" }
+
+local type, pairs, pcall, tostring, setmetatable, assert, error = type, pairs, pcall, tostring, setmetatable, assert, error
+local string, table, math = string, table, math
+local math_floor = math.floor
+
+local defaults = {
+    level = LEVELS.DEBUG,
+    buffer_size = 1000,
+    flush_interval = 300,
+    flush_on_level = LEVELS.ERROR,
+    max_file_size = 100 * 1024 * 1024,
+    stack_trace = true,
+    max_stack_frames = 8,
+}
+
+local platform = nil
+local session_id = nil
+local loggers = {}
+local timer_active = false
+local session_logged = {}
+local _rotation_checked = {}
+
+local function _get_session_id()
+    if not session_id then
+        session_id = string.format("%s_%04x", os.date("%H%M%S"), math.random(0, 0xFFFF))
+    end
+    return session_id
+end
+
+local function _reset_session()
+    session_id = nil
+end
+
+local function format_args(...)
+    local args = {...}
+    local arg_count = select("#", ...)
+    if arg_count == 0 then return "" end
+
+    local parts = {}
+    for i = 1, arg_count do
+        local v = args[i]
+        if type(v) == "number" and v ~= math_floor(v) then
+            v = math_floor(v * 100 + 0.5) / 100
+        end
+        parts[i] = tostring(v)
+    end
+    return table.concat(parts, " ")
+end
+
+local function get_stack_trace(max_frames)
+    if type(debug) ~= "table" or not debug.traceback then return nil end
+
+    local trace = debug.traceback(nil, 4)
+    if not trace then return nil end
+
+    local lines = {}
+    local total = 0
+    for line in trace:gmatch("[^\n]+") do
+        if line:match("^stack traceback") then goto continue end
+        local cleaned = line:gsub("^%s+", "")
+        if #cleaned > 0 and total < (max_frames or 8) then
+            lines[#lines + 1] = "    | " .. cleaned
+            total = total + 1
+        end
+        ::continue::
+    end
+
+    return #lines > 0 and table.concat(lines, "\n") or nil
+end
+
+local Logger = {}
+Logger.__index = Logger
+
+function Logger.new(name, cfg)
+    local self = setmetatable({}, Logger)
+
+    self.name = name or "default"
+    self.buffer = {}
+    self.level = LEVELS.DEBUG
+    self.outfile = nil
+    self.buffer_size = defaults.buffer_size
+    self.flush_on_level = defaults.flush_on_level
+    self.max_file_size = defaults.max_file_size
+    self.stack_trace = defaults.stack_trace
+    self.max_stack_frames = defaults.max_stack_frames
+
+    if not cfg then return self end
+    if cfg.level then
+        self.level = type(cfg.level) == "string" and (LEVELS[cfg.level:upper()] or LEVELS.DEBUG) or cfg.level
+    end
+    if cfg.outfile then self.outfile = cfg.outfile end
+    if cfg.buffer_size then self.buffer_size = cfg.buffer_size end
+    if cfg.flush_on_level then self.flush_on_level = cfg.flush_on_level end
+    if cfg.max_file_size then self.max_file_size = cfg.max_file_size end
+    if cfg.stack_trace ~= nil then self.stack_trace = cfg.stack_trace end
+    if cfg.max_stack_frames then self.max_stack_frames = cfg.max_stack_frames end
+
+    return self
+end
+
+function Logger:get_outfile()
+    if self.outfile and (self.outfile:find("[\\/]") or self.outfile:find(":")) then
+        return self.outfile
+    end
+
+    if platform and platform.get_logs_path then
+        local logs_path = platform.get_logs_path()
+        local filename = self.outfile or "script.log"
+        self.outfile = logs_path .. filename
+    end
+
+    return self.outfile
+end
+
+--- @safety pcall: os.rename may fail on locked files
+function Logger:check_rotation()
+    local path = self:get_outfile()
+    if not path then return end
+
+    local file = io.open(path, "rb")
+    if not file then return end
+
+    local size = file:seek("end")
+    file:close()
+
+    if size and size > self.max_file_size then
+        local archive = path:gsub("%.log$", "_" .. os.date("%Y-%m-%d_%H-%M-%S") .. ".log")
+        pcall(os.rename, path, archive)
+    end
+end
+
+function Logger:flush_buffer()
+    if #self.buffer == 0 then return end
+
+    local path = self:get_outfile()
+    if not path then return end
+
+    if not _rotation_checked[path] then
+        _rotation_checked[path] = true
+        self:check_rotation()
+    end
+
+    local file = io.open(path, "a")
+    if not file then return end
+
+    file:write(table.concat(self.buffer, "\n") .. "\n")
+
+    file:flush()
+    file:close()
+    self.buffer = {}
+end
+
+--- @safety pcall: string.format may error on mismatched args
+function Logger:write(lvl, fmt, ...)
+    if lvl > self.level then return end
+
+    local msg
+    if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then
+        local ok, result = pcall(string.format, fmt, ...)
+        msg = ok and result or fmt
+    else
+        msg = format_args(fmt, ...)
+    end
+
+    local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+    local level_str = LEVEL_NAMES[lvl] or "???"
+    local module_str = self.name:upper()
+    local session_str = _get_session_id()
+
+    if not session_logged[self.name] then
+        session_logged[self.name] = true
+        local session_line = string.format("[%s][%s][INFO][%s] === Session started ===",
+            timestamp, session_str, module_str)
+        self.buffer[#self.buffer + 1] = session_line
+    end
+
+    local line = string.format("[%s][%s][%s][%s] %s", timestamp, session_str, level_str, module_str, msg)
+    self.buffer[#self.buffer + 1] = line
+
+    if self.stack_trace and lvl <= LEVELS.ERROR then
+        local trace = get_stack_trace(self.max_stack_frames)
+        if trace then
+            self.buffer[#self.buffer + 1] = trace
+        end
+    end
+
+    if lvl <= self.flush_on_level then
+        self:flush_buffer()
+        return
+    end
+
+    if #self.buffer >= self.buffer_size then
+        self:flush_buffer()
+    end
+end
+
+function Logger:set_level(lvl)
+    if type(lvl) == "string" then
+        self.level = LEVELS[lvl:upper()] or LEVELS.DEBUG
+    elseif type(lvl) == "number" then
+        self.level = lvl
+    end
+end
+
+function Logger:get_level()
+    return self.level
+end
+
+function Logger:get_level_name()
+    return LEVEL_NAMES[self.level] or "???"
+end
+
+local function create_facade(logger)
+    return {
+        fatal = function(fmt, ...) if LEVELS.FATAL > logger.level then return end logger:write(LEVELS.FATAL, fmt, ...) end,
+        error = function(fmt, ...) if LEVELS.ERROR > logger.level then return end logger:write(LEVELS.ERROR, fmt, ...) end,
+        warn  = function(fmt, ...) if LEVELS.WARN  > logger.level then return end logger:write(LEVELS.WARN, fmt, ...) end,
+        info  = function(fmt, ...) if LEVELS.INFO  > logger.level then return end logger:write(LEVELS.INFO, fmt, ...) end,
+        debug = function(fmt, ...) if LEVELS.DEBUG > logger.level then return end logger:write(LEVELS.DEBUG, fmt, ...) end,
+        trace = function(fmt, ...) if LEVELS.TRACE > logger.level then return end logger:write(LEVELS.TRACE, fmt, ...) end,
+
+        flush = function() logger:flush_buffer() end,
+        set_level = function(lvl) logger:set_level(lvl) end,
+        get_level = function() return logger:get_level() end,
+        get_level_name = function() return logger:get_level_name() end,
+
+        _logger = logger,
+    }
+end
+
+local function flush_all_loggers()
+    for _, entry in pairs(loggers) do
+        entry.logger:flush_buffer()
+    end
+end
+
+local function periodic_flush_callback()
+    _rotation_checked = {}
+    flush_all_loggers()
+    return true
+end
+
+local function start_periodic_flush()
+    if timer_active then return end
+    if not platform or not platform.create_timer then return end
+
+    platform.create_timer("xlog", "flush", defaults.flush_interval, periodic_flush_callback)
+    timer_active = true
+end
+
+--- @safety SAFE - all callbacks are standard Anomaly (axr_main.script:52)
+local function register_callbacks()
+    if not platform or not platform.register_callback then return end
+
+    platform.register_callback("save_state", flush_all_loggers)
+    platform.register_callback("actor_on_net_destroy", flush_all_loggers)
+    platform.register_callback("on_before_level_changing", flush_all_loggers)
+
+    platform.register_callback("on_game_load", function()
+        session_logged = {}
+        _reset_session()
+    end)
+end
+
+--- Initialize with platform bindings
+--- Stores bindings table, starts periodic flush timer, registers lifecycle callbacks
+--- @safety SAFE - asserts bindings non-nil, all setup delegates to pure Lua
+--- @complexity O(1) | 0 luabind (bindings are closures, called later)
+--- @param bindings table { get_logs_path, create_timer, console_print, register_callback }
+function init(bindings)
+    assert(bindings, "xlog.init: bindings required")
+    platform = bindings
+    start_periodic_flush()
+    register_callbacks()
+end
+
+--- Get or create isolated logger
+--- Returns cached facade or creates new Logger + facade pair; facades expose level methods (fatal..trace)
+--- @safety SAFE - pure Lua table/metatable creation
+--- @complexity O(1) | 0 luabind
+--- @param name string Logger name
+--- @param cfg table|nil { level, enabled, outfile, buffer_size, flush_on_level, max_file_size, stack_trace, max_stack_frames }
+--- @return table Logger facade with fatal/error/warn/info/debug/trace methods
+function get_logger(name, cfg)
+    local key = name or "default"
+
+    if loggers[key] then
+        return loggers[key].facade
+    end
+
+    local logger = Logger.new(key, cfg)
+    local facade = create_facade(logger)
+
+    loggers[key] = {
+        logger = logger,
+        facade = facade,
+    }
+
+    return facade
+end
+
+--- Get session ID for correlation
+--- Lazy-generates HH:MM:SS_XXXX format ID on first call, cached for session
+--- @safety SAFE - pure Lua string formatting
+--- @complexity O(1) | 0 luabind
+--- @return string Session ID
+function get_session_id()
+    return _get_session_id()
+end
+
+--- Flush all loggers
+--- Iterates all registered loggers and flushes their buffers to disk
+--- @safety SAFE - delegates to Logger:flush_buffer which handles io.open failures
+--- @complexity O(n) loggers * O(k) buffered lines | 0 luabind (io.open is standard Lua C API)
+function flush_all()
+    flush_all_loggers()
+end
+
+--- Get LEVELS table for external comparison
+--- Returns reference to internal LEVELS constant table
+--- @safety SAFE - pure Lua table reference
+--- @complexity O(1) | 0 luabind
+--- @return table LEVELS { FATAL=1, ERROR=2, WARN=3, INFO=4, DEBUG=5, TRACE=6 }
+function get_levels()
+    return LEVELS
+end
+
+--- Initialize logging system with game-specific callbacks
+--- Wires getFS():update_path("$logs$") for path, CreateTimeEvent for flush, RegisterScriptCallback for lifecycle
+--- @safety SAFE - all bindings are nil-checked in init(); getFS/update_path deferred to first flush
+--- @complexity O(1) | 1 luabind at init (getFS), rest are pure Lua anomaly APIs
+--- @see xray/xrGame/fs_registrator_script.cpp(9,289), anomaly/_g.script(339,104), RavenAscendant/mcm_log.script(52)
+function on_game_start()
+    init({
+        get_logs_path = function()
+            return getFS():update_path("$logs$", "")
+        end,
+        create_timer = CreateTimeEvent,
+        console_print = printf,
+        register_callback = RegisterScriptCallback,
+    })
+end

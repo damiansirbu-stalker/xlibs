@@ -1,0 +1,121 @@
+--- xmcm: MCM helpers (create_getter, extract_defaults)
+
+local ipairs, pairs, tostring = ipairs, pairs, tostring
+local string, table = string, table
+
+--- Extract default values from MCM op table
+--- Recursively walks op.gr array collecting {id, def} pairs into flat defaults table
+--- @safety SAFE - pure Lua table traversal, nil-guarded
+--- @complexity O(n) options | 0 luabind
+--- @param op table MCM options table with gr array
+--- @param recursive boolean|nil Process nested gr tables (default: true)
+--- @return table defaults {id = def_value, ...}
+function extract_defaults(op, recursive)
+    if recursive == nil then recursive = true end
+    local defaults = {}
+
+    local function process(gr)
+        if not gr then return end
+        for _, v in ipairs(gr) do
+            if v.def ~= nil and v.id then
+                defaults[v.id] = v.def
+            end
+            if recursive and v.gr then
+                process(v.gr)
+            end
+        end
+    end
+
+    process(op.gr)
+    return defaults
+end
+
+--- Create a config getter function
+--- Returns closure that reads ui_mcm.get(path) with fallback to defaults table
+--- @safety SAFE - ui_mcm.get returns nil for missing keys, defaults table is fallback
+--- @complexity O(1) per call | 0 luabind (ui_mcm is Lua-to-Lua)
+--- @param mod_id string MCM mod identifier
+--- @param defaults table Default values {key = value}
+--- @param path_builder function|nil Optional function(key) -> mcm_path
+--- @return function getter function(key) -> value
+function create_getter(mod_id, defaults, path_builder)
+    return function(key)
+        if ui_mcm then
+            local path = path_builder and path_builder(key) or (mod_id .. "/" .. key)
+            local val = ui_mcm.get(path)
+            if val ~= nil then return val end
+        end
+        return defaults[key]
+    end
+end
+
+--- Create a settings loader function (Demonized pattern)
+--- Returns closure that iterates defaults, reads ui_mcm.get per key, writes to settings table
+--- @safety SAFE - ui_mcm.get returns nil for missing keys, defaults table is fallback
+--- @complexity O(n) defaults per call | 0 luabind (ui_mcm is Lua-to-Lua)
+--- @param mod_id string MCM mod identifier
+--- @param defaults table Default values {key = value}
+--- @param path_builder function|nil Optional function(key) -> mcm_path
+--- @return function loader function(settings) -> updates settings in place
+function create_loader(mod_id, defaults, path_builder)
+    return function(settings)
+        for k, def in pairs(defaults) do
+            local val = def
+            if ui_mcm then
+                local path = path_builder and path_builder(k) or (mod_id .. "/" .. k)
+                local mcm_val = ui_mcm.get(path)
+                if mcm_val ~= nil then val = mcm_val end
+            end
+            settings[k] = val
+        end
+    end
+end
+
+--- Format defaults as string (for logging)
+--- Sorts keys alphabetically, formats as "key = value" lines with header
+--- @safety SAFE - pure Lua string formatting
+--- @complexity O(n log n) keys (sort) | 0 luabind
+--- @param mod_id string Mod identifier for header
+--- @param defaults table Default values {key = value}
+--- @return string Formatted defaults
+function format_defaults(mod_id, defaults)
+    local lines = {}
+    lines[#lines + 1] = string.format("===== %s DEFAULTS =====", mod_id:upper())
+
+    local keys = {}
+    for k in pairs(defaults) do keys[#keys + 1] = k end
+    table.sort(keys)
+
+    for _, k in ipairs(keys) do
+        lines[#lines + 1] = string.format("  %s = %s", k, tostring(defaults[k]))
+    end
+
+    return table.concat(lines, "\n")
+end
+
+--- Format used settings as string (for logging)
+--- Sorts keys, compares get_config(key) against default, marks divergent values with *
+--- @safety SAFE - pure Lua string formatting, get_config returns nil for missing
+--- @complexity O(n log n) keys (sort) + O(1) per get_config call | 0 luabind
+--- @param mod_id string Mod identifier for header
+--- @param defaults table Default values {key = value}
+--- @param get_config function Getter function(key) -> value
+--- @return string Formatted settings
+function format_config(mod_id, defaults, get_config)
+    local lines = {}
+    lines[#lines + 1] = string.format("===== %s CONFIG =====", mod_id:upper())
+
+    local keys = {}
+    for k in pairs(defaults) do keys[#keys + 1] = k end
+    table.sort(keys)
+
+    for _, k in ipairs(keys) do
+        local def = defaults[k]
+        local val = get_config(k)
+        if val == nil then val = def end
+        local marker = (val ~= def) and " *" or ""
+        lines[#lines + 1] = string.format("  %s = %s%s", k, tostring(val), marker)
+    end
+
+    return table.concat(lines, "\n")
+end
