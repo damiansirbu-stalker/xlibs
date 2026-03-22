@@ -1,0 +1,126 @@
+--- xgoap_anim: Generic GOAP scheme for scripted NPC animations via x_anim storage field
+
+local time_global, ipairs = time_global, ipairs
+
+local EVAID = 188200
+local ACTID = 188200
+
+--- Evaluator: returns true when x_anim is set and not expired
+--- Reads db.storage[npc_id].x_anim; clears expired entries inline to avoid stale state
+--- @safety SAFE - pure Lua table reads, nil-guarded
+--- @complexity O(1) | 1 luabind (time_global) when active, 0 when inactive
+--- @see xray/xrGame/property_evaluator_script.cpp(23), anomaly/modules.script(44)
+class "evaluator_anim" (property_evaluator)
+
+function evaluator_anim:__init(npc, name, storage) super(nil, name)
+    self.st = storage
+end
+
+function evaluator_anim:evaluate()
+    local anim = self.st.x_anim
+    if not anim then return false end
+    if time_global() > anim.expire then
+        self.st.x_anim = nil
+        return false
+    end
+    return true
+end
+
+--- Action: holds NPC in place and plays animation until evaluator expires
+--- Stops movement on initialize, calls state_mgr.set_state every cycle with fast_set, clears on finalize
+--- @safety SAFE - state_mgr.set_state is nil-guarded internally; set_desired_position/set_path_type always valid
+--- @complexity O(1) | 2 luabind on initialize, 1 on execute (set_state), 0 on finalize
+--- @see xray/xrGame/action_base_script.cpp(18), anomaly/state_mgr.script(503)
+class "action_anim" (action_base)
+
+function action_anim:__init(npc, name, storage) super(nil, name)
+    self.st = storage
+    self.npc = npc
+end
+
+function action_anim:initialize()
+    action_base.initialize(self)
+    self.npc:set_desired_position()
+    self.npc:set_path_type(game_object.level_path)
+end
+
+function action_anim:execute()
+    action_base.execute(self)
+    local anim = self.st.x_anim
+    if not anim then return end
+    state_mgr.set_state(self.npc, anim.state, nil, nil, nil, {fast_set = true})
+end
+
+function action_anim:finalize()
+    self.st.x_anim = nil
+    action_base.finalize(self)
+end
+
+--- Register scheme storage for Anomaly's two-pass scheme loader
+--- @param npc game_object NPC being bound
+--- @param ini ini_file NPC logic INI
+--- @param _scheme string Scheme name (unused, framework signature)
+--- @param section string INI section name
+--- @param _stype number Scheme type (unused, framework signature)
+--- @param temp table Temporary scheme data shared across passes
+function setup_generic_scheme(npc, ini, _scheme, section, _stype, temp)
+    xr_logic.assign_storage_and_bind(npc, ini, "xgoap_anim", section, temp)
+end
+
+--- Register evaluator and action into NPC's motivation action manager
+--- Dead NPCs and actor_visual_stalker get const-false evaluator; live NPCs get full GOAP wiring
+--- @safety SAFE - motivation_action_manager always valid for alive NPCs; dead path uses const evaluator
+--- @complexity O(1) | 3 luabind (alive, section, motivation_action_manager) + 1 per precondition
+--- @see xray/xrGame/script_game_object_script2.cpp(220), anomaly/modules.script(44)
+--- @param npc game_object NPC being bound
+--- @param _ini ini_file NPC logic INI (unused, framework signature)
+--- @param _scheme string Scheme name (unused, framework signature)
+--- @param section string INI section name
+--- @param storage table db.storage[npc:id()] scheme storage
+--- @param temp table Temporary scheme data shared across passes
+function add_to_binder(npc, _ini, _scheme, section, storage, temp)
+    local manager = npc:motivation_action_manager()
+
+    if not npc:alive() or npc:section() == "actor_visual_stalker" then
+        manager:add_evaluator(EVAID, property_evaluator_const(false))
+        temp.needs_configured = false
+        return
+    end
+
+    manager:add_evaluator(EVAID, evaluator_anim(npc, "eva_x_anim", storage))
+
+    temp.action = action_anim(npc, "act_x_anim", storage)
+    temp.action:add_precondition(world_property(stalker_ids.property_alive, true))
+    temp.action:add_precondition(world_property(stalker_ids.property_enemy, false))
+    temp.action:add_precondition(world_property(stalker_ids.property_danger, false))
+    temp.action:add_precondition(world_property(EVAID, true))
+    temp.action:add_effect(world_property(EVAID, false))
+    manager:add_action(ACTID, temp.action)
+end
+
+--- Cross-scheme wiring: add wounded precondition, block state_mgr idle and alife when active
+--- Runs after all schemes call add_to_binder so cross-referenced evaluators exist
+--- @param npc game_object NPC being configured
+--- @param _ini ini_file NPC logic INI (unused, framework signature)
+--- @param _scheme string Scheme name (unused, framework signature)
+--- @param _section string INI section (unused, framework signature)
+--- @param _stype number Scheme type (unused, framework signature)
+--- @param temp table Temporary scheme data with action reference
+function configure_actions(npc, _ini, _scheme, _section, _stype, temp)
+    temp.action:add_precondition(world_property(xr_evaluators_id.sidor_wounded_base, false))
+
+    local manager = npc:motivation_action_manager()
+    for _, aid in ipairs({xr_actions_id.state_mgr + 2, xr_actions_id.alife}) do
+        local blocked = manager:action(aid)
+        if blocked then blocked:add_precondition(world_property(EVAID, false)) end
+    end
+end
+
+--- Block active-section schemes when animation is playing
+function npc_add_precondition(action)
+    action:add_precondition(world_property(EVAID, false))
+end
+
+if modules then
+    LoadScheme("xgoap_anim", "xgoap_anim", modules.stype_stalker)
+end

@@ -330,12 +330,14 @@ end
 
 --- Take scripted control of squad, directing it to a smart terrain
 --- Sets scripted_target which overrides simulation targeting; rejects nil/empty name; squad stays bound until release_squad
+--- scripted_target causes specific_update (direct A->B) instead of generic_update (SIMBOARD:get_squad_target with detours and gulag reassignment)
+--- rush_to_target sets move.run + anim.danger on online NPCs via xr_reach_task:300-313; without it, NPCs walk (move.walk + anim.free)
 --- @safety SAFE - pure field writes on squad userdata, rejects nil/empty :name()
 --- @complexity O(1) | 1 luabind (:name() on target_smart)
---- @see anomaly/sim_squad_scripted.script(258), anomaly/sim_board.script(242)
+--- @see anomaly/sim_squad_scripted.script(258,233-238), anomaly/xr_reach_task.script(289-314)
 --- @param squad table Squad server object
 --- @param target_smart table Target smart terrain
---- @param rush boolean|nil Rush to target
+--- @param rush boolean|nil Rush to target (move.run + anim.danger when online)
 --- @return boolean Success
 function control_squad(squad, target_smart, rush)
     if not squad or not target_smart then return false end

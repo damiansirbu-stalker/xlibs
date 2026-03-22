@@ -53,6 +53,10 @@ No configuration needed. xlibs is a passive library loaded on demand by other mo
 Compatibility:
 Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
 
+Credits:
+Grokitach, DrakoMT, and SaloEater for their support.
+Demonized, Catspaw, Vintar0, RavenAscendant, xcvb, lizzardman, Aoldri, and Feel_Fried. Their work on the engine, modded exes, scripts, and tools shaped how Anomaly modding is done.
+
 Development:
 Source: https://github.com/damiansirbu-stalker/xlibs
 Releases: https://github.com/damiansirbu-stalker/xlibs/releases

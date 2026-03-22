@@ -9,6 +9,11 @@ local STALKER_FACTIONS = {
     "monolith", "stalker", "csky", "zombied", "greh", "isg", "renegade",
 }
 local _factions_cache = {}
+local _has_trader_cache = {}
+local _has_mechanic_cache = {}
+local ANOMALY_RADIUS_SQR = 2500
+local JOB_TYPE_TRADER = 15
+local JOB_TYPE_MECHANIC = 16
 
 --- Check if smart terrain is a base
 --- Reads props.base from simulation_objects_props.ltx; >0 means base type (surge shelter, faction HQ)
@@ -18,7 +23,9 @@ local _factions_cache = {}
 --- @param smart smart_terrain Smart terrain to check
 --- @return boolean True if base
 function is_base(smart)
-    return smart and smart.props and smart.props.base and smart.props.base > 0 or false
+    local props = smart and smart.props
+    if not props then return false end
+    return props.base and props.base > 0 or false
 end
 
 --- Check if smart terrain is a lair (mutant nest)
@@ -29,7 +36,9 @@ end
 --- @param smart smart_terrain Smart terrain to check
 --- @return boolean True if lair
 function is_lair(smart)
-    return smart and smart.props and smart.props.lair and smart.props.lair > 0 or false
+    local props = smart and smart.props
+    if not props then return false end
+    return props.lair and props.lair > 0 or false
 end
 
 --- Check if smart terrain is a resource point
@@ -40,7 +49,9 @@ end
 --- @param smart smart_terrain Smart terrain to check
 --- @return boolean True if resource
 function is_resource(smart)
-    return smart and smart.props and smart.props.resource and smart.props.resource > 0 or false
+    local props = smart and smart.props
+    if not props then return false end
+    return props.resource and props.resource > 0 or false
 end
 
 --- Check if smart terrain is a territory
@@ -51,7 +62,9 @@ end
 --- @param smart smart_terrain Smart terrain to check
 --- @return boolean True if territory
 function is_territory(smart)
-    return smart and smart.props and smart.props.territory and smart.props.territory > 0 or false
+    local props = smart and smart.props
+    if not props then return false end
+    return props.territory and props.territory > 0 or false
 end
 
 --- Check if smart terrain is important (base, resource, or territory)
@@ -65,6 +78,83 @@ function is_smart_important(smart)
     if not smart or not smart.props then return false end
     local props = smart.props
     return (props.base and props.base > 0) or (props.resource and props.resource > 0) or (props.territory and props.territory > 0)
+end
+
+-- =============================================================================
+-- RUNTIME QUERIES
+-- =============================================================================
+
+-- Check smart terrain job list for job_type_id (shared by has_trader_job, has_mechanic_job)
+local function _has_job_type(smart, type_id, cache)
+    local cached = cache[smart.id]
+    if cached ~= nil then return cached end
+    if not smart.stalker_jobs then return false end
+    for i = 1, #smart.stalker_jobs do
+        if smart.stalker_jobs[i].job_type_id == type_id then
+            cache[smart.id] = true
+            return true
+        end
+    end
+    cache[smart.id] = false
+    return false
+end
+
+--- Check if smart terrain has a campfire
+--- Reads db.campfire_table_by_smart_names populated by bind_campfire.script on net_spawn; online scope (switch_distance)
+--- @safety SAFE - nil-guarded, next() guards empty sub-tables left by individual campfire net_destroy
+--- @complexity O(1) | 1 luabind (smart:name())
+--- @see anomaly/bind_campfire.script(288-293,311-318), anomaly/axr_turn_on_campfire.script(136-137)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if smart has campfire(s)
+function has_campfire(smart)
+    if not smart then return false end
+    local tbl = db.campfire_table_by_smart_names and db.campfire_table_by_smart_names[smart:name()]
+    return tbl and next(tbl) ~= nil or false
+end
+
+--- Check if smart terrain has trader job slots
+--- Checks job_type_id=15 in stalker_jobs; cached per smart.id (static after init)
+--- @safety SAFE - pure Lua iteration, nil-guarded. Cached per smart.id (static after init).
+--- @complexity O(k) jobs first call, O(1) cached | 0 luabind
+--- @see anomaly/gulag_general.script(969-971), job_type_id=15, priority=59
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if smart has trader jobs
+function has_trader_job(smart)
+    if not smart then return false end
+    return _has_job_type(smart, JOB_TYPE_TRADER, _has_trader_cache)
+end
+
+--- Check if smart terrain has mechanic job slots
+--- Checks job_type_id=16 in stalker_jobs; cached per smart.id (static after init)
+--- @safety SAFE - pure Lua iteration, nil-guarded. Cached per smart.id (static after init).
+--- @complexity O(k) jobs first call, O(1) cached | 0 luabind
+--- @see anomaly/gulag_general.script(994-996), job_type_id=16, priority=59
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if smart has mechanic jobs
+function has_mechanic_job(smart)
+    if not smart then return false end
+    return _has_job_type(smart, JOB_TYPE_MECHANIC, _has_mechanic_cache)
+end
+
+--- Check if smart terrain is near anomaly zones
+--- Proximity check against db.anomaly_by_name; online scope (switch_distance, not current-level)
+--- @safety SAFE - nil-guarded, no pcall. binder.object guarded for net_destroy transition edge case
+--- @complexity O(k) k=online anomaly zones (5-15) | 1+2k luabind (smart.position, position(), distance_to_sqr)
+--- @see anomaly/db.script(29,94-100), anomaly/bind_anomaly_zone.script(485,492)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if smart within 50m of any online anomaly zone
+function has_anomaly(smart)
+    if not smart then return false end
+    local smart_pos = smart.position
+    if not smart_pos then return false end
+    if not db.anomaly_by_name then return false end
+    for _, binder in pairs(db.anomaly_by_name) do
+        local obj = binder.object
+        if obj and smart_pos:distance_to_sqr(obj:position()) < ANOMALY_RADIUS_SQR then
+            return true
+        end
+    end
+    return false
 end
 
 --- Get nearest smart terrain to actor

@@ -1,4 +1,4 @@
---- xtable: Table utilities (filter, find, count, shuffle, sort, memoize)
+--- xtable: Table utilities (filter, find, count, sweep, shuffle, sort, memoize)
 
 local pairs, ipairs, type, assert, error = pairs, ipairs, type, assert, error
 local clock = os.clock
@@ -113,6 +113,29 @@ function filter(t, fn, opts)
         end
     end
     return result
+end
+
+local _sweep_buf = {}
+
+--- Remove entries from hash table where fn(key) returns true (in-place)
+--- Collects keys into module-level buffer then removes; reuses buffer to avoid GC pressure (Demonized pattern)
+--- @safety SAFE - pure Lua, two-pass (collect then remove)
+--- @complexity O(n) | 0 luabind
+--- @param t table Hash table to sweep
+--- @param fn function(key) -> boolean Predicate on key (true = remove)
+--- @param on_remove function(key)|nil Optional callback before each removal
+--- @return number Count of entries removed
+function sweep(t, fn, on_remove)
+    local count = 0
+    for k in pairs(t) do
+        if fn(k) then count = count + 1; _sweep_buf[count] = k end
+    end
+    for i = 1, count do
+        if on_remove then on_remove(_sweep_buf[i]) end
+        t[_sweep_buf[i]] = nil
+        _sweep_buf[i] = nil
+    end
+    return count
 end
 
 --- Find first element matching predicate

@@ -27,10 +27,10 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  | xprofiler |  |  xtrace   |  | xinspect  |  |  xevent   |       |
 |  | Profiling |  | Trace IDs |  | Deep Dbg  |  | Fn Hooks  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+  +-----------+                      |
-|  |   xpda    |  | xstring   |  |  xdata    |                      |
-|  | PDA/Map   |  | Interp.   |  | Static    |                      |
-|  +-----------+  +-----------+  +-----------+                      |
+|  +-----------+  +-----------+  +-----------+  +------------+       |
+|  |   xpda    |  | xstring   |  |  xdata    |  | xgoap_anim |       |
+|  | PDA/Map   |  | Interp.   |  | Static    |  | NPC Anim   |       |
+|  +-----------+  +-----------+  +-----------+  +------------+       |
 +-------------------------------------------------------------------+
 ```
 
@@ -270,6 +270,22 @@ end)
 **Naming convention:** `x_` prefix for synthetic events (e.g., `x_npc_medkit_use`)
 
 **How it works:** Lua functions are table entries. We save the original, replace with wrapper that calls original + emits callback. Zero engine modification.
+
+### xgoap_anim.script - NPC Animation Scheme
+
+Generic GOAP scheme for playing scripted animations on online NPCs. Any system writes the storage field, the scheme handles the rest.
+
+**Writer contract:**
+```lua
+local st = db.storage[npc_id]
+st.x_anim = { state = "sit_ass_eat_bread", expire = time_global() + 5000 }
+```
+
+- `evaluator_anim` - Returns true when `x_anim` is set and not expired (evaid 188200)
+- `action_anim` - Stops NPC movement, plays animation via `state_mgr.set_state`, clears on finalize (actid 188200)
+- Preconditions: alive, no enemy, no danger, not wounded
+- Blocks: `state_mgr` idle, `alife`. Does NOT block combat planner
+- Standard 5-function Anomaly scheme: `LoadScheme("xgoap_anim", "xgoap_anim", modules.stype_stalker)`
 
 ### xpda.script - PDA/Map
 
