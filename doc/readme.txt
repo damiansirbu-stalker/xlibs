@@ -54,7 +54,7 @@ Compatibility:
 Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
 
 Credits:
-Grokitach, DrakoMT, and SaloEater for their support.
+DrakoMT and SaloEater for their support.
 Demonized, Catspaw, Vintar0, RavenAscendant, xcvb, lizzardman, Aoldri, and Feel_Fried. Their work on the engine, modded exes, scripts, and tools shaped how Anomaly modding is done.
 
 Development:
@@ -64,6 +64,9 @@ Written against X-Ray Monolith engine source, Demonized exes source code, and An
 Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
 The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
 Full report in doc/test-report.log.
+
+License:
+MIT License. See LICENSE file.
 
 Versions:
 
