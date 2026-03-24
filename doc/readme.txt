@@ -1,5 +1,5 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
-Latest: 1.0.5
+Latest: 1.2.0
 
 xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 
@@ -69,6 +69,11 @@ License:
 MIT License. See LICENSE file.
 
 Versions:
+
+1.2.0
+  Added: xttltable.create_token_bucket -- per-key O(1) rate limiter with fractional accumulation
+  Added: xsmart.get_smart_squads -- returns raw SIMBOARD squads table for a smart terrain
+  Fixed: xobject.get_box_size crash when ammo section doesn't exist in system_ini
 
 1.0.5
   xlevel pcall removal, nil guard improvements.

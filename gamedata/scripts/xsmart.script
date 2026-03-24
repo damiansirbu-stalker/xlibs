@@ -255,6 +255,21 @@ function is_smart_empty(smart)
     return next(data.squads) == nil
 end
 
+--- Get squads table for a smart terrain
+--- Returns the raw SIMBOARD.smarts[id].squads hash ({[squad_id]=squad_id}); caller iterates via next()
+--- @safety SAFE - pure Lua, nil-guarded at every level
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/sim_board.script(96)
+--- @param smart userdata Smart terrain server entity
+--- @return table|nil Squads table or nil if unavailable
+function get_smart_squads(smart)
+    if not smart then return nil end
+    if not SIMBOARD or not SIMBOARD.smarts then return nil end
+    local data = SIMBOARD.smarts[smart.id]
+    if not data or not data.squads then return nil end
+    return data.squads
+end
+
 --- Find nearest smart terrain matching criteria
 --- Iterates smarts_by_names; cheapest filters first (exclude_id, factions, level_id), distance_to_sqr last
 --- @safety SAFE - nil-guarded; xlevel.get_level_id uses pcall internally

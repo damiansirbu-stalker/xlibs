@@ -11,7 +11,7 @@
 --- Timing: os.clock (Lua C API, zero bridge overhead). All durations in seconds.
 
 local pairs, type, setmetatable = pairs, type, setmetatable
-local clock = os.clock
+local clock, min = os.clock, math.min
 
 -- Shared cleanup buffer (Demonized pattern: collect keys, then remove)
 local _remove_buf = {}
@@ -197,4 +197,48 @@ end
 function create_ttl_counter(opts)
     opts = opts or {}
     return setmetatable({ _ttl = opts.ttl, _buckets = {} }, _ttl_counter_mt)
+end
+
+--------------------------------------------------------------------------------
+-- Token Bucket: per-key rate limiter with burst control
+--------------------------------------------------------------------------------
+local _token_bucket_mt = {}
+_token_bucket_mt.__index = _token_bucket_mt
+
+--- Acquire one token for key, return true if allowed
+function _token_bucket_mt:acquire(key)
+    local now = clock()
+    local state = self._keys[key]
+    if not state then
+        self._keys[key] = { tokens = self._capacity - 1, last_time = now }
+        return true
+    end
+    local elapsed = now - state.last_time
+    state.tokens = min(self._capacity, state.tokens + elapsed * self._rate)
+    state.last_time = now
+    if state.tokens >= 1 then
+        state.tokens = state.tokens - 1
+        return true
+    end
+    return false
+end
+
+--- Reset bucket state for key
+function _token_bucket_mt:reset(key) self._keys[key] = nil end
+
+--- Clear all bucket states
+function _token_bucket_mt:clear() self._keys = {} end
+
+--- Create per-key token bucket rate limiter
+--- O(1) per acquire with fractional accumulation; bucket capacity is burst limit, rate controls sustained throughput
+--- @safety SAFE - pure Lua tables + os.clock (standard C API, not luabind)
+--- @complexity O(1) per acquire | 0 luabind
+--- @param opts table { capacity, rate } capacity = max burst (tokens), rate = refill (tokens/sec)
+--- @return table Token bucket with :acquire(key) -> bool, :reset(key), :clear()
+function create_token_bucket(opts)
+    return setmetatable({
+        _capacity = opts.capacity,
+        _rate = opts.rate,
+        _keys = {},
+    }, _token_bucket_mt)
 end

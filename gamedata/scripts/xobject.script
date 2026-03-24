@@ -43,16 +43,17 @@ function go(id)
 end
 
 --- Get ammo box size for a given ammo section
---- Reads box_size from system INI (parsed at load, in-memory lookup); result cached per section
---- @safety SAFE - ini_sys:r_u32 returns nil for missing keys, nil-guarded
---- @complexity O(1) | 0-1 luabind (0 on cache hit, 1 ini_sys:r_u32 on miss)
---- @see xray/xrServerEntities/script_ini_file.cpp, anomaly/_g.script(3241)
+--- Reads box_size from system INI; guarded because r_u32 crashes on missing section/key (C++ Debug.fatal)
+--- @safety SAFE - section_exist + line_exist guard before r_u32; result cached per section
+--- @complexity O(1) | 0-3 luabind (0 on cache hit, 3 on miss: section_exist + line_exist + r_u32)
+--- @see xray/xrServerEntities/script_ini_file.cpp(79), xray/xrCore/Xr_ini.cpp(1206)
 --- @param sec string Ammo section name
 --- @return number|nil Box size or nil if section/key missing
 function get_box_size(sec)
     if not sec then return nil end
     local v = _box_size_cache[sec]
     if v then return v end
+    if not ini_sys:section_exist(sec) or not ini_sys:line_exist(sec, "box_size") then return nil end
     v = ini_sys:r_u32(sec, "box_size")
     if v then _box_size_cache[sec] = v end
     return v
