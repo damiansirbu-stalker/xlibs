@@ -3,6 +3,7 @@
 local pairs, type, pcall, tostring = pairs, type, pcall, tostring
 local table_concat = table.concat
 local string_format, math_floor = string.format, math.floor
+local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 
 OBJECT_TYPE = {
     STALKER = "stalker",
@@ -82,10 +83,10 @@ function userdata(obj)
     end
 
     local ok_parent, parent = pcall(function() return obj.parent_id end)
-    if ok_parent and parent and parent ~= 65535 then parts[#parts + 1] = "parent=" .. parent end
+    if ok_parent and parent and parent ~= INVALID_ENTITY_ID then parts[#parts + 1] = "parent=" .. parent end
 
     local ok_squad, squad = pcall(function() return obj.group_id end)
-    if ok_squad and squad and squad ~= 65535 then parts[#parts + 1] = "squad=" .. squad end
+    if ok_squad and squad and squad ~= INVALID_ENTITY_ID then parts[#parts + 1] = "squad=" .. squad end
 
     if #parts == 0 then
         return obj_type and ("@" .. obj_type .. "{}") or "userdata"

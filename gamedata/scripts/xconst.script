@@ -1,0 +1,7 @@
+--- xconst: X-Ray engine sentinel constants
+
+--- Invalid entity ID (u16 MAX, alife_space.h:39, 0xFFFF)
+INVALID_ENTITY_ID = 65535
+
+--- Invalid level vertex ID (u32 MAX, 0xFFFFFFFF)
+INVALID_LEVEL_VERTEX_ID = 4294967295

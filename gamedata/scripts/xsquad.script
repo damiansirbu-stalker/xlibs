@@ -4,7 +4,7 @@ local pairs, type, next, tostring = pairs, type, next, tostring
 local string_format, table_concat = string.format, table.concat
 local alife, alife_object = alife, alife_object
 
-local INVALID_GROUP = 65535
+local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 
 local function _EMPTY_ITER() return nil end
 
@@ -67,7 +67,7 @@ end
 
 --- Get squad containing an NPC by member ID
 --- Looks up se_npc via alife_object, reads group_id, resolves squad via alife_object
---- @safety SAFE - returns nil for invalid IDs, group_id >= 65535 means no squad
+--- @safety SAFE - returns nil for invalid IDs, group_id >= INVALID_ENTITY_ID means no squad
 --- @complexity O(1) | 2 luabind (alife_object for NPC + alife_object for squad)
 --- @see anomaly/_g.script(2044), xray/xrServerEntities/xrServer_Objects_ALife_script.cpp
 --- @param npc_id number NPC ID (can be offline)
@@ -77,7 +77,7 @@ function get_squad_by_member(npc_id)
     local se_npc = alife_object(npc_id)
     if not se_npc then return nil end
     local group_id = se_npc.group_id
-    if not group_id or group_id >= INVALID_GROUP then return nil end
+    if not group_id or group_id >= INVALID_ENTITY_ID then return nil end
     return alife_object(group_id)
 end
 

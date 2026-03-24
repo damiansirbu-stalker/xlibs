@@ -17,6 +17,7 @@ Entity and World:
   xobject      Server object resolution from any input type, offline item creation
   xstash       Stash discovery, looting, filling, item filtering
   xdata        Unscriptable NPC/squad tables (traders, mechanics, story characters)
+  xconst       X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
 
 Data Structures:
   xtable       Filter, find, reduce, clone, shuffle, sort, binary insert, memoize, locks
@@ -71,9 +72,11 @@ MIT License. See LICENSE file.
 Versions:
 
 1.2.0
+  Added: xconst -- centralized X-Ray engine sentinel constants (INVALID_ENTITY_ID, INVALID_LEVEL_VERTEX_ID)
   Added: xttltable.create_token_bucket -- per-key O(1) rate limiter with fractional accumulation
   Added: xttltable token bucket peek() -- O(1) availability check without consuming a token
   Added: xsmart.get_smart_squads -- returns raw SIMBOARD squads table for a smart terrain
+  Changed: xlevel, xsquad, xinspect use xconst instead of file-local magic numbers
   Changed: xsmart.get_smart_squads accepts smart_id (number) instead of entity (saves 1 luabind)
   Fixed: xobject.get_box_size crash when ammo section doesn't exist in system_ini
 

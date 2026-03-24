@@ -4,8 +4,7 @@ local pcall = pcall
 
 local gg = nil
 
--- Invalid level vertex ID (0xFFFFFFFF) - offline/transitioning entities have this value
-local INVALID_LVID = 4294967295
+local INVALID_LEVEL_VERTEX_ID = xconst.INVALID_LEVEL_VERTEX_ID
 
 --- @safety pcall: game_graph() crashes during level transitions
 local function get_game_graph()
@@ -122,5 +121,5 @@ end
 function is_valid_lvid(se_obj)
     if not se_obj then return false end
     if not se_obj.m_level_vertex_id then return false end
-    return se_obj.m_level_vertex_id < INVALID_LVID
+    return se_obj.m_level_vertex_id < INVALID_LEVEL_VERTEX_ID
 end
