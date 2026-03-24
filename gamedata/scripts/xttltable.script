@@ -223,6 +223,15 @@ function _token_bucket_mt:acquire(key)
     return false
 end
 
+--- Check if a token is available for key without consuming it
+--- @complexity O(1) | 0 luabind
+function _token_bucket_mt:peek(key)
+    local state = self._keys[key]
+    if not state then return true end
+    local elapsed = clock() - state.last_time
+    return min(self._capacity, state.tokens + elapsed * self._rate) >= 1
+end
+
 --- Reset bucket state for key
 function _token_bucket_mt:reset(key) self._keys[key] = nil end
 

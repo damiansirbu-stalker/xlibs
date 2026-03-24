@@ -72,7 +72,9 @@ Versions:
 
 1.2.0
   Added: xttltable.create_token_bucket -- per-key O(1) rate limiter with fractional accumulation
+  Added: xttltable token bucket peek() -- O(1) availability check without consuming a token
   Added: xsmart.get_smart_squads -- returns raw SIMBOARD squads table for a smart terrain
+  Changed: xsmart.get_smart_squads accepts smart_id (number) instead of entity (saves 1 luabind)
   Fixed: xobject.get_box_size crash when ammo section doesn't exist in system_ini
 
 1.0.5
