@@ -2,6 +2,8 @@
 
 local pairs, ipairs, type, pcall, setmetatable = pairs, ipairs, type, pcall, setmetatable
 local string = string
+local IsMonster, IsStalker, alife_character_community = IsMonster, IsStalker, alife_character_community
+local get_object_story_id, get_object_squad = get_object_story_id, get_object_squad
 
 ENTITY = {
     STALKER = "stalker",

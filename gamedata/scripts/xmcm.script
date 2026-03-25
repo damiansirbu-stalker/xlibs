@@ -49,6 +49,14 @@ function create_getter(mod_id, defaults, path_builder)
     end
 end
 
+local function _read_mcm(mod_id, path_builder, k, def)
+    if not ui_mcm then return def end
+    local path = path_builder and path_builder(k) or (mod_id .. "/" .. k)
+    local val = ui_mcm.get(path)
+    if val ~= nil then return val end
+    return def
+end
+
 --- Create a settings loader function (Demonized pattern)
 --- Returns closure that iterates defaults, reads ui_mcm.get per key, writes to settings table
 --- @safety SAFE - ui_mcm.get returns nil for missing keys, defaults table is fallback
@@ -60,13 +68,7 @@ end
 function create_loader(mod_id, defaults, path_builder)
     return function(settings)
         for k, def in pairs(defaults) do
-            local val = def
-            if ui_mcm then
-                local path = path_builder and path_builder(k) or (mod_id .. "/" .. k)
-                local mcm_val = ui_mcm.get(path)
-                if mcm_val ~= nil then val = mcm_val end
-            end
-            settings[k] = val
+            settings[k] = _read_mcm(mod_id, path_builder, k, def)
         end
     end
 end

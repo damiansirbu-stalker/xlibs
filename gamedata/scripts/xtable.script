@@ -32,17 +32,19 @@ local function _get_iterator(x)
     error("expected table", 3)
 end
 
+local function _table_matcher(tbl)
+    return function(z)
+        for k, v in pairs(tbl) do
+            if z[k] ~= v then return false end
+        end
+        return true
+    end
+end
+
 local function _to_predicate(x)
     if x == nil then return identity end
     if _is_callable(x) then return x end
-    if type(x) == "table" then
-        return function(z)
-            for k, v in pairs(x) do
-                if z[k] ~= v then return false end
-            end
-            return true
-        end
-    end
+    if type(x) == "table" then return _table_matcher(x) end
     return function(z) return z[x] end
 end
 

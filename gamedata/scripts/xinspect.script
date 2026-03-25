@@ -3,6 +3,8 @@
 local pairs, type, pcall, tostring = pairs, type, pcall, tostring
 local table_concat = table.concat
 local string_format, math_floor = string.format, math.floor
+local IsStalker, IsMonster, IsWeapon, IsOutfit, IsHeadgear = IsStalker, IsMonster, IsWeapon, IsOutfit, IsHeadgear
+local IsItem, IsAnomaly, IsInvbox, character_community = IsItem, IsAnomaly, IsInvbox, character_community
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 
 OBJECT_TYPE = {

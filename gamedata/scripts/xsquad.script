@@ -3,6 +3,7 @@
 local pairs, type, next, tostring = pairs, type, next, tostring
 local string_format, table_concat = string.format, table.concat
 local alife, alife_object = alife, alife_object
+local get_object_story_id, IsStalker, get_object_squad = get_object_story_id, IsStalker, get_object_squad
 
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 
