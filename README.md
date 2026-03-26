@@ -1,0 +1,14 @@
+# xlibs: Shared Utility Library for STALKER Anomaly Modding
+
+A modder's toolbox covering entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures. API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from established European and Russian STALKER modders. Every function wraps engine quirks, guards against nil, and handles edge cases that each mod would otherwise solve independently.
+
+Pure Lua where possible. No central loader. Just call the function and it works.
+
+[ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) | [Releases](https://github.com/damiansirbu-stalker/xlibs/releases)
+
+Requires: Anomaly 1.5.3, Modded exes
+
+## Documentation
+
+- [readme.txt](doc/readme.txt) -- full description, module list, changelog
+- [architecture.md](doc/architecture.md) -- technical reference for modders

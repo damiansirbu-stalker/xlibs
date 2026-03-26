@@ -40,7 +40,7 @@ end
 --- @return function getter function(key) -> value
 function create_getter(mod_id, defaults, path_builder)
     return function(key)
-        if ui_mcm then
+        if ui_mcm and not (ui_mcm.is_gathering and ui_mcm.is_gathering()) then
             local path = path_builder and path_builder(key) or (mod_id .. "/" .. key)
             local val = ui_mcm.get(path)
             if val ~= nil then return val end
@@ -50,7 +50,7 @@ function create_getter(mod_id, defaults, path_builder)
 end
 
 local function _read_mcm(mod_id, path_builder, k, def)
-    if not ui_mcm then return def end
+    if not ui_mcm or (ui_mcm.is_gathering and ui_mcm.is_gathering()) then return def end
     local path = path_builder and path_builder(k) or (mod_id .. "/" .. k)
     local val = ui_mcm.get(path)
     if val ~= nil then return val end
@@ -71,6 +71,26 @@ function create_loader(mod_id, defaults, path_builder)
             settings[k] = _read_mcm(mod_id, path_builder, k, def)
         end
     end
+end
+
+--- Create a complete MCM config: pre-seeded table, getter, and loader
+--- Seeds cfg from defaults at creation (no ui_mcm call); loader reads MCM when called
+--- @safety SAFE - creation is pure Lua table copy, loader delegates to create_getter
+--- @complexity O(n) defaults at creation, O(n) defaults per load call | 0 luabind at creation
+--- @param mod_id string MCM mod identifier
+--- @param defaults table Default values {key = value}
+--- @param path_builder function|nil Optional function(key) -> mcm_path
+--- @return table cfg Pre-seeded config table
+--- @return function getter Per-key getter function(key) -> value
+--- @return function load Loader that refreshes all cfg values from MCM
+function create_config(mod_id, defaults, path_builder)
+    local getter = create_getter(mod_id, defaults, path_builder)
+    local cfg = {}
+    for k, v in pairs(defaults) do cfg[k] = v end
+    local function load()
+        for k in pairs(defaults) do cfg[k] = getter(k) end
+    end
+    return cfg, getter, load
 end
 
 --- Format defaults as string (for logging)
