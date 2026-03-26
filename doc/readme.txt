@@ -1,5 +1,6 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
 Latest: 1.2.0
+GitHub: https://github.com/damiansirbu-stalker/xlibs
 
 xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 
@@ -54,28 +55,23 @@ No configuration needed. xlibs is a passive library loaded on demand by other mo
 Compatibility:
 Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
 
-Credits:
-DrakoMT and SaloEater for their support.
-Demonized, Catspaw, Vintar0, RavenAscendant, xcvb, lizzardman, Aoldri, and Feel_Fried. Their work on the engine, modded exes, scripts, and tools shaped how Anomaly modding is done.
-
 Development:
-Source: https://github.com/damiansirbu-stalker/xlibs
-Releases: https://github.com/damiansirbu-stalker/xlibs/releases
 Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
 Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
 The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
 Full report in doc/test-report.log.
 
-License:
-MIT License. See LICENSE file.
+Credits:
+DrakoMT and SaloEater for their support.
+Demonized, Catspaw, Vintar0, RavenAscendant, xcvb, lizzardman, Aoldri, and Feel_Fried. Their work on the engine, modded exes, scripts, and tools shaped how Anomaly modding is done.
 
 Versions:
 
 1.2.0
-  Added: xconst -- centralized X-Ray engine sentinel constants (INVALID_ENTITY_ID, INVALID_LEVEL_VERTEX_ID)
-  Added: xttltable.create_token_bucket -- per-key O(1) rate limiter with fractional accumulation
-  Added: xttltable token bucket peek() -- O(1) availability check without consuming a token
-  Added: xsmart.get_smart_squads -- returns raw SIMBOARD squads table for a smart terrain
+  Added: xconst - centralized X-Ray engine sentinel constants (INVALID_ENTITY_ID, INVALID_LEVEL_VERTEX_ID)
+  Added: xttltable.create_token_bucket - per-key O(1) rate limiter with fractional accumulation
+  Added: xttltable token bucket peek() - O(1) availability check without consuming a token
+  Added: xsmart.get_smart_squads - returns raw SIMBOARD squads table for a smart terrain
   Changed: xlevel, xsquad, xinspect use xconst instead of file-local magic numbers
   Changed: xsmart.get_smart_squads accepts smart_id (number) instead of entity (saves 1 luabind)
   Fixed: xobject.get_box_size crash when ammo section doesn't exist in system_ini

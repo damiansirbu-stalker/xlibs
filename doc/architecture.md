@@ -49,7 +49,7 @@ Buffered file logging with session management.
 ```lua
 local log = xlog.get_logger("MY.MODULE", { outfile = "mymod.log" })
 log.info("Message: %s", value)
-log.error("Error")  -- includes stack trace
+log.error("Error")  -includes stack trace
 ```
 
 - `get_logger(name, cfg)` - Create logger (levels: DEBUG, INFO, WARN, ERROR)
@@ -122,11 +122,11 @@ xsquad.release_squad(squad)
 ### xobject.script - Generic Object Helpers
 
 ```lua
-local se = xobject.se(any_input)  -- ID, game object, or server object
-local npc = xobject.go(npc_id)  -- online game object or nil
-local item = xobject.create_item("wpn_ak74", npc_id)  -- works offline
-local item = xobject.create_item("ammo_5.45x39_ap", npc_id, { ammo = 60 })  -- 60 rounds
-local box = xobject.get_box_size("ammo_5.45x39_ap")  -- cached INI read
+local se = xobject.se(any_input)  -ID, game object, or server object
+local npc = xobject.go(npc_id)  -online game object or nil
+local item = xobject.create_item("wpn_ak74", npc_id)  -works offline
+local item = xobject.create_item("ammo_5.45x39_ap", npc_id, { ammo = 60 })  -60 rounds
+local box = xobject.get_box_size("ammo_5.45x39_ap")  -cached INI read
 ```
 
 - `se(input)` - Get server object from any input type

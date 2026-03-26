@@ -1,5 +1,5 @@
 STALKER Mod Validation Report
-Generated: 2026-03-17 15:40:41
+Generated: 2026-03-26 15:36:15
 Validator: stalker-manager validate
 Mods: 1
 
@@ -9,6 +9,7 @@ xlibs
 
 Files:
   gamedata/scripts/xbus.script
+  gamedata/scripts/xconst.script
   gamedata/scripts/xcreature.script
   gamedata/scripts/xdata.script
   gamedata/scripts/xevent.script
@@ -32,16 +33,16 @@ Files:
 
 [1/5] luacheck - static analysis (PASS)
   Checks: syntax errors, undefined globals, unused variables, type mismatches
-  Files checked: 21
+  Files checked: 22
   Errors: 0
 
 [2/5] selene - advanced linting (PASS)
   Checks: shadowing, deprecated API, misused variables, style violations
-  Files checked: 21
+  Files checked: 22
   Errors: 0, Warnings: 0
 
 [3/5] contract - project rules (PASS (S+))
-  Rules loaded: 221
+  Rules loaded: 227
   Score: 0
 
   PASS  [alao-table-insert] LUA-LOW w1 - table.insert optimization
@@ -128,12 +129,14 @@ Files:
   PASS  [deepseek-ui-setautodelete-missing] XRAY-HIGH w9 - UI SetAutoDelete missing
   PASS  [deepseek-sound-no-cleanup] XRAY-MED w5 - Sound no cleanup
   PASS  [deepseek-ahead-caching] LUA-LOW w3 - Ahead-caching anti-pattern
+  PASS  [depgate-format] LUA-HIGH w9 - Dependency gate format
+  PASS  [depgate-missing] LUA-HIGH w9 - Dependency gate missing
   PASS  [library-self-namespace] XRAY-HIGH w9 - Self-namespace creation
   PASS  [library-nil-level-object] XRAY-HIGH w9 - level.object_by_id nil access
   PASS  [library-nil-alife-object] XRAY-HIGH w9 - alife():object nil access
   PASS  [library-pcall-game-graph] XRAY-HIGH w9 - game_graph without pcall
   PASS  [library-pcall-map-markers] XRAY-HIGH w9 - Map markers without pcall
-  PASS  [library-pcall-level-time] XRAY-HIGH w9 - level.get_time_days without pcall
+  PASS  [library-pcall-level-time] XRAY-LOW w3 - level.get_time_days without level.present() guard
   PASS  [library-lvid-guard] XRAY-HIGH w9 - Unchecked m_level_vertex_id
   PASS  [library-db-actor-unchecked] XRAY-HIGH w9 - db.actor without nil check
   PASS  [library-module-level-script-access] XRAY-HIGH w9 - Module-level access to other scripts
@@ -226,6 +229,7 @@ Files:
   PASS  [mcm-undefined-key] XRAY-MED w5 - Undefined MCM key
   PASS  [mcm-unused-default] XRAY-LOW w1 - Unused MCM default
   PASS  [mcm-missing-localization] XRAY-MED w5 - Missing MCM localization
+  PASS  [mcm-uncached-config] XRAY-MED w5 - Uncached MCM config proxy
   PASS  [standards-nesting-depth] LUA-LOW w1 - standards-nesting-depth
   PASS  [standards-function-length] LUA-LOW w1 - standards-function-length
   PASS  [standards-file-length] LUA-LOW w1 - standards-file-length
@@ -245,6 +249,7 @@ Files:
   PASS  [standards-missing-luadoc-return] LUA-LOW w1 - standards-missing-luadoc-return
   PASS  [standards-pcall-without-safety] LUA-LOW w1 - standards-pcall-without-safety
   PASS  [standards-missing-safety-pcall] LUA-LOW w1 - standards-missing-safety-pcall
+  PASS  [standards-pcall-safe-function] LUA-MED w5 - standards-pcall-safe-function
   PASS  [standards-hardcoded-section] LUA-LOW w1 - standards-hardcoded-section
   PASS  [standards-backwards-compat] LUA-LOW w1 - standards-backwards-compat
   PASS  [standards-empty-function] LUA-LOW w1 - standards-empty-function
@@ -252,6 +257,7 @@ Files:
   PASS  [standards-nested-ternary] LUA-MED w5 - standards-nested-ternary
   PASS  [standards-guard-not-early] LUA-LOW w1 - standards-guard-not-early
   PASS  [standards-global-cache-separate-lines] LUA-STYLE w0.1 - standards-global-cache-separate-lines
+  PASS  [standards-uncached-global] LUA-MED w5 - standards-uncached-global
   PASS  [standards-require-in-function] LUA-MED w5 - standards-require-in-function
   PASS  [standards-local-shadows-export] LUA-HIGH w9 - standards-local-shadows-export
   PASS  [standards-numeric-for-wrong] LUA-MED w5 - standards-numeric-for-wrong
@@ -263,40 +269,42 @@ Files:
   PASS  [standards-lua52-api] LUA-HIGH w9 - standards-lua52-api
   PASS  [standards-local-function-arity] LUA-HIGH w9 - standards-local-function-arity
   PASS  [standards-unused-function-param] LUA-LOW w1 - standards-unused-function-param
+  PASS  [standards-guard-only-param] LUA-MED w5 - standards-guard-only-param
   PASS  [version-drift] LUA-HIGH w9 - Version drift
   PASS  [xlibs-engine-docs] LUA-MED w4 - xlibs-engine-docs
 
 [4/5] load - runtime loading (PASS)
   Test: lua54 interpreter + X-Ray engine stubs
   Load test: xlibs
-  LOAD: xobject
-  LOAD: xevent
-  LOAD: xtable
   LOAD: xsquad
   LOAD: xdata
-  LOAD: xcreature
-  LOAD: xpda
-  LOAD: xlibs
-  LOAD: xstash
-  LOAD: xprofiler
-  LOAD: xttltable
-  LOAD: xstring
-  LOAD: xsmart
-  LOAD: xlog
-  LOAD: xbus
-  LOAD: xtrace
   LOAD: xlibs_mcm
   LOAD: xmcm
-  LOAD: xmath
-  LOAD: xinspect
+  LOAD: xbus
+  LOAD: xstring
+  LOAD: xsmart
+  LOAD: xconst
+  LOAD: xprofiler
+  LOAD: xevent
+  LOAD: xttltable
+  LOAD: xtrace
+  LOAD: xcreature
+  LOAD: xstash
   LOAD: xlevel
+  LOAD: xtable
+  LOAD: xobject
+  LOAD: xinspect
+  LOAD: xmath
+  LOAD: xlibs
+  LOAD: xlog
+  LOAD: xpda
   START: xlog.on_game_start
-  OK: 21 loaded, 1 on_game_start
+  OK: 22 loaded, 1 on_game_start
 
 [5/5] gitleaks - secret scanning (PASS)
   Scan: credentials, API keys, tokens, private keys
-  3:40PM INF scanned ~163962 bytes (163.96 KB) in 109ms
-  3:40PM INF no leaks found
+  3:36PM INF scanned ~193070 bytes (193.07 KB) in 115ms
+  3:36PM INF no leaks found
 
 ========================================================================
 RESULT: PASS | Grade: S+ | Score: 0
