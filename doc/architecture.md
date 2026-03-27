@@ -27,10 +27,10 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  | xprofiler |  |  xtrace   |  | xinspect  |  |  xevent   |       |
 |  | Profiling |  | Trace IDs |  | Deep Dbg  |  | Fn Hooks  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+  +-----------+                       |
-|  |   xpda    |  | xstring   |  |  xdata    |                       |
-|  | PDA/Map   |  | Interp.   |  | Static    |                       |
-|  +-----------+  +-----------+  +-----------+                       |
+|  +-----------+  +-----------+  +-----------+  +-----------+       |
+|  |   xpda    |  | xstring   |  |  xdata    |  |  xconst   |       |
+|  | PDA/Map   |  | Interp.   |  | Static    |  | Sentinels |       |
+|  +-----------+  +-----------+  +-----------+  +-----------+       |
 +-------------------------------------------------------------------+
 ```
 
@@ -92,7 +92,8 @@ xcreature.query():stalkers():alive():on_level(lvl):each(fn)
 - `get_name(input)` - Get translated name
 - `pos(input)` - Get position
 - `give_money(obj, amount)` - Give rubles to game_object
-- `is_protected(obj)` - Check against xdata.protected_npcs
+- `is_unscriptable(obj)` - Check against xdata.unscriptable_npcs
+- `is_task_giver(obj)` - Check NPC/squad ID against active tasks
 - `query()` - Fluent server objects iterator:
   - Filters: `stalkers()`, `mutants()`, `npcs()`, `alive()`, `online()`, `on_level(lvl_id)`, `filter(fn)`
   - Terminals: `each(callback)`, `collect()`, `count()`, `first()`, `get_npc_counts()`
@@ -114,7 +115,7 @@ xsquad.release_squad(squad)
 - `is_squad_at_base(squad)`, `get_squad_smart(squad)`
 - `get_squad_by_member(npc_id)` - Get squad containing NPC
 - `get_community_name(squad)` - Translated community name (safe, never nil)
-- `is_protected_squad(squad)` - Check against xdata.protected_npcs
+- `is_unscriptable_squad(squad)` - Check against xdata.unscriptable_npcs
 - `iter_squads()` - Iterator over all SIMBOARD squads
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
 - `dump_squads()` - Diagnostic string of all SIMBOARD squads
@@ -170,6 +171,7 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `has_capacity(smart, faction)` - SIMBOARD squads vs max_population
 - `set_faction_controlled(smart, faction, spawn_num)` - Runtime respawn mutation (mirrors engine read_params)
 - `clear_faction_controlled(smart)` - Revert to default faction
+- `get_smart_squads(smart_id)` - Raw SIMBOARD squads table for a smart terrain
 - `dump_smarts(factions, level_id)` - Diagnostic dump
 - `reset_spawns()`, `repopulate()` - Smart terrain population management
 
@@ -209,6 +211,11 @@ local found = xtable.find(tbl, function(v) return v.id == target end)
   - `:export()`/`:import()` for save/load (imported entries get fresh TTL)
 - `create_ttl_counter(opts)` - Sliding window counter
   - `:add(key, metadata)`, `:count(key)`, `:reset(key)`, `:clear()`, `:all()`
+- `create_token_bucket(opts)` - Per-key O(1) rate limiter with fractional accumulation
+  - `capacity` -> max tokens, `rate` -> tokens per second
+  - `:acquire(key)` - Consume a token, returns true if available
+  - `:peek(key)` - Check availability without consuming
+  - `:reset(key)`, `:clear()`
 
 ### xmath.script - RNG
 
@@ -281,11 +288,18 @@ end)
 
 - `interpolate(template, vars)` - `"Hello ${name}!"` -> `"Hello World!"`
 
+### xconst.script - Engine Sentinel Constants
+
+X-Ray engine sentinel values extracted from C++ source headers.
+
+- `INVALID_ENTITY_ID` - u16 MAX (65535), from alife_space.h:39
+- `INVALID_LEVEL_VERTEX_ID` - u32 MAX (4294967295)
+
 ### xdata.script - Static Data
 
-Protected NPC/squad tables used by `xcreature.is_protected` and `xsquad.is_protected_squad`.
+Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is_unscriptable_squad`.
 
-- `protected_npcs` - Lookup table of trader, mechanic, leader, medic, barmen, guide, and story character squad IDs that should not be moved or despawned by mods
+- `unscriptable_npcs` - Lookup table of trader, mechanic, leader, medic, barmen, guide, and story character squad IDs that should not be moved or despawned by mods
 
 ---
 
@@ -299,4 +313,4 @@ Protected NPC/squad tables used by `xcreature.is_protected` and `xsquad.is_prote
 
 ---
 
-**Version:** 1.0.0
+**Version:** 1.2.1

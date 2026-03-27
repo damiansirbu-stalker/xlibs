@@ -1,5 +1,5 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
-Latest: 1.2.0
+Latest: 1.2.1
 GitHub: https://github.com/damiansirbu-stalker/xlibs
 
 xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
@@ -62,10 +62,12 @@ The code is validated in real time by a multi-stage pipeline: luacheck, selene, 
 Full report in doc/test-report.log.
 
 Credits:
-DrakoMT and SaloEater for their support.
-Demonized, Catspaw, Vintar0, RavenAscendant, xcvb, lizzardman, Aoldri, and Feel_Fried. Their work on the engine, modded exes, scripts, and tools shaped how Anomaly modding is done.
+Stalker_Boss - Russian translation
 
 Versions:
+
+1.2.1
+  Fixed: xdata.unscriptable_npcs typo for Dead City barman (Aslan) preventing unscriptable guard
 
 1.2.0
   Added: xconst - centralized X-Ray engine sentinel constants (INVALID_ENTITY_ID, INVALID_LEVEL_VERTEX_ID)

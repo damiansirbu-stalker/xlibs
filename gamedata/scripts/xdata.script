@@ -45,7 +45,7 @@ unscriptable_npcs = {
     ["mil_freedom_guid"] = true, ["stalker_gatekeeper"] = true,
     -- Dead City
     ["cit_killers_merc_mechanic_stalker"] = true, ["cit_killers_merc_trader_stalker"] = true,
-    ["ds_killer_guide_main_base"] = true, ["cit_killers_merc_barmen_mlr"] = true,
+    ["ds_killer_guide_main_base"] = true, ["cit_killers_merc_barman_mlr"] = true,
     ["cit_killers_merc_medic_stalker"] = true,
     -- Red Forest
     ["red_forester_tech"] = true, ["red_greh_trader"] = true, ["red_greh_tech"] = true,
