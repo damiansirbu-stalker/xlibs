@@ -116,6 +116,7 @@ xsquad.release_squad(squad)
 - `get_squad_by_member(npc_id)` - Get squad containing NPC
 - `get_community_name(squad)` - Translated community name (safe, never nil)
 - `is_unscriptable_squad(squad)` - Check against xdata.unscriptable_npcs
+- `is_externally_scripted(squad)` - Check scripted_target, __lock, warfare, condlist, random_targets
 - `iter_squads()` - Iterator over all SIMBOARD squads
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
 - `dump_squads()` - Diagnostic string of all SIMBOARD squads
@@ -168,7 +169,7 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter)
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
 - `get_proximity(squad, smart)` - Distance and arrival metadata
-- `has_capacity(smart, faction)` - SIMBOARD squads vs max_population
+- `has_capacity(smart, faction, incoming)` - SIMBOARD squads + incoming vs max_population
 - `set_faction_controlled(smart, faction, spawn_num)` - Runtime respawn mutation (mirrors engine read_params)
 - `clear_faction_controlled(smart)` - Revert to default faction
 - `get_smart_squads(smart_id)` - Raw SIMBOARD squads table for a smart terrain
@@ -179,6 +180,7 @@ local has_room = xsmart.has_capacity(smart, faction)
 
 - `find_stashes(pos, opts)` - Find revealed stashes near position (opts: max_distance, min_distance, level_id, max_count)
 - `is_stash_available(id)`, `is_stash_looted(id)`, `mark_stash_looted(id)`, `clear_stash(id)`
+- `get_stash_items(stash_id)` - Read-only stash contents as parsed item list
 - `loot_stash_to_npc(id, npc_id)` - Transfer stash contents to NPC
 - `fill_stash(id, items, add_marker)` - Fill stash with items
 - `filter_notable_stash_items(items, max)` - Filter to weapons/armor/artefacts
@@ -288,6 +290,10 @@ end)
 
 - `interpolate(template, vars)` - `"Hello ${name}!"` -> `"Hello World!"`
 
+### xtime.script - Game Time
+
+- `game_sec()` - Game-seconds since epoch (cached start_time, invalidated on on_game_start)
+
 ### xconst.script - Engine Sentinel Constants
 
 X-Ray engine sentinel values extracted from C++ source headers.
@@ -313,4 +319,4 @@ Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is
 
 ---
 
-**Version:** 1.2.1
+**Version:** 1.2.2

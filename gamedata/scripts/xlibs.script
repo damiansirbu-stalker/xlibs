@@ -1,7 +1,23 @@
 --- xlibs: Package metadata
-local _VERSION = "1.2.1"
+local tonumber = tonumber
+local _VERSION = "1.2.2"
 
 --- @return string Version string
 function version()
     return _VERSION
+end
+
+--- Check if xlibs version is compatible with required minimum (semver: same major, actual >= required)
+--- @param required string Minimum version ("1.2" or "1.2.2")
+--- @return boolean True if compatible
+function is_compatible(required)
+    local req_maj, req_min, req_patch = required:match("^(%d+)%.(%d+)%.?(%d*)")
+    local act_maj, act_min, act_patch = _VERSION:match("^(%d+)%.(%d+)%.?(%d*)")
+    req_maj, req_min = tonumber(req_maj), tonumber(req_min)
+    act_maj, act_min = tonumber(act_maj), tonumber(act_min)
+    req_patch = tonumber(req_patch) or 0
+    act_patch = tonumber(act_patch) or 0
+    if act_maj ~= req_maj then return false end
+    if act_min ~= req_min then return act_min > req_min end
+    return act_patch >= req_patch
 end

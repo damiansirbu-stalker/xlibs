@@ -351,14 +351,15 @@ function get_proximity(squad, smart)
 end
 
 --- Check if smart terrain has capacity for more squads
---- Counts squads in SIMBOARD.smarts[id].squads vs smart.max_population; optionally filters by faction
+--- Counts squads in SIMBOARD.smarts[id].squads + incoming vs smart.max_population; optionally filters by faction
 --- @safety SAFE - nil guards, returns true when data unavailable (safe default = allow)
 --- @complexity O(k) squads at smart | 1 luabind per squad when faction filter used (get_squad_community)
 --- @see anomaly/smart_terrain.script(1521), anomaly/sim_board.script(84)
 --- @param smart smart_terrain Smart terrain to check
 --- @param faction string|nil Faction to count (nil = all factions)
+--- @param incoming number|nil Count of in-transit squads to add (default 0)
 --- @return boolean True if has capacity
-function has_capacity(smart, faction)
+function has_capacity(smart, faction, incoming)
     if not smart or not smart.max_population then return true end
     if not SIMBOARD or not SIMBOARD.smarts then return true end
 
@@ -377,7 +378,7 @@ function has_capacity(smart, faction)
         end
         ::continue::
     end
-    return count < smart.max_population
+    return (count + (incoming or 0)) < smart.max_population
 end
 
 -- =============================================================================

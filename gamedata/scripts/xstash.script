@@ -106,6 +106,21 @@ function is_stash_looted(stash_id)
     return treasure_manager.caches[stash_id] == true
 end
 
+--- Return stash contents as parsed item list without modifying state
+--- Reads comma-separated contents string from treasure_manager.caches and splits it
+--- @safety SAFE - pure Lua table read + string split, nil-guarded
+--- @complexity O(n) items | 0 luabind
+--- @see anomaly/treasure_manager.script(33)
+--- @param stash_id number Stash object ID
+--- @return table|nil Array of section names
+function get_stash_items(stash_id)
+    if not stash_id then return nil end
+    if not treasure_manager or not treasure_manager.caches then return nil end
+    local contents = treasure_manager.caches[stash_id]
+    if type(contents) ~= "string" then return nil end
+    return str_explode(contents, ",")
+end
+
 --- Clear stash (mark as looted, remove marker)
 --- Sets caches[id] = true and removes "treasure" map spot via pcall
 --- @safety pcall: map_remove_object_spot crashes during transitions

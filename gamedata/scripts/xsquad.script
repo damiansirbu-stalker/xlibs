@@ -62,6 +62,23 @@ function is_unscriptable_squad(squad)
     return result
 end
 
+--- Check if squad is controlled by an external system (Warfare, LTX condlists, random patrol)
+--- Checks runtime scripting fields and LTX-defined target logic; complements is_unscriptable_squad (identity vs state)
+--- @safety SAFE - pure Lua field reads, nil-guarded, no luabind
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/sim_squad_scripted.script(37-39,55-69,105,336), Vintar0/sim_squad_warfare.script(148-152,936)
+--- @param squad se_squad Squad server object
+--- @return boolean True if externally scripted (nil returns true for safety)
+function is_externally_scripted(squad)
+    if not squad then return true end
+    if squad.scripted_target then return true end
+    if squad.__lock then return true end
+    if squad.registered_with_warfare then return true end
+    if squad.action_condlist then return true end
+    if squad.random_targets then return true end
+    return false
+end
+
 -- =============================================================================
 -- QUERIES
 -- =============================================================================

@@ -1,5 +1,5 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
-Latest: 1.2.1
+Latest: 1.2.2
 GitHub: https://github.com/damiansirbu-stalker/xlibs
 
 xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
@@ -66,7 +66,15 @@ Stalker_Boss - Russian translation
 
 Versions:
 
+1.2.2
+  Added: xtime.game_sec -- game-seconds since epoch (cached start_time, 2 luabind)
+  Added: xlibs.is_compatible -- semver compatibility check (same major, actual >= required)
+  Changed: xsmart.has_capacity accepts incoming parameter for in-transit squad counting
+  Changed: depgate pattern from == exact match to is_compatible (patch bumps no longer cascade)
+
 1.2.1
+  Added: xstash.get_stash_items -- read-only stash contents getter (non-destructive parse)
+  Added: xsquad.is_externally_scripted -- checks scripted_target, __lock, registered_with_warfare, action_condlist, random_targets
   Fixed: xdata.unscriptable_npcs typo for Dead City barman (Aslan) preventing unscriptable guard
 
 1.2.0
