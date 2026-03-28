@@ -9,8 +9,8 @@ local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 
 local function _EMPTY_ITER() return nil end
 
--- Cache: weak keys so entries are removed when squad is GC'd
-local _unscriptable_cache = setmetatable({}, { __mode = "k" })
+-- Static cache: story_id, trader, named_npc never change within session (weak keys, GC-safe)
+local _static_cache = setmetatable({}, { __mode = "k" })
 
 local function _is_task_giver(squad_id, cmd_id)
     if not task_manager then return false end
@@ -27,39 +27,49 @@ local function _is_task_giver(squad_id, cmd_id)
 end
 
 local function _check_unscriptable(squad)
-    if not squad then return true end
-    -- Fast path: story squads (no commander lookup needed)
-    if get_object_story_id(squad.id) then return true end
-    -- Commander ID: computed once, used by task giver check and community/section checks
+    if not squad then return true, "nil_squad" end
+    -- Static cache hit (story_id, trader, named_npc -- immutable within session)
+    local cached = _static_cache[squad]
+    if cached then return true, cached end
+    -- Static: story squads (no commander lookup needed)
+    if get_object_story_id(squad.id) then
+        _static_cache[squad] = "story_id"
+        return true, "story_id"
+    end
     local cmd_id = squad:commander_id()
-    -- Task giver check: squad or commander NPC is referenced by an active task
-    if _is_task_giver(squad.id, cmd_id) then return true end
-    -- Companion check: companion_squads stores false during load (not nil), so ~= nil required
-    if axr_companions and axr_companions.companion_squads[squad.id] ~= nil then return true end
-    -- Slow path: need commander for community/section checks
+    -- Slow path: need commander for static identity checks
     local se_cmd = cmd_id and alife_object(cmd_id)
-    if not se_cmd then return false end
-    -- Attribute check first (single string comparison, guard with IsStalker)
-    if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == "trader" then return true end
-    -- Hash lookup last (O(1), data in xdata.unscriptable_npcs)
-    return xdata.unscriptable_npcs[se_cmd:section_name()] or false
+    if se_cmd then
+        -- Static: trader community
+        if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == "trader" then
+            _static_cache[squad] = "trader"
+            return true, "trader"
+        end
+        -- Static: named NPC list (xdata.unscriptable_npcs)
+        if xdata.unscriptable_npcs[se_cmd:section_name()] then
+            _static_cache[squad] = "named_npc"
+            return true, "named_npc"
+        end
+    end
+    -- Dynamic: task giver (changes as tasks are accepted/completed, never cached)
+    if _is_task_giver(squad.id, cmd_id) then return true, "task_giver" end
+    -- Dynamic: companion (can be recruited/dismissed, never cached)
+    if axr_companions and axr_companions.companion_squads[squad.id] ~= nil then
+        return true, "companion"
+    end
+    return false, nil
 end
 
 --- Check if squad is unscriptable (traders, leaders, quest givers, task givers, companions, story chars)
 --- These squads cannot be scripted (scripted_target) - fixed to their role/location
---- Checks story_id, active task_giver_id, axr_companions.companion_squads, commander community/section against xdata.unscriptable_npcs hash; cached per squad
+--- Static checks (story_id, trader, named_npc) cached per squad. Dynamic checks (task_giver, companion) re-evaluated every call.
 --- @safety SAFE - returns true for nil (fail-safe), alife_object returns nil for invalid
---- @complexity O(1) cached | O(1) uncached with 4-5 luabind + O(t) task_info scan (t = active tasks, typically 3-10)
---- @see anomaly/_g.script(2674), anomaly/_g.script(2437), anomaly/axr_companions.script(25,150)
+--- @complexity O(1) static cache hit | O(1) uncached with 4-5 luabind + O(t) task_info scan (t = active tasks, typically 3-10)
 --- @param squad se_squad Squad server object
 --- @return boolean True if unscriptable (nil squad returns true for safety)
+--- @return string|nil Reason: "nil_squad", "story_id", "trader", "named_npc", "task_giver", "companion"
 function is_unscriptable_squad(squad)
-    if not squad then return true end
-    local cached = _unscriptable_cache[squad]
-    if cached ~= nil then return cached end
-    local result = _check_unscriptable(squad)
-    _unscriptable_cache[squad] = result
-    return result
+    return _check_unscriptable(squad)
 end
 
 --- Check if squad is controlled by an external system (Warfare, LTX condlists, random patrol)
@@ -257,12 +267,22 @@ function find_squads(pos, opts)
     local max_count = opts.max_count or 3
 
     local candidates = {}
+    local skipped_unscriptable = 0
 
     for squad_id in pairs(SIMBOARD.squads) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
-        local ok, comm = _squad_base_valid(squad, opts.level_id, opts.exclude_at_smart_id, opts.exclude_unscriptable)
-        if not ok or not _matches_faction(comm, factions) then goto continue end
+        if not squad or not squad.position then goto continue end
+        if squad.npc_count and squad:npc_count() == 0 then goto continue end
+        local faction = squad.player_id
+        if not faction then goto continue end
+        if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then goto continue end
+        if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then goto continue end
+        if opts.exclude_unscriptable then
+            local unscriptable = is_unscriptable_squad(squad)
+            if unscriptable then skipped_unscriptable = skipped_unscriptable + 1 goto continue end
+        end
+        if not _matches_faction(faction, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
         if dist_sqr < max_dist_sqr and dist_sqr >= min_dist_sqr then
             candidates[#candidates + 1] = squad
@@ -270,11 +290,11 @@ function find_squads(pos, opts)
         ::continue::
     end
 
-    if #candidates == 0 then return candidates end
+    if #candidates == 0 then return candidates, skipped_unscriptable end
     local _, take = xmath.sample_n(candidates, max_count)
     local result = {}
     for i = 1, take do result[i] = candidates[i] end
-    return result
+    return result, skipped_unscriptable
 end
 
 --- Find online squads matching criteria (uses game_objects_iter for speed)
