@@ -67,6 +67,19 @@ function is_territory(smart)
     return props.territory and props.territory > 0 or false
 end
 
+--- Check if smart terrain has surge shelter (indoor/sheltered)
+--- Reads props.surge from simulation_objects_props.ltx; >0 means emission shelter
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/smart_terrain.script(1566), anomaly/surge_manager.script(1265)
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean True if smart has surge shelter
+function has_surge_shelter(smart)
+    local props = smart and smart.props
+    if not props then return false end
+    return props.surge and props.surge > 0 or false
+end
+
 --- Check if smart terrain is important (base, resource, or territory)
 --- Composite check of the three props that matter for A-Life simulation targeting
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
