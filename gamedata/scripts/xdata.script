@@ -1,6 +1,6 @@
 --- xdata: Static data tables for xlibs (unscriptable NPCs, faction lists)
 
--- Unscriptable NPCs: traders, mechanics, leaders, medics, barmen, guides, story chars
+-- Unscriptable NPCs: traders, mechanics, leaders, medics, barmen, guides, guards, bodyguards, story chars
 -- These NPCs cannot be scripted (scripted_target) - they are fixed to their role/location
 -- src: grok_no_north_faction_in_south.script, surge_manager_ignore_npc.script
 unscriptable_npcs = {
@@ -35,14 +35,17 @@ unscriptable_npcs = {
     ["bar_dolg_leader"] = true, ["bar_dolg_general_petrenko_stalker"] = true,
     ["bar_dolg_medic"] = true, ["bar_visitors_stalker_mechanic"] = true,
     ["bar_zastava_2_commander"] = true, ["bar_duty_security_squad_leader"] = true,
+    ["bar_dolg_general_zoneguard_stalker"] = true, ["bodyguard_duty_medic_bar_general"] = true,
     -- Yantar
     ["yan_stalker_sakharov"] = true, ["mechanic_army_yan_mlr"] = true,
     ["yan_povar_army_mlr"] = true, ["yan_ecolog_kruglov"] = true,
+    ["yan_merc_01"] = true, ["yan_merc_02"] = true, ["yan_merc_03"] = true,
     -- Army Warehouses
     ["mil_smart_terrain_7_7_freedom_leader_stalker"] = true, ["mil_freedom_medic"] = true,
     ["mil_smart_terrain_7_10_freedom_trader_stalker"] = true,
     ["mil_smart_terrain_7_7_freedom_mechanic_stalker"] = true,
     ["mil_freedom_guid"] = true, ["stalker_gatekeeper"] = true,
+    ["mil_smart_terrain_7_7_freedom_bodyguard_stalker"] = true, ["mil_smart_terrain_7_7_freedom_bodyguard2_stalker"] = true,
     -- Dead City
     ["cit_killers_merc_mechanic_stalker"] = true, ["cit_killers_merc_trader_stalker"] = true,
     ["ds_killer_guide_main_base"] = true, ["cit_killers_merc_barman_mlr"] = true,
@@ -60,6 +63,9 @@ unscriptable_npcs = {
     ["jup_b6_scientist_biochemist"] = true, ["jup_depo_isg_leader"] = true,
     ["jup_cont_mech_bandit"] = true, ["jup_cont_trader_bandit"] = true,
     ["jup_depo_isg_tech"] = true,
+    ["jup_a12_bandit_guard"] = true, ["jup_b207_duty_security_squad_leader"] = true,
+    ["jup_b47_bunker_guard_duty"] = true, ["jup_b47_bunker_guard_freedom"] = true,
+    ["jup_b47_bunker_guard_lost_merc"] = true, ["jup_b47_bunker_guard_stalker_leader"] = true,
     -- Zaton
     ["zat_stancia_mech_merc"] = true, ["zat_stancia_trader_merc"] = true,
     ["zat_a2_stalker_nimble"] = true, ["zat_b30_owl_stalker_trader"] = true,
@@ -77,6 +83,11 @@ unscriptable_npcs = {
     ["pri_medic_stalker"] = true, ["merc_pri_a18_mech_mlr"] = true,
     ["pri_special_trader_mlr"] = true, ["merc_pri_grifon_mlr"] = true,
     ["mechanic_monolith_kbo"] = true, ["trader_monolith_kbo"] = true,
+    ["pri_b35_guard_envoy_1"] = true, ["pri_b35_guard_envoy_2"] = true,
+    -- Sarcophagus
+    ["sar2_dolg_guard_commander"] = true, ["sar2_svoboda_bodyguard"] = true, ["sar2_zastava_commander_1"] = true,
+    -- Lab X-18
+    ["dar_corpse_ecolog_guard"] = true,
     -- Story characters
     ["stalker_stitch"] = true, ["stalker_stitch_ms"] = true, ["stalker_stitch_oa"] = true,
     ["lost_stalker_strelok"] = true, ["stalker_strelok_hb"] = true, ["stalker_strelok_oa"] = true,

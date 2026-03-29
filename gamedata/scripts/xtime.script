@@ -4,7 +4,7 @@ local _start_time = nil
 
 --- Get game-seconds since epoch (level start time)
 --- Caches level.get_start_time() (constant per save). Cache reset on on_game_start.
---- @safety guard: level.present() before level.get_start_time() (NULL singleton during transitions)
+--- @safety SAFE - guards level.present() before level.get_start_time() (NULL singleton during transitions)
 --- @complexity O(1) | 2 luabind (get_game_time + diffSec), first call: 3 luabind (+get_start_time)
 --- @see xray/xrGame/level_script.cpp(2001), xray/xrGame/xr_time.cpp(76), Demonized/zz_game_fast_travel_limiter.script(17)
 --- @return number Game-seconds since epoch (0 when no level)

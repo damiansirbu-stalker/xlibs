@@ -26,38 +26,45 @@ local function _is_task_giver(squad_id, cmd_id)
     return false
 end
 
+local function _resolve_commander(squad)
+    local cmd_id = squad:commander_id()
+    local se_cmd = cmd_id and alife_object(cmd_id)
+    local sec = se_cmd and se_cmd:section_name() or nil
+    return cmd_id, se_cmd, sec
+end
+
+local function _check_static_identity(se_cmd, sec)
+    if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == "trader" then return "trader" end
+    if sec and xdata.unscriptable_npcs[sec] then return "named_npc" end
+    return nil
+end
+
 local function _check_unscriptable(squad)
     if not squad then return true, "nil_squad" end
     -- Static cache hit (story_id, trader, named_npc -- immutable within session)
     local cached = _static_cache[squad]
-    if cached then return true, cached end
-    -- Static: story squads (no commander lookup needed)
+    if cached then return true, cached[1], cached[2] end
+    -- Static: story squads (cheapest check first: 1 luabind, no commander needed)
     if get_object_story_id(squad.id) then
-        _static_cache[squad] = "story_id"
+        _static_cache[squad] = {"story_id"}
         return true, "story_id"
     end
-    local cmd_id = squad:commander_id()
-    -- Slow path: need commander for static identity checks
-    local se_cmd = cmd_id and alife_object(cmd_id)
+    -- Resolve commander for remaining checks
+    local cmd_id, se_cmd, sec = _resolve_commander(squad)
     if se_cmd then
-        -- Static: trader community
-        if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == "trader" then
-            _static_cache[squad] = "trader"
-            return true, "trader"
-        end
-        -- Static: named NPC list (xdata.unscriptable_npcs)
-        if xdata.unscriptable_npcs[se_cmd:section_name()] then
-            _static_cache[squad] = "named_npc"
-            return true, "named_npc"
+        local kind = _check_static_identity(se_cmd, sec)
+        if kind then
+            _static_cache[squad] = {kind, sec}
+            return true, kind, sec
         end
     end
     -- Dynamic: task giver (changes as tasks are accepted/completed, never cached)
-    if _is_task_giver(squad.id, cmd_id) then return true, "task_giver" end
+    if _is_task_giver(squad.id, cmd_id) then return true, "task_giver", sec end
     -- Dynamic: companion (can be recruited/dismissed, never cached)
     if axr_companions and axr_companions.companion_squads[squad.id] ~= nil then
-        return true, "companion"
+        return true, "companion", sec
     end
-    return false, nil
+    return false, nil, nil
 end
 
 --- Check if squad is unscriptable (traders, leaders, quest givers, task givers, companions, story chars)
@@ -65,9 +72,11 @@ end
 --- Static checks (story_id, trader, named_npc) cached per squad. Dynamic checks (task_giver, companion) re-evaluated every call.
 --- @safety SAFE - returns true for nil (fail-safe), alife_object returns nil for invalid
 --- @complexity O(1) static cache hit | O(1) uncached with 4-5 luabind + O(t) task_info scan (t = active tasks, typically 3-10)
+--- @see anomaly/_g.script(2674), anomaly/axr_companions.script(25,150), anomaly/task_manager.script(task_info)
 --- @param squad se_squad Squad server object
 --- @return boolean True if unscriptable (nil squad returns true for safety)
 --- @return string|nil Reason: "nil_squad", "story_id", "trader", "named_npc", "task_giver", "companion"
+--- @return string|nil Commander section_name (for "trader" and "named_npc" reasons, nil otherwise)
 function is_unscriptable_squad(squad)
     return _check_unscriptable(squad)
 end
@@ -79,14 +88,18 @@ end
 --- @see anomaly/sim_squad_scripted.script(37-39,55-69,105,336), Vintar0/sim_squad_warfare.script(148-152,936)
 --- @param squad se_squad Squad server object
 --- @return boolean True if externally scripted (nil returns true for safety)
+--- @return string|nil Reason: "nil", "scripted:{target}", "locked", "warfare", "condlist", "random_targets"
 function is_externally_scripted(squad)
-    if not squad then return true end
-    if squad.scripted_target then return true end
-    if squad.__lock then return true end
-    if squad.registered_with_warfare then return true end
-    if squad.action_condlist then return true end
-    if squad.random_targets then return true end
-    return false
+    if not squad then return true, "nil" end
+    local reason
+    if squad.scripted_target then reason = "scripted:" .. tostring(squad.scripted_target)
+    elseif squad.__lock then reason = "locked"
+    elseif squad.registered_with_warfare then reason = "warfare"
+    elseif squad.action_condlist then reason = "condlist"
+    elseif squad.random_targets then reason = "random_targets"
+    else return false, nil
+    end
+    return true, reason
 end
 
 -- =============================================================================
@@ -133,17 +146,14 @@ local function _matches_faction(comm, factions)
     return comm == factions
 end
 
-local function _squad_base_valid(squad, level_id, exclude_at_smart_id, exclude_unscriptable)
+local function _squad_base_valid(squad, level_id, exclude_at_smart_id, exclude_unscriptable, exclude_externally_scripted)
     if not squad or not squad.position then return false end
     if squad.npc_count and squad:npc_count() == 0 then return false end
-    -- player_id: granular mutant factions (monster_predatory_day, etc.)
-    -- get_squad_community() collapses all mutants to "monster" (vanilla _g.script:2354)
-    -- filter tables (ap_data) use granular factions, so player_id is required here
     local faction = squad.player_id
     if not faction then return false end
     if level_id and xlevel.get_level_id(squad) ~= level_id then return false end
-    -- Exclusions last (smart_id = physical location, NOT assigned_target_id = simulation intent)
     if exclude_at_smart_id and squad.smart_id == exclude_at_smart_id then return false end
+    if exclude_externally_scripted and is_externally_scripted(squad) then return false end
     if exclude_unscriptable and is_unscriptable_squad(squad) then return false end
     return true, faction
 end
@@ -216,7 +226,7 @@ end
 --- @complexity O(n) squads | 2 luabind per squad (alife_object + distance_to_sqr)
 --- @see anomaly/sim_board.script(84), anomaly/_g.script(2044)
 --- @param pos vector Origin position
---- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id, exclude_at_smart_id, exclude_unscriptable, exclude_ids }
+--- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id, exclude_at_smart_id, exclude_unscriptable, exclude_externally_scripted, exclude_ids }
 --- @return table|nil Nearest matching squad
 function find_squad(pos, opts)
     if not pos or not opts or not opts.max_distance then return nil end
@@ -234,7 +244,7 @@ function find_squad(pos, opts)
     for squad_id in pairs(SIMBOARD.squads) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
-        local ok, comm = _squad_base_valid(squad, opts.level_id, opts.exclude_at_smart_id, opts.exclude_unscriptable)
+        local ok, comm = _squad_base_valid(squad, opts.level_id, opts.exclude_at_smart_id, opts.exclude_unscriptable, opts.exclude_externally_scripted)
         if not ok or not _matches_faction(comm, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
         if dist_sqr < best_dist and dist_sqr >= min_dist_sqr then
@@ -252,7 +262,7 @@ end
 --- @complexity O(n) squads | 2 luabind per squad (alife_object + distance_to_sqr)
 --- @see anomaly/sim_board.script(84), anomaly/_g.script(2044)
 --- @param pos vector Origin position
---- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id, max_count, exclude_at_smart_id, exclude_unscriptable, exclude_ids }
+--- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id, max_count, exclude_at_smart_id, exclude_unscriptable, exclude_externally_scripted, exclude_ids }
 --- @return table Array of squad server objects
 function find_squads(pos, opts)
     if not pos or not opts or not opts.max_distance then return {} end
@@ -278,6 +288,7 @@ function find_squads(pos, opts)
         if not faction then goto continue end
         if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then goto continue end
         if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then goto continue end
+        if opts.exclude_externally_scripted and is_externally_scripted(squad) then goto continue end
         if opts.exclude_unscriptable then
             local unscriptable = is_unscriptable_squad(squad)
             if unscriptable then skipped_unscriptable = skipped_unscriptable + 1 goto continue end
@@ -303,7 +314,7 @@ end
 --- @complexity O(n) online objects | 3-4 luabind per object (IsStalker, alive, squad, distance)
 --- @see Demonized/game_objects_iter (modded exe), anomaly/_g.script(2437)
 --- @param pos vector|nil Origin position (nil = no distance filter)
---- @param opts table { factions, max_distance, min_distance, exclude_unscriptable, max_count }
+--- @param opts table { factions, max_distance, min_distance, exclude_unscriptable, exclude_externally_scripted, max_count }
 --- @return table Array of squad server objects
 function find_online_squads(pos, opts)
     if not game_objects_iter then return {} end
@@ -320,6 +331,7 @@ function find_online_squads(pos, opts)
         if opts.exclude_unscriptable and xcreature.is_unscriptable(obj) then goto continue end
         local squad = get_object_squad(obj)
         if not squad or seen[squad.id] then goto continue end
+        if opts.exclude_externally_scripted and is_externally_scripted(squad) then goto continue end
         if opts.factions and not opts.factions[squad.player_id] then goto continue end
         if pos and max_dist_sqr then
             local dist_sqr = pos:distance_to_sqr(squad.position)
