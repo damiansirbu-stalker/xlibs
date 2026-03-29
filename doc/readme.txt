@@ -64,6 +64,15 @@ Full report in doc/test-report.log.
 Credits:
 Stalker_Boss - Russian translation
 
+Usage and License:
+  Calling xlibs functions from your mod: this is the intended use. No restrictions, no credit needed.
+  Using xlibs as a dependency and listing it in your requirements: encouraged.
+  Modpacks: allowed and encouraged. Keep the readme and license files.
+  Copying xlibs code into your own mod instead of depending on it: allowed if you credit
+    "xlibs by Damian Sirbu" visibly on your mod page. Copying without credit is a license violation.
+  Cloning xlibs modules (like the event bus or data structures) into a competing library: not allowed.
+  Full license in LICENSE file and on GitHub.
+
 Versions:
 
 1.2.2
