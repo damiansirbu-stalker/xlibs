@@ -1,5 +1,5 @@
 STALKER Mod Validation Report
-Generated: 2026-03-30 16:36:56
+Generated: 2026-03-31 01:05:17
 Validator: stalker-manager validate
 Mods: 1
 
@@ -278,37 +278,37 @@ Files:
 [4/5] load - runtime loading (PASS)
   Test: lua54 interpreter + X-Ray engine stubs
   Load test: xlibs
-  LOAD: xlibs_mcm
-  LOAD: xlibs
-  LOAD: xconst
-  LOAD: xevent
-  LOAD: xmcm
-  LOAD: xttltable
-  LOAD: xdata
-  LOAD: xlog
-  LOAD: xinspect
-  LOAD: xtable
-  LOAD: xobject
-  LOAD: xtime
-  LOAD: xsquad
-  LOAD: xstring
-  LOAD: xcreature
-  LOAD: xstash
-  LOAD: xsmart
-  LOAD: xprofiler
-  LOAD: xmath
-  LOAD: xlevel
-  LOAD: xpda
-  LOAD: xtrace
   LOAD: xbus
-  START: xlog.on_game_start
+  LOAD: xinspect
+  LOAD: xcreature
+  LOAD: xconst
+  LOAD: xtrace
+  LOAD: xevent
+  LOAD: xstring
+  LOAD: xdata
+  LOAD: xtable
+  LOAD: xlibs
+  LOAD: xstash
+  LOAD: xlog
+  LOAD: xttltable
+  LOAD: xtime
+  LOAD: xlevel
+  LOAD: xsmart
+  LOAD: xmath
+  LOAD: xsquad
+  LOAD: xprofiler
+  LOAD: xmcm
+  LOAD: xpda
+  LOAD: xobject
+  LOAD: xlibs_mcm
   START: xtime.on_game_start
+  START: xlog.on_game_start
   OK: 23 loaded, 2 on_game_start
 
 [5/5] gitleaks - secret scanning (PASS)
   Scan: credentials, API keys, tokens, private keys
-  4:36PM INF scanned ~205291 bytes (205.29 KB) in 115ms
-  4:36PM INF no leaks found
+  1:05AM INF scanned ~206094 bytes (206.09 KB) in 140ms
+  1:05AM INF no leaks found
 
 ========================================================================
 RESULT: PASS | Grade: S+ | Score: 0
