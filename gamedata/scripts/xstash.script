@@ -147,9 +147,8 @@ end
 --- @complexity O(1) | 1 luabind (map_remove_object_spot)
 --- @see anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(403)
 --- @param stash_id number Stash object ID
---- @param _npc_id number NPC object ID (unused, kept for API compat)
 --- @return table|nil Array of section names
-function loot_stash_to_npc(stash_id, _npc_id)
+function loot_stash(stash_id)
     if not stash_id then return nil end
     if not treasure_manager or not treasure_manager.caches then return nil end
 

@@ -28,9 +28,10 @@ end
 
 local function _resolve_commander(squad)
     local cmd_id = squad:commander_id()
-    local se_cmd = cmd_id and alife_object(cmd_id)
-    local sec = se_cmd and se_cmd:section_name() or nil
-    return cmd_id, se_cmd, sec
+    if cmd_id == INVALID_ENTITY_ID then return cmd_id, nil, nil end
+    local se_cmd = alife_object(cmd_id)
+    if not se_cmd then return cmd_id, nil, nil end
+    return cmd_id, se_cmd, se_cmd:section_name()
 end
 
 local function _check_static_identity(se_cmd, sec)
@@ -51,6 +52,8 @@ local function _check_unscriptable(squad)
     end
     -- Resolve commander for remaining checks
     local cmd_id, se_cmd, sec = _resolve_commander(squad)
+    -- Empty squad: commander_id() returns INVALID_ENTITY_ID when m_members is empty (mid-death callback)
+    if cmd_id == INVALID_ENTITY_ID then return true, "empty_squad" end
     if se_cmd then
         local kind = _check_static_identity(se_cmd, sec)
         if kind then

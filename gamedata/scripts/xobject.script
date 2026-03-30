@@ -31,14 +31,14 @@ function se(input)
 end
 
 --- Get online game object by ID
---- Complement to se(); returns nil when entity is offline or ID is invalid
---- @safety SAFE - level.object_by_id returns nil for invalid/offline IDs via net_Find + smart_cast
---- @complexity O(1) | 1 luabind (level.object_by_id)
+--- Complement to se(); returns nil when entity is offline, ID is invalid, or level not loaded
+--- @safety guard: level.present() before level.object_by_id (NULL singleton during transitions), see doc/library/modding/pcall-safety.md
+--- @complexity O(1) | 2 luabind (level.present + level.object_by_id)
 --- @see xray/xrGame/level_script.cpp(125), xray/xrGame/level_script.cpp(2363)
 --- @param id number Entity ID
 --- @return game_object|nil Online game object
 function go(id)
-    if not id then return nil end
+    if not id or not level.present() then return nil end
     return level.object_by_id(id)
 end
 

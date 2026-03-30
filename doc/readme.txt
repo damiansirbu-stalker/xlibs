@@ -1,5 +1,5 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
-Latest: 1.2.2
+Latest: 1.2.3
 GitHub: https://github.com/damiansirbu-stalker/xlibs
 
 xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
@@ -74,6 +74,14 @@ Usage and License:
   Full license in LICENSE file and on GitHub.
 
 Versions:
+
+1.2.3
+  Fixed: xsmart.get_proximity unguarded game_graph() NULL singleton during transitions
+  Fixed: xobject.go missing level.present() guard for level.object_by_id
+  Fixed: xsmart.dump_smarts 3-level nesting violation (guard clause flatten)
+  Fixed: xcreature.is_npc orphan docblock removed
+  Fixed: xpda dead not-level guards removed (5 instances)
+  Changed: xstash.loot_stash_to_npc renamed to xstash.loot_stash (removed unused npc_id parameter)
 
 1.2.2
   Added: xtime.game_sec -- game-seconds since epoch (cached start_time, 2 luabind)

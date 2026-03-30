@@ -12,7 +12,7 @@ local squad_markers = {}
 --- @see xray/xrGame/level_script.cpp(403)
 --- @param squad_id number Squad ID
 function unmark_squad(squad_id)
-    if not squad_id or not level then return end
+    if not squad_id then return end
     local stored_type = squad_markers[squad_id]
     if not stored_type then return end
     pcall(function() level.map_remove_object_spot(squad_id, stored_type) end)
@@ -28,7 +28,7 @@ end
 --- @param opts table { label, marker_type }
 --- @return boolean Success (false during transitions)
 function mark_squad(squad_id, opts)
-    if not squad_id or not level then return false end
+    if not squad_id then return false end
     opts = opts or {}
     local marker_type = opts.marker_type or DEFAULT_MARKER_TYPE
     local label = opts.label or "Squad"
@@ -70,7 +70,7 @@ end
 --- @param opts table { marker_type, label }
 --- @return boolean Success (false during transitions)
 function mark_entity(id, opts)
-    if not id or not level then return false end
+    if not id then return false end
     opts = opts or {}
     local marker_type = opts.marker_type or DEFAULT_MARKER_TYPE
     local label = opts.label or "Entity"
@@ -87,7 +87,7 @@ end
 --- @param id number Entity ID
 --- @param marker_type string|nil Marker type (default: red_location)
 function unmark_entity(id, marker_type)
-    if not id or not level then return end
+    if not id then return end
     marker_type = marker_type or DEFAULT_MARKER_TYPE
     pcall(function() level.map_remove_object_spot(id, marker_type) end)
 end
@@ -100,7 +100,7 @@ end
 --- @param markers table { [id] = { marker_type = "...", label = "..." }, ... }
 --- @return number Count of markers applied
 function hydrate_markers(markers)
-    if not markers or not level then return 0 end
+    if not markers then return 0 end
     local count = 0
     for id, data in pairs(markers) do
         if mark_entity(id, data) then count = count + 1 end

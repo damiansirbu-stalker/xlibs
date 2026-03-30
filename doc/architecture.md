@@ -181,7 +181,7 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `find_stashes(pos, opts)` - Find revealed stashes near position (opts: max_distance, min_distance, level_id, max_count)
 - `is_stash_available(id)`, `is_stash_looted(id)`, `mark_stash_looted(id)`, `clear_stash(id)`
 - `get_stash_items(stash_id)` - Read-only stash contents as parsed item list
-- `loot_stash_to_npc(id, npc_id)` - Transfer stash contents to NPC
+- `loot_stash(id)` - Loot stash contents (marks looted, returns item list)
 - `fill_stash(id, items, add_marker)` - Fill stash with items
 - `filter_notable_stash_items(items, max)` - Filter to weapons/armor/artefacts
 

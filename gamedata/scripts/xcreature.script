@@ -61,9 +61,6 @@ function is_stalker(input) local cls = get_clsid(input) return cls and IsStalker
 function is_mutant(input) local cls = get_clsid(input) return cls and IsMonster(nil, cls) or false end
 
 --- Check if entity is an NPC (stalker or mutant)
---- @param input number|userdata|table Entity ID or object
---- @return boolean
---- Check if entity is an NPC (stalker or mutant)
 --- Shorthand: delegates to is_stalker || is_mutant
 --- @safety SAFE - returns false for nil/invalid
 --- @complexity O(1) | 2-4 luabind (clsid + IsStalker, possibly + clsid + IsMonster)

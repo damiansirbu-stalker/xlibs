@@ -1,7 +1,7 @@
 --- xsmart: Smart terrain queries and checks
 
 local pairs, next, type, alife_object, tostring = pairs, next, type, alife_object, tostring
-local math, table = math, table
+local pcall, math, table = pcall, math, table
 
 --- Stalker faction community names used as props keys in simulation_objects_props.ltx
 local STALKER_FACTIONS = {
@@ -335,7 +335,7 @@ end
 
 --- Get spatial proximity between squad and smart terrain
 --- Mirrors am_i_reached decision tree; returns distance, threshold, and match conditions for diagnostics
---- @safety SAFE - game_graph() is engine singleton, distance_to_sqr is pure C++ math
+--- @safety guard: game_graph() is NULL singleton during transitions, see doc/library/modding/pcall-safety.md
 --- @complexity O(1) | 2 luabind worst case (game_graph vertex, distance_to_sqr); 0 on gvid match
 --- @see anomaly/smart_terrain.script(1440-1456)
 --- @param squad se_squad Squad to check
@@ -352,7 +352,8 @@ function get_proximity(squad, smart)
     if sq_gvid == sm_gvid then
         return 0, threshold, true, true
     end
-    local gg = game_graph()
+    local ok, gg = pcall(game_graph)
+    if not ok or not gg then return -1, threshold, false, false end
     local same_level = gg:vertex(sq_gvid):level_id() == gg:vertex(sm_gvid):level_id()
     if not same_level then
         return -1, threshold, false, false
@@ -478,13 +479,13 @@ function dump_smarts(factions, level_id)
     local parts = {}
     for id, data in pairs(SIMBOARD.smarts) do
         local smart = data.smrt
-        if smart then
-            local sf = {}
-            for k in pairs(get_smart_factions(smart)) do sf[#sf + 1] = k end
-            parts[#parts + 1] = id .. ":" .. (smart:name() or "?")
-                .. ":lv" .. tostring(xlevel.get_level_id(smart) or "?")
-                .. ":fac=" .. (#sf > 0 and table.concat(sf, "/") or "none")
-        end
+        if not smart then goto continue end
+        local sf = {}
+        for k in pairs(get_smart_factions(smart)) do sf[#sf + 1] = k end
+        parts[#parts + 1] = id .. ":" .. (smart:name() or "?")
+            .. ":lv" .. tostring(xlevel.get_level_id(smart) or "?")
+            .. ":fac=" .. (#sf > 0 and table.concat(sf, "/") or "none")
+        ::continue::
     end
     local fac_keys = {}
     if factions then for k in pairs(factions) do fac_keys[#fac_keys + 1] = k end end
