@@ -10,5 +10,6 @@ Requires: Anomaly 1.5.3, Modded exes
 
 ## Documentation
 
-- [readme.txt](doc/readme.txt) -- full description, module list, changelog
+- [readme.txt](doc/readme.txt) -- full description, module list
+- [changelog](https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog) -- version history
 - [architecture.md](doc/architecture.md) -- technical reference for modders

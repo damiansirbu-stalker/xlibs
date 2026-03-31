@@ -15,6 +15,8 @@ function on_mcm_load()
     }
 end
 
-function set_version_text(anchor, handlers)
+--- @param _anchor table MCM anchor element (unused, required by MCM callback signature)
+--- @param handlers table MCM handlers with desc text widget
+function set_version_text(_anchor, handlers)
     handlers.desc:SetText(xlibs.get_version())
 end
