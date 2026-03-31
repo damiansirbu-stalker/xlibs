@@ -1,3 +1,8 @@
+1.2.4
+  Added: MCM banner
+  Changed: MCM version displayed from code, no longer hardcoded in XML
+  Fixed: Russian MCM encoding (windows-1251)
+
 1.2.3
   Fixed: xsmart.get_proximity unguarded game_graph() NULL singleton during transitions
   Fixed: xobject.go missing level.present() guard for level.object_by_id
