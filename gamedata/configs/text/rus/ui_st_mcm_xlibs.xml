@@ -6,10 +6,7 @@
     <string id="ui_mcm_xlibs_title">
         <text>xlibs</text>
     </string>
-    <string id="ui_mcm_xlibs_version">
-        <text>%c[d_cyan]1.2.3</text>
-    </string>
     <string id="ui_mcm_xlibs_desc">
-        <text>Shared utility library for STALKER Anomaly Lua modding. Modules covering entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.</text>
+        <text>ќбща€ библиотека утилит дл€ Lua-моддинга STALKER Anomaly. ћодули дл€ запросов сущностей, операций с отр€дами, логики умных укрытий, работы с тайниками, логировани€, профилировани€, систем событий и структур данных.</text>
     </string>
 </string_table>

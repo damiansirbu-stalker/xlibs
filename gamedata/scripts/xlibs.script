@@ -3,7 +3,7 @@ local tonumber = tonumber
 local _VERSION = "1.2.3"
 
 --- @return string Version string
-function version()
+function get_version()
     return _VERSION
 end
 
