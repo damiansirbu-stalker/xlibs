@@ -296,6 +296,17 @@ function acquire_lock(key, sec)
     return true
 end
 
+--- Check if lock is available without acquiring it
+--- Returns true if lock is free (expired or never set), false if still held
+--- @safety SAFE - pure Lua + os.clock (standard C API)
+--- @complexity O(1) | 0 luabind
+--- @param key string Lock key
+--- @return boolean true if available, false if locked
+function check_lock(key)
+    local expiry = _locks[key]
+    return not expiry or clock() >= expiry
+end
+
 --- Clear all locks
 --- Replaces _locks with empty table; old references become stale
 --- @safety SAFE - pure Lua

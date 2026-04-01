@@ -10,7 +10,7 @@ function on_mcm_load()
             { id = "desc", type = "desc", text = "ui_mcm_xlibs_desc" },
             { id = "div_version", type = "line" },
             { id = "version", type = "desc", text = "ui_mcm_xlibs_title",
-                ui_hook_functor = { xlibs_mcm.set_version_text }, clr = {255, 0, 206, 209} },
+                ui_hook_functor = { xlibs_mcm.set_version_text }, clr = {255, 212, 201, 168} },
         },
     }
 end

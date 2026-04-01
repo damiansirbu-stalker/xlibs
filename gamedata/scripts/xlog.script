@@ -96,6 +96,9 @@ function Logger.new(name, cfg)
     self.max_file_size = defaults.max_file_size
     self.stack_trace = defaults.stack_trace
     self.max_stack_frames = defaults.max_stack_frames
+    self._last_msg = nil
+    self._last_lvl = nil
+    self._repeat_count = 0
 
     if not cfg then return self end
     if cfg.level then
@@ -143,6 +146,7 @@ function Logger:check_rotation()
 end
 
 function Logger:flush_buffer()
+    self:_flush_repeat()
     if #self.buffer == 0 then return end
 
     local path = self:get_outfile()
@@ -163,17 +167,45 @@ function Logger:flush_buffer()
     self.buffer = {}
 end
 
+function Logger:_flush_repeat()
+    if self._repeat_count == 0 then return end
+    local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+    local level_str = LEVEL_NAMES[self._last_lvl] or "???"
+    local module_str = self.name:upper()
+    local session_str = _get_session_id()
+    local line = string.format("[%s][%s][%s][%s] ROW(%d times)",
+        timestamp, session_str, level_str, module_str, self._repeat_count)
+    self.buffer[#self.buffer + 1] = line
+    self._repeat_count = 0
+end
+
+local function _check_deadband(self, msg, lvl)
+    if msg == self._last_msg and lvl == self._last_lvl then
+        self._repeat_count = self._repeat_count + 1
+        return true
+    end
+    self:_flush_repeat()
+    self._last_msg = msg
+    self._last_lvl = lvl
+    return false
+end
+
+-- @complexity O(1) | 0 luabind
 --- @safety pcall: string.format may error on mismatched args
+local function _format_msg(fmt, ...)
+    if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then
+        local ok, result = pcall(string.format, fmt, ...)
+        return ok and result or fmt
+    end
+    return format_args(fmt, ...)
+end
+
 function Logger:write(lvl, fmt, ...)
     if lvl > self.level then return end
 
-    local msg
-    if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then
-        local ok, result = pcall(string.format, fmt, ...)
-        msg = ok and result or fmt
-    else
-        msg = format_args(fmt, ...)
-    end
+    local msg = _format_msg(fmt, ...)
+
+    if _check_deadband(self, msg, lvl) then return end
 
     local timestamp = os.date("%Y-%m-%d %H:%M:%S")
     local level_str = LEVEL_NAMES[lvl] or "???"
