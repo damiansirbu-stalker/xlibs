@@ -1,20 +1,28 @@
 next
-  Added: xmath.prd_chance pseudo-random distribution (Dota 2 PRD algorithm, reduces streak variance)
-  Added: xsquad.is_task_target (O(1) task_squads check + bounty/hostage member fallback)
-  Added: xsquad.is_permanent_squad (static identity guard: story, trader, named_npc, empty, cached)
-  Added: xsquad.has_active_role (dynamic role guard: task_giver, companion)
-  Added: xlog deadbanding (identical consecutive log lines collapsed to "ROW(N times)")
-  Added: xtable.check_lock (peek lock availability without acquiring)
-  Changed: MCM refresh (banner, version from code, cream version color)
-  Removed: xsquad.is_unscriptable_squad (replaced by is_permanent_squad + has_active_role)
-  Removed: exclude_unscriptable opt from find_squad/find_squads (replaced by exclude_permanent, exclude_active_role, exclude_task_target)
-  Changed: find_squad/find_squads/find_online_squads opts use 4 granular guard flags (exclude_permanent, exclude_active_role, exclude_task_target, exclude_externally_scripted)
-  Fixed: find_online_squads re-evaluating rejected squads on every member NPC
-  Changed: distance bounds use inclusive upper (Demonized pattern: dist <= max)
-  Changed: xlibs.version() renamed to xlibs.get_version()
-  Fixed: Russian MCM encoding (windows-1251)
-  Fixed: xsquad.release_squads crash on stale SIMBOARD IDs after delete_all + repopulate (use SIMBOARD:remove_squad)
-  Fixed: xsquad.release_squads deleting task target squads (assault, bounty, delivery, etc.)
+  X-Ray:
+    Added: timed event scheduling works correctly with major modpacks (globals resolve at call time for demonized_time_events compatibility)
+  xmath:
+    Added: prd_chance pseudo-random distribution (Dota 2 PRD algorithm, reduces streak variance)
+    Added: chance() no longer writes diagnostic output to console
+  xsquad:
+    Added: is_task_target, O(1) task squad check with bounty/hostage member fallback
+    Added: is_permanent_squad, static identity guard (story, trader, named_npc, empty, cached)
+    Added: has_active_role, dynamic role guard (task_giver, companion)
+    Changed: find_squad/find_squads/find_online_squads use 4 granular guard flags
+    Changed: distance bounds use inclusive upper (Demonized pattern)
+    Removed: is_unscriptable_squad (replaced by is_permanent_squad + has_active_role)
+    Removed: exclude_unscriptable opt (replaced by granular flags)
+    Fixed: find_online_squads re-evaluating rejected squads on every member NPC
+    Fixed: release_squads crash on stale SIMBOARD IDs after delete_all + repopulate
+    Fixed: release_squads deleting task target squads (assault, bounty, delivery)
+  xlog:
+    Added: deadbanding, identical consecutive log lines collapsed to "ROW(N times)"
+  xtable:
+    Added: check_lock, peek lock availability without acquiring
+  MCM:
+    Changed: MCM visual refresh
+    Fixed: Russian MCM encoding restored (windows-1251)
+    Changed: xlibs.version() renamed to xlibs.get_version()
 
 1.2.3
   Fixed: xsmart.get_proximity unguarded game_graph() NULL singleton during transitions

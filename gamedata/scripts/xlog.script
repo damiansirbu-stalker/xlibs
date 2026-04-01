@@ -14,7 +14,7 @@ local LEVEL_NAMES = { "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE" }
 local type, pairs, pcall, tostring, setmetatable, assert, error = type, pairs, pcall, tostring, setmetatable, assert, error
 local string, table, math = string, table, math
 local math_floor = math.floor
-local CreateTimeEvent, RegisterScriptCallback = CreateTimeEvent, RegisterScriptCallback
+local RegisterScriptCallback = RegisterScriptCallback
 
 local defaults = {
     level = LEVELS.DEBUG,
