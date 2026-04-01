@@ -8,6 +8,7 @@ next
   Removed: exclude_unscriptable opt from find_squad/find_squads (replaced by exclude_permanent, exclude_active_role, exclude_task_target)
   Changed: find_squad/find_squads/find_online_squads opts use 4 granular guard flags (exclude_permanent, exclude_active_role, exclude_task_target, exclude_externally_scripted)
   Fixed: find_online_squads re-evaluating rejected squads on every member NPC
+  Changed: distance bounds use inclusive upper (Demonized pattern: dist <= max)
   Changed: xlibs.version() renamed to xlibs.get_version()
   Changed: MCM version displayed from code, no longer hardcoded in XML
   Fixed: Russian MCM encoding (windows-1251)

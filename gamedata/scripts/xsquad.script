@@ -342,7 +342,7 @@ function find_squad(pos, opts)
         local ok, comm = _squad_base_valid(squad, opts)
         if not ok or not _matches_faction(comm, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
-        if dist_sqr < best_dist and dist_sqr >= min_dist_sqr then
+        if dist_sqr <= best_dist and dist_sqr >= min_dist_sqr then
             best_squad, best_dist = squad, dist_sqr
         end
         ::continue::
@@ -394,7 +394,7 @@ function find_squads(pos, opts)
         end
         if not _matches_faction(faction, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
-        if dist_sqr < max_dist_sqr and dist_sqr >= min_dist_sqr then
+        if dist_sqr <= max_dist_sqr and dist_sqr >= min_dist_sqr then
             candidates[#candidates + 1] = squad
         end
         ::continue::

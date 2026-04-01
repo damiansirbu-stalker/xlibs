@@ -224,6 +224,7 @@ local found = xtable.find(tbl, function(v) return v.id == target end)
 ### xmath.script - RNG
 
 - `chance(percent)` - Probability roll
+- `prd_chance(key, percent)` - Pseudo-random distribution (Dota 2 PRD algorithm, reduces streak variance)
 - `sample(tbl)` - Random element
 - `sample_n(tbl, n)` - N random elements
 - `partial_shuffle(tbl, count)` - Shuffle first N elements
@@ -329,4 +330,4 @@ This means every mod that releases or scripts squads must implement its own guar
 
 ---
 
-**Version:** 1.2.2
+**Version:** 1.2.3
