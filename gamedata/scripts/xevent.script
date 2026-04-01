@@ -5,6 +5,8 @@ local _originals = {}
 
 local type, rawget, pairs = type, rawget, pairs
 
+-- Resolve module table from _G by name
+-- @complexity O(1) | 0 luabind
 local function _get_module(name)
     return rawget(_G, name)
 end

@@ -136,11 +136,15 @@ local function _get_mutant_display_name(section)
     return nil
 end
 
+-- Translate key, return nil if untranslatable
+-- @complexity O(1) | 1 luabind (game.translate_string)
 local function _translate_or_nil(key)
     local translated = game.translate_string(key)
     return (translated and translated ~= key) and translated or nil
 end
 
+-- Resolve mutant name: hash lookup, ini fallback, string cleanup
+-- @complexity O(k) section parts | 1-2 luabind (ini_sys:r_string_ex, game.translate_string)
 local function _get_mutant_name(section)
     local display = _get_mutant_display_name(section)
     if display then return display end
@@ -336,6 +340,8 @@ end
 -- Cache: weak keys so entries are removed when obj is GC'd
 local _unscriptable_cache = setmetatable({}, { __mode = "k" })
 
+-- Check unscriptable identity: story_id, companion, named NPC, squad story_id
+-- @complexity O(1) | 3-5 luabind (id, story_id, IsStalker, has_info, section, get_object_squad)
 local function _check_unscriptable(obj)
     if not obj then return true end
     local id = obj:id()

@@ -26,16 +26,8 @@ local function _is_task_giver(squad_id, cmd_id)
     return false
 end
 
---- Check if squad is an active task target (assault, bounty, hostage, delivery, dominance, rescue, etc.)
---- O(1) hash check against sim_offline_combat.task_squads (covers all task types),
---- then O(m*b) member-level fallback against axr_task_manager bounties/hostages
---- (covers timing gap between task accept and effect functor populating task_squads)
---- @safety SAFE - nil-guarded, returns true for nil (fail-safe)
---- @complexity O(1) typical (hash hit) | O(m*b) worst case (member iteration, m=members, b=bounties+hostages)
---- @see anomaly/sim_offline_combat.script(53), anomaly/axr_task_manager.script(bounties_by_id, hostages_by_id)
---- @param squad se_squad Squad server object
---- @return boolean True if squad is a task target (nil squad returns true for safety)
---- @return string|nil Reason: "nil", "task_squads", "bounty", "hostage"
+-- Fallback: check member IDs against bounties/hostages (covers timing gap before task_squads is populated)
+-- @complexity O(m*b) members * bounties+hostages | 1 luabind (npc_count) + iterator
 local function _check_member_task_target(squad)
     if not axr_task_manager then return false, nil end
     local bounties = axr_task_manager.bounties_by_id
@@ -71,6 +63,8 @@ function is_task_target(squad)
     return _check_member_task_target(squad)
 end
 
+-- Resolve commander entity and section from squad
+-- @complexity O(1) | 2-3 luabind (commander_id, alife_object, section_name)
 local function _resolve_commander(squad)
     local cmd_id = squad:commander_id()
     if cmd_id == INVALID_ENTITY_ID then return cmd_id, nil, nil end
@@ -79,12 +73,16 @@ local function _resolve_commander(squad)
     return cmd_id, se_cmd, se_cmd:section_name()
 end
 
+-- Check if commander is trader or named NPC (immutable within session)
+-- @complexity O(1) | 2 luabind (clsid, community)
 local function _check_static_identity(se_cmd, sec)
     if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == "trader" then return "trader" end
     if sec and xdata.unscriptable_npcs[sec] then return "named_npc" end
     return nil
 end
 
+-- Check all permanent (session-immutable) protection reasons with caching
+-- @complexity O(1) cached | O(1) uncached with 4-5 luabind (story_id + commander resolution)
 local function _check_permanent(squad)
     if not squad then return true, "nil_squad" end
     -- Static cache hit (story_id, trader, named_npc -- immutable within session)
@@ -222,6 +220,8 @@ local function _matches_faction(comm, factions)
     return comm == factions
 end
 
+-- Validate squad for queries: position, NPC count, level, smart exclusion, protection
+-- @complexity O(1) typical | 1-3 luabind (npc_count, get_level_id, protection checks)
 local function _squad_base_valid(squad, level_id, exclude_at_smart_id, exclude_unscriptable, exclude_externally_scripted)
     if not squad or not squad.position then return false end
     if squad.npc_count and squad:npc_count() == 0 then return false end
