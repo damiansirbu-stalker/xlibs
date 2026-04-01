@@ -1,12 +1,14 @@
-1.2.5
+next
   Added: xmath.prd_chance -- pseudo-random distribution (Dota 2 PRD algorithm), reduces streak variance
-  Fixed: xsquad.release_squads crash -- stale SIMBOARD IDs after delete_all + repopulate (use SIMBOARD:remove_squad)
-  Fixed: xsquad.release_squads deleting bounty/hostage quest targets (added _has_task_target guard)
-
-1.2.4
+  Added: xsquad.is_task_target -- O(1) task_squads check + bounty/hostage member fallback
+  Added: xsquad.is_permanent_squad -- static identity guard (story, trader, named_npc, empty), cached
+  Added: xsquad.has_active_role -- dynamic role guard (task_giver, companion)
   Added: MCM banner
+  Removed: xsquad.is_unscriptable_squad -- replaced by is_permanent_squad + has_active_role
   Changed: MCM version displayed from code, no longer hardcoded in XML
   Fixed: Russian MCM encoding (windows-1251)
+  Fixed: xsquad.release_squads crash -- stale SIMBOARD IDs after delete_all + repopulate (use SIMBOARD:remove_squad)
+  Fixed: xsquad.release_squads deleting task target squads (assault, bounty, delivery, etc.)
 
 1.2.3
   Fixed: xsmart.get_proximity unguarded game_graph() NULL singleton during transitions

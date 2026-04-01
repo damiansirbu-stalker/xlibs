@@ -54,6 +54,12 @@ local function _check_member_task_target(squad)
     return false, nil
 end
 
+--- Check if squad is an active task target (assault, bounty, hostage, delivery, dominance, rescue, etc.)
+--- O(1) hash check against task_squads, then member-level bounty/hostage fallback for timing gaps
+--- @safety SAFE - nil-guarded, returns true for nil (fail-safe)
+--- @complexity O(1) typical (hash hit) | O(m*b) worst case (member iteration, m=members, b=bounties+hostages)
+--- @see anomaly/sim_offline_combat.script(53), anomaly/axr_task_manager.script(bounties_by_id, hostages_by_id)
+--- @param squad se_squad Squad server object
 --- @return boolean True if squad is a task target (nil squad returns true for safety)
 --- @return string|nil Reason: "nil", "task_squads", "bounty", "hostage"
 function is_task_target(squad)
@@ -79,7 +85,7 @@ local function _check_static_identity(se_cmd, sec)
     return nil
 end
 
-local function _check_unscriptable(squad)
+local function _check_permanent(squad)
     if not squad then return true, "nil_squad" end
     -- Static cache hit (story_id, trader, named_npc -- immutable within session)
     local cached = _static_cache[squad]
@@ -100,6 +106,15 @@ local function _check_unscriptable(squad)
             return true, kind, sec
         end
     end
+    return false, nil, nil, cmd_id, sec
+end
+
+local function _check_active_role(squad, cmd_id, sec)
+    if not squad then return true, "nil" end
+    if not cmd_id then
+        cmd_id, _, sec = _resolve_commander(squad)
+    end
+    if cmd_id == INVALID_ENTITY_ID then return false, nil, nil end
     -- Dynamic: task giver (changes as tasks are accepted/completed, never cached)
     if _is_task_giver(squad.id, cmd_id) then return true, "task_giver", sec end
     -- Dynamic: companion (can be recruited/dismissed, never cached)
@@ -109,22 +124,41 @@ local function _check_unscriptable(squad)
     return false, nil, nil
 end
 
---- Check if squad is unscriptable (traders, leaders, quest givers, task givers, companions, story chars)
---- These squads cannot be scripted (scripted_target) - fixed to their role/location
---- Static checks (story_id, trader, named_npc) cached per squad. Dynamic checks (task_giver, companion) re-evaluated every call.
+local function _is_protected(squad)
+    local perm, _, _, cmd_id, sec = _check_permanent(squad)
+    if perm then return true end
+    return _check_active_role(squad, cmd_id, sec)
+end
+
+--- Check if squad has permanent protected identity (story, trader, named NPC, empty)
+--- Static within session. Cached per squad object (weak keys, GC-safe).
 --- @safety SAFE - returns true for nil (fail-safe), alife_object returns nil for invalid
---- @complexity O(1) static cache hit | O(1) uncached with 4-5 luabind + O(t) task_info scan (t = active tasks, typically 3-10)
---- @see anomaly/_g.script(2674), anomaly/axr_companions.script(25,150), anomaly/task_manager.script(task_info)
+--- @complexity O(1) cache hit | O(1) uncached with 4-5 luabind
+--- @see anomaly/_g.script(2674)
 --- @param squad se_squad Squad server object
---- @return boolean True if unscriptable (nil squad returns true for safety)
---- @return string|nil Reason: "nil_squad", "story_id", "trader", "named_npc", "task_giver", "companion"
---- @return string|nil Commander section_name (for "trader" and "named_npc" reasons, nil otherwise)
-function is_unscriptable_squad(squad)
-    return _check_unscriptable(squad)
+--- @return boolean True if permanent (nil squad returns true for safety)
+--- @return string|nil Reason: "nil_squad", "story_id", "trader", "named_npc", "empty_squad"
+--- @return string|nil Commander section_name (for "trader" and "named_npc" reasons)
+function is_permanent_squad(squad)
+    local perm, reason, name = _check_permanent(squad)
+    return perm, reason, name
+end
+
+--- Check if squad currently has a system-assigned role that prevents scripting
+--- Dynamic, re-evaluated every call (roles change as tasks are accepted/dismissed).
+--- @safety SAFE - nil-guarded, O(t) task_info scan for task_giver
+--- @complexity O(1) + O(t) task_info scan (t = active tasks, typically 3-10)
+--- @see anomaly/axr_companions.script(25,150), anomaly/task_manager.script(task_info)
+--- @param squad se_squad Squad server object
+--- @return boolean True if has active role (nil squad returns true for safety)
+--- @return string|nil Reason: "nil", "task_giver", "companion"
+--- @return string|nil Commander section_name
+function has_active_role(squad)
+    return _check_active_role(squad)
 end
 
 --- Check if squad is controlled by an external system (Warfare, LTX condlists, random patrol)
---- Checks runtime scripting fields and LTX-defined target logic; complements is_unscriptable_squad (identity vs state)
+--- Checks runtime scripting fields and LTX-defined target logic; complements is_permanent_squad/has_active_role (identity/role vs state)
 --- @safety SAFE - pure Lua field reads, nil-guarded, no luabind
 --- @complexity O(1) | 0 luabind
 --- @see anomaly/sim_squad_scripted.script(37-39,55-69,105,336), Vintar0/sim_squad_warfare.script(148-152,936)
@@ -196,7 +230,7 @@ local function _squad_base_valid(squad, level_id, exclude_at_smart_id, exclude_u
     if level_id and xlevel.get_level_id(squad) ~= level_id then return false end
     if exclude_at_smart_id and squad.smart_id == exclude_at_smart_id then return false end
     if exclude_externally_scripted and is_externally_scripted(squad) then return false end
-    if exclude_unscriptable and is_unscriptable_squad(squad) then return false end
+    if exclude_unscriptable and _is_protected(squad) then return false end
     return true, faction
 end
 
@@ -331,9 +365,9 @@ function find_squads(pos, opts)
         if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then goto continue end
         if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then goto continue end
         if opts.exclude_externally_scripted and is_externally_scripted(squad) then goto continue end
-        if opts.exclude_unscriptable then
-            local unscriptable = is_unscriptable_squad(squad)
-            if unscriptable then skipped_unscriptable = skipped_unscriptable + 1 goto continue end
+        if opts.exclude_unscriptable and _is_protected(squad) then
+            skipped_unscriptable = skipped_unscriptable + 1
+            goto continue
         end
         if not _matches_faction(faction, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
@@ -487,7 +521,7 @@ function release_squads(opts)
     local ids = {}
     for squad in iter_squads() do
         if common_only and not squad.common then goto continue end
-        if is_unscriptable_squad(squad) then goto continue end
+        if _is_protected(squad) then goto continue end
         if is_task_target(squad) then goto continue end
         ids[#ids + 1] = squad.id
         ::continue::

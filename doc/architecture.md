@@ -115,7 +115,8 @@ xsquad.release_squad(squad)
 - `is_squad_at_base(squad)`, `get_squad_smart(squad)`
 - `get_squad_by_member(npc_id)` - Get squad containing NPC
 - `get_community_name(squad)` - Translated community name (safe, never nil)
-- `is_unscriptable_squad(squad)` - Check against xdata.unscriptable_npcs
+- `is_permanent_squad(squad)` - Static identity check (story, trader, named_npc, empty), cached
+- `has_active_role(squad)` - Dynamic role check (task_giver, companion)
 - `is_externally_scripted(squad)` - Check scripted_target, __lock, warfare, condlist, random_targets
 - `iter_squads()` - Iterator over all SIMBOARD squads
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
@@ -303,7 +304,7 @@ X-Ray engine sentinel values extracted from C++ source headers.
 
 ### xdata.script - Static Data
 
-Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is_unscriptable_squad`.
+Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is_permanent_squad`.
 
 - `unscriptable_npcs` - Lookup table of trader, mechanic, leader, medic, barmen, guide, and story character squad IDs that should not be moved or despawned by mods
 
