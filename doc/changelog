@@ -1,3 +1,8 @@
+1.2.5
+  Added: xmath.prd_chance -- pseudo-random distribution (Dota 2 PRD algorithm), reduces streak variance
+  Fixed: xsquad.release_squads crash -- stale SIMBOARD IDs after delete_all + repopulate (use SIMBOARD:remove_squad)
+  Fixed: xsquad.release_squads deleting bounty/hostage quest targets (added _has_task_target guard)
+
 1.2.4
   Added: MCM banner
   Changed: MCM version displayed from code, no longer hardcoded in XML

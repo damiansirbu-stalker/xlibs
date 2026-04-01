@@ -26,6 +26,45 @@ local function _is_task_giver(squad_id, cmd_id)
     return false
 end
 
+--- Check if squad is an active task target (assault, bounty, hostage, delivery, dominance, rescue, etc.)
+--- O(1) hash check against sim_offline_combat.task_squads (covers all task types),
+--- then O(m*b) member-level fallback against axr_task_manager bounties/hostages
+--- (covers timing gap between task accept and effect functor populating task_squads)
+--- @safety SAFE - nil-guarded, returns true for nil (fail-safe)
+--- @complexity O(1) typical (hash hit) | O(m*b) worst case (member iteration, m=members, b=bounties+hostages)
+--- @see anomaly/sim_offline_combat.script(53), anomaly/axr_task_manager.script(bounties_by_id, hostages_by_id)
+--- @param squad se_squad Squad server object
+--- @return boolean True if squad is a task target (nil squad returns true for safety)
+--- @return string|nil Reason: "nil", "task_squads", "bounty", "hostage"
+local function _check_member_task_target(squad)
+    if not axr_task_manager then return false, nil end
+    local bounties = axr_task_manager.bounties_by_id
+    local hostages = axr_task_manager.hostages_by_id
+    if not bounties and not hostages then return false, nil end
+    if squad:npc_count() == 0 then return false, nil end
+    for member in squad:squad_members() do
+        local member_id = member.id
+        if bounties then for _, npc_id in pairs(bounties) do
+            if npc_id == member_id then return true, "bounty" end
+        end end
+        if hostages then for _, npc_id in pairs(hostages) do
+            if npc_id == member_id then return true, "hostage" end
+        end end
+    end
+    return false, nil
+end
+
+--- @return boolean True if squad is a task target (nil squad returns true for safety)
+--- @return string|nil Reason: "nil", "task_squads", "bounty", "hostage"
+function is_task_target(squad)
+    if not squad then return true, "nil" end
+    if sim_offline_combat and sim_offline_combat.task_squads
+    and sim_offline_combat.task_squads[squad.id] then
+        return true, "task_squads"
+    end
+    return _check_member_task_target(squad)
+end
+
 local function _resolve_commander(squad)
     local cmd_id = squad:commander_id()
     if cmd_id == INVALID_ENTITY_ID then return cmd_id, nil, nil end
@@ -449,6 +488,7 @@ function release_squads(opts)
     for squad in iter_squads() do
         if common_only and not squad.common then goto continue end
         if is_unscriptable_squad(squad) then goto continue end
+        if is_task_target(squad) then goto continue end
         ids[#ids + 1] = squad.id
         ::continue::
     end
@@ -457,7 +497,7 @@ function release_squads(opts)
     for i = 1, #ids do
         local se_squad = sim:object(ids[i])
         if se_squad then
-            se_squad:remove_squad()
+            SIMBOARD:remove_squad(se_squad)
             count = count + 1
         end
     end
