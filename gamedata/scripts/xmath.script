@@ -112,6 +112,15 @@ local PRD_C = {
 
 local _prd_state = {}
 
+--- Reset PRD state for a key (callers with dynamic keys call this on entity death/cleanup)
+--- Prevents unbounded growth of _prd_state when keys are per-entity rather than static
+--- @safety SAFE - pure Lua table nil assignment
+--- @complexity O(1) | 0 luabind
+--- @param key string Key to reset
+function prd_reset(key)
+    _prd_state[key] = nil
+end
+
 --- Roll with pseudo-random distribution, reducing streak variance
 --- Dota 2 PRD: P(N) = C * N, N increments on failure, resets on success
 --- @safety SAFE - pure Lua, stateful (per-key failure counter in module table)

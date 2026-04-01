@@ -239,6 +239,7 @@ local function _check_protected(squad, opts)
 end
 
 -- Validate squad for queries: position, NPC count, level, smart exclusion, protection
+-- Returns: ok, faction, skip_reason ("protected" when _check_protected rejects)
 -- @complexity O(1) typical | 1-5 luabind (npc_count, get_level_id, _check_protected)
 local function _squad_base_valid(squad, opts)
     if not squad or not squad.position then return false end
@@ -247,7 +248,7 @@ local function _squad_base_valid(squad, opts)
     if not faction then return false end
     if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then return false end
     if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then return false end
-    if _check_protected(squad, opts) then return false end
+    if _check_protected(squad, opts) then return false, nil, "protected" end
     return true, faction
 end
 
@@ -379,20 +380,12 @@ function find_squads(pos, opts)
     for squad_id in pairs(SIMBOARD.squads) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
-        if not squad or not squad.position then goto continue end
-        if squad.npc_count and squad:npc_count() == 0 then goto continue end
-        local faction = squad.player_id
-        if not faction then goto continue end
-        if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then goto continue end
-        if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then goto continue end
-        if opts.exclude_externally_scripted and is_externally_scripted(squad) then goto continue end
-        if (opts.exclude_permanent and is_permanent_squad(squad))
-        or (opts.exclude_active_role and has_active_role(squad))
-        or (opts.exclude_task_target and is_task_target(squad)) then
-            skipped_protected = skipped_protected + 1
+        local ok, comm, skip_reason = _squad_base_valid(squad, opts)
+        if not ok then
+            if skip_reason == "protected" then skipped_protected = skipped_protected + 1 end
             goto continue
         end
-        if not _matches_faction(faction, factions) then goto continue end
+        if not _matches_faction(comm, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
         if dist_sqr <= max_dist_sqr and dist_sqr >= min_dist_sqr then
             candidates[#candidates + 1] = squad
