@@ -1,0 +1,127 @@
+--- xslice: Time-sliced array iteration across frames
+---
+--- Spreads array processing across game frames. Each frame processes `step`
+--- items. Items where func returns true are drained. Remaining items are
+--- revisited in the next pass (circular). Queue finishes when all items
+--- drained, func returns false (early stop), or cancelled.
+---
+--- Pattern: time slicing -- amortize O(n) work across n/step frames.
+--- Uses AddUniqueCall. Single callback drives all active queues.
+--- Internals: deferred compaction (survivors list per pass, no table.remove).
+
+local pairs, next, ipairs = pairs, next, ipairs
+local AddUniqueCall = AddUniqueCall
+
+local _queues = {}
+local _running = false
+
+-- Drain step items from queue; returns true if queue finished this frame
+-- @complexity O(step) per call | 0 luabind
+local function _process_queue(queue)
+    local items = queue.items
+    local len = queue.len
+    local i = queue.index
+    local func = queue.func
+    local survivors = queue.survivors
+
+    local limit = i + queue.step - 1
+    if limit > len then limit = len end
+
+    for j = i, limit do
+        local result = func(items[j], j)
+        if result == false then return true end
+        if result ~= true then survivors[#survivors + 1] = items[j] end
+    end
+
+    if limit < len then
+        queue.index = limit + 1
+        return false
+    end
+    if #survivors == 0 then return true end
+    queue.items = survivors
+    queue.len = #survivors
+    queue.index = 1
+    queue.survivors = {}
+    return false
+end
+
+-- Drive all active queues; defer on_done to after iteration for pairs() safety
+-- @complexity O(step * queues) per frame | 0 luabind
+local function _tick()
+    local done = {}
+
+    for name, queue in pairs(_queues) do
+        if _process_queue(queue) then
+            done[#done + 1] = { name = name, on_done = queue.on_done }
+        end
+    end
+
+    for _, entry in ipairs(done) do
+        _queues[entry.name] = nil
+        if entry.on_done then entry.on_done() end
+    end
+
+    if not next(_queues) then
+        _running = false
+        return true
+    end
+end
+
+--- Start a time-sliced queue. Processes step items per frame from an array.
+--- Deferred compaction: survivors collected per pass, swapped as next input. No table.remove.
+--- @safety SAFE - pure Lua table iteration + AddUniqueCall registration
+--- @complexity O(1) setup | 0 luabind | O(step) per frame via _tick
+--- @param name string Unique queue name (rejected if already active)
+--- @param items table Array to process (referenced, not copied; do not modify while active)
+--- @param opts table { func(item,index)->true|false|nil, on_done(), step }
+--- @return boolean True if started
+function start(name, items, opts)
+    if not name or not items or not opts or not opts.func then return false end
+    if _queues[name] then return false end
+    local len = #items
+    if len == 0 then
+        if opts.on_done then opts.on_done() end
+        return true
+    end
+    local step = opts.step or 1
+    if step < 1 then step = 1 end
+    if step > len then step = len end
+    _queues[name] = {
+        items = items,
+        len = len,
+        func = opts.func,
+        on_done = opts.on_done,
+        step = step,
+        index = 1,
+        survivors = {},
+    }
+    if not _running then
+        _running = true
+        AddUniqueCall(_tick)
+    end
+    return true
+end
+
+--- Cancel a running queue. Fires on_done unless silent.
+--- Nils the queue entry; pending _tick iteration skips removed keys safely
+--- @safety SAFE - pure Lua table nil assignment
+--- @complexity O(1) | 0 luabind
+--- @param name string Queue name
+--- @param silent boolean If true, skip on_done callback
+function cancel(name, silent)
+    local queue = _queues[name]
+    if not queue then return end
+    _queues[name] = nil
+    if silent then return end
+    if queue.on_done then queue.on_done() end
+end
+
+--- Check if a queue is running.
+--- Hash lookup on _queues table; safe to call from any context including on_done
+--- @safety SAFE - pure Lua table read
+--- @complexity O(1) | 0 luabind
+--- @param name string Queue name
+--- @return boolean
+function is_active(name)
+    return _queues[name] ~= nil
+end

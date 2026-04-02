@@ -20,16 +20,20 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  | Level/Map |  | SmartTrn  |  | Stash Ops |  | SrvEntity |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  |  xtable   |  | xttltable |  |   xmath   |  |   xmcm    |       |
-|  | Table Ops |  | TTL Table |  | RNG       |  | MCM Cfg   |       |
+|  |  xtable   |  | xttltable |  |  xslice   |  |   xmath   |       |
+|  | Table Ops |  | TTL Table |  | TimeSlice |  | RNG       |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  | xprofiler |  |  xtrace   |  | xinspect  |  |  xevent   |       |
-|  | Profiling |  | Trace IDs |  | Deep Dbg  |  | Fn Hooks  |       |
+|  |   xmcm    |  | xprofiler |  |  xtrace   |  | xinspect  |       |
+|  | MCM Cfg   |  | Profiling |  | Trace IDs |  | Deep Dbg  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  |   xpda    |  | xstring   |  |  xdata    |  |  xconst   |       |
-|  | PDA/Map   |  | Interp.   |  | Static    |  | Sentinels |       |
+|  |  xevent   |  |   xpda    |  | xstring   |  |  xtime    |       |
+|  | Fn Hooks  |  | PDA/Map   |  | Interp.   |  | Game Time |       |
+|  +-----------+  +-----------+  +-----------+  +-----------+       |
+|  +-----------+  +-----------+  +-----------+  +-----------+       |
+|  |  xconst   |  |  xdata    |  |  xlibs    |  | xlibs_mcm |       |
+|  | Sentinels |  | Static    |  | Metadata  |  | MCM Page  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
 +-------------------------------------------------------------------+
 ```
@@ -221,6 +225,50 @@ local found = xtable.find(tbl, function(v) return v.id == target end)
   - `:peek(key)` - Check availability without consuming
   - `:reset(key)`, `:clear()`
 
+### xslice.script - Time-Sliced Iteration
+
+Spread array processing across frames. Process `step` items per frame.
+Items drained (`func` returns true) are removed between passes. Remaining items
+are revisited in the next pass (circular). Queue finishes when all items drained,
+`func` returns false (early stop), or queue is cancelled.
+
+Pattern: time slicing -- amortize O(n) work across n/step frames.
+One shared `AddUniqueCall` drives all active queues.
+
+```lua
+-- One-pass drain-all (process every item once)
+xslice.start("campfire_scan", ids, {
+    step = 100,
+    func = function(id)
+        scan_entity(id)
+        return true  -- drain
+    end,
+    on_done = function() end,
+})
+
+-- Circular (items stay until ready)
+xslice.start("spread_releases", entities, {
+    step = 3,
+    func = function(ent)
+        if done_enough then return false end  -- early stop
+        if not ready(ent) then return nil end  -- keep, revisit
+        release(ent)
+        return true                            -- drain
+    end,
+    on_done = function() end,
+})
+```
+
+- `start(name, items, opts)` - Start queue. opts: `func(item, index)`, `on_done()`, `step`
+  - func returns: `true` = drain, `false` = early stop, `nil` = keep for next pass
+  - Returns false if name already active or invalid args
+  - Items array referenced, not copied. Do not modify while active.
+- `cancel(name, silent)` - Cancel queue. Fires `on_done` unless `silent` = true
+- `is_active(name)` - Check if queue is running
+
+Internals: deferred compaction. Survivors collected during each pass, become
+next pass's input. O(step) per frame, O(n) per pass. No per-item `table.remove`.
+
 ### xmath.script - RNG
 
 - `chance(percent)` - Probability roll
@@ -310,6 +358,15 @@ Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is
 
 - `unscriptable_npcs` - Lookup table of trader, mechanic, leader, medic, barmen, guide, and story character squad IDs that should not be moved or despawned by mods
 
+### xlibs.script - Package Metadata
+
+- `get_version()` - Version string (e.g. "1.2.3")
+- `is_compatible(required)` - Semver check: same major, actual >= required
+
+### xlibs_mcm.script - MCM Info Page
+
+MCM registration for xlibs. Banner slide, description, dynamic version text via `ui_hook_functor`.
+
 ---
 
 ## Patterns
@@ -319,6 +376,7 @@ Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is
 - **TTL cleanup**: expired entries pruned on access or periodic sweep.
 - **Local caching**: `local time_global = time_global` for hot paths.
 - **Guard clauses**: early return on nil/invalid, max 2 nesting levels.
+- **Time slicing**: spread O(n) iteration across frames via `AddUniqueCall` + step index. Deferred compaction between passes.
 
 ---
 
@@ -330,4 +388,3 @@ This means every mod that releases or scripts squads must implement its own guar
 
 ---
 
-**Version:** 1.2.3

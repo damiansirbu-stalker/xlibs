@@ -1,5 +1,5 @@
 STALKER Mod Validation Report
-Generated: 2026-03-31 01:05:17
+Generated: 2026-04-02 21:15:52
 Validator: stalker-manager validate
 Mods: 1
 
@@ -23,6 +23,7 @@ Files:
   gamedata/scripts/xobject.script
   gamedata/scripts/xpda.script
   gamedata/scripts/xprofiler.script
+  gamedata/scripts/xslice.script
   gamedata/scripts/xsmart.script
   gamedata/scripts/xsquad.script
   gamedata/scripts/xstash.script
@@ -34,16 +35,16 @@ Files:
 
 [1/5] luacheck - static analysis (PASS)
   Checks: syntax errors, undefined globals, unused variables, type mismatches
-  Files checked: 23
+  Files checked: 24
   Errors: 0
 
 [2/5] selene - advanced linting (PASS)
   Checks: shadowing, deprecated API, misused variables, style violations
-  Files checked: 23
+  Files checked: 24
   Errors: 0, Warnings: 0
 
 [3/5] contract - project rules (PASS (S+))
-  Rules loaded: 228
+  Rules loaded: 230
   Score: 0
 
   PASS  [alao-table-insert] LUA-LOW w1 - table.insert optimization
@@ -264,6 +265,7 @@ Files:
   PASS  [standards-numeric-for-wrong] LUA-MED w5 - standards-numeric-for-wrong
   PASS  [standards-loop-no-break] LUA-MED w5 - standards-loop-no-break
   PASS  [standards-while-true] LUA-HIGH w9 - standards-while-true
+  PASS  [standards-cached-timer-globals] LUA-HIGH w9 - standards-cached-timer-globals
   PASS  [standards-nested-operations] LUA-LOW w1 - standards-nested-operations
   PASS  [standards-raw-engine-call] XRAY-LOW w1 - standards-raw-engine-call
   PASS  [standards-no-throttle] XRAY-HIGH w9 - standards-no-throttle
@@ -274,41 +276,43 @@ Files:
   PASS  [standards-guard-only-param] LUA-MED w5 - standards-guard-only-param
   PASS  [version-drift] LUA-HIGH w9 - Version drift
   PASS  [xlibs-engine-docs] LUA-MED w4 - xlibs-engine-docs
+  PASS  [xlibs-private-docs] LUA-LOW w2 - xlibs-private-docs
 
 [4/5] load - runtime loading (PASS)
   Test: lua54 interpreter + X-Ray engine stubs
   Load test: xlibs
-  LOAD: xbus
-  LOAD: xinspect
   LOAD: xcreature
-  LOAD: xconst
-  LOAD: xtrace
-  LOAD: xevent
-  LOAD: xstring
   LOAD: xdata
-  LOAD: xtable
-  LOAD: xlibs
-  LOAD: xstash
-  LOAD: xlog
-  LOAD: xttltable
+  LOAD: xconst
   LOAD: xtime
   LOAD: xlevel
-  LOAD: xsmart
-  LOAD: xmath
-  LOAD: xsquad
-  LOAD: xprofiler
+  LOAD: xlibs
+  LOAD: xslice
   LOAD: xmcm
-  LOAD: xpda
+  LOAD: xbus
+  LOAD: xstring
+  LOAD: xlog
+  LOAD: xmath
+  LOAD: xevent
+  LOAD: xttltable
+  LOAD: xtrace
+  LOAD: xsquad
+  LOAD: xtable
+  LOAD: xsmart
+  LOAD: xstash
   LOAD: xobject
+  LOAD: xprofiler
+  LOAD: xpda
+  LOAD: xinspect
   LOAD: xlibs_mcm
   START: xtime.on_game_start
   START: xlog.on_game_start
-  OK: 23 loaded, 2 on_game_start
+  OK: 24 loaded, 2 on_game_start
 
 [5/5] gitleaks - secret scanning (PASS)
   Scan: credentials, API keys, tokens, private keys
-  1:05AM INF scanned ~206094 bytes (206.09 KB) in 140ms
-  1:05AM INF no leaks found
+  9:15PM INF scanned ~245042 bytes (245.04 KB) in 111ms
+  9:15PM INF no leaks found
 
 ========================================================================
 RESULT: PASS | Grade: S+ | Score: 0

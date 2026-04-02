@@ -1,4 +1,4 @@
-next
+1.2.4
   X-Ray:
     Added: timed event scheduling works correctly with major modpacks (globals resolve at call time for demonized_time_events compatibility)
   xmath:
@@ -19,6 +19,8 @@ next
     Added: deadbanding, identical consecutive log lines collapsed to "ROW(N times)"
   xtable:
     Added: check_lock, peek lock availability without acquiring
+  xslice:
+    Added: xslice, time-sliced array iteration across frames (deferred drain, AddUniqueCall scheduling, 3-return protocol)
   MCM:
     Changed: MCM visual refresh
     Fixed: Russian MCM encoding restored (windows-1251)

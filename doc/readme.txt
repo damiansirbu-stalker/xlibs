@@ -24,6 +24,7 @@ Data Structures:
   xtable       Filter, find, reduce, clone, shuffle, sort, binary insert, memoize, locks
   xttltable    TTL key-value store and sliding window counter with auto-expiry
   xmath        Probability rolls, weighted choice, random sampling, variation
+  xslice       Time-sliced array iteration across frames
   xstring      String interpolation with ${key} placeholders
 
 Diagnostics:
