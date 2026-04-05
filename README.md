@@ -13,3 +13,9 @@ Requires: Anomaly 1.5.3, Modded exes
 - [readme.txt](doc/readme.txt) -- full description, module list
 - [changelog](https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog) -- version history
 - [architecture.md](doc/architecture.md) -- technical reference for modders
+
+## License
+
+PolyForm Perimeter License. Other mods can depend on, call, and ship with xlibs in modpacks, with visible credit. What is not allowed: cloning the architecture, reverse-engineering internal systems, or reproducing the implementation in a competing mod. See [LICENSE](LICENSE) and [usage guide](https://damiansirbu-stalker.github.io/siski-report/guide.html).
+
+A report documenting unauthorized reproduction of this codebase is available at https://damiansirbu-stalker.github.io/siski-report/
