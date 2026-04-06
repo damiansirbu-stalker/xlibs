@@ -111,7 +111,6 @@ xsquad.release_squad(squad)
 ```
 
 - `find_squad(pos, opts)`, `find_squads(pos, opts)` - Find matching squads
-- `find_online_squads(pos, opts)` - Find squads with online (near-player) members
 - `control_squad(squad, smart, rush)` - Take scripted control, direct to smart terrain
 - `target_actor(squad, rush)` - Script squad to chase actor (engine-native pursuit)
 - `release_squad(squad)` - Release from scripted control, return to simulation

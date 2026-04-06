@@ -149,8 +149,16 @@ function has_active_role(squad)
     return _check_active_role(squad)
 end
 
---- Check if squad is controlled by an external system (Warfare, LTX condlists, random patrol)
---- Checks runtime scripting fields and LTX-defined target logic; complements is_permanent_squad/has_active_role (identity/role vs state)
+--- Check if squad is controlled by an external system via runtime field sniffing.
+--- Complements is_permanent_squad/has_active_role (identity/role vs state).
+---
+--- Fields checked (order = priority):
+---   scripted_target         - AP, Guards Spawner, any mod calling control_squad or setting directly
+---   __lock                  - BAO (Better Alife Overhaul), EOA (Warfare variant with offline combat)
+---   registered_with_warfare - Warfare ALife Overhaul (Vintar0)
+---   action_condlist         - Vanilla Anomaly: LTX condlist-driven target logic
+---   random_targets          - Vanilla Anomaly: random patrol system
+---
 --- @safety SAFE - pure Lua field reads, nil-guarded, no luabind
 --- @complexity O(1) | 0 luabind
 --- @see anomaly/sim_squad_scripted.script(37-39,55-69,105,336), Vintar0/sim_squad_warfare.script(148-152,936)
@@ -400,42 +408,6 @@ function find_squads(pos, opts)
     return result, skipped_protected
 end
 
---- Find online squads matching criteria (uses game_objects_iter for speed)
---- Iterates online game objects, deduplicates by squad.id, applies squad guards after dedup
---- @safety SAFE - game_objects_iter returns nil-safe iterator
---- @complexity O(n) online objects | 2 luabind per NPC (IsStalker, get_object_squad) + guards per unique squad
---- @see Demonized/game_objects_iter (modded exe), anomaly/_g.script(2437)
---- @param pos vector|nil Origin position (nil = no distance filter)
---- @param opts table { factions, max_distance, min_distance, exclude_permanent, exclude_active_role, exclude_task_target, exclude_externally_scripted, max_count }
---- @return table Array of squad server objects
-function find_online_squads(pos, opts)
-    if not game_objects_iter then return {} end
-    opts = opts or {}
-
-    local max_dist_sqr = opts.max_distance and opts.max_distance * opts.max_distance
-    local min_dist_sqr = (opts.min_distance or 0) ^ 2
-    local max_count = opts.max_count or 20
-    local seen = {}
-    local result = {}
-
-    for obj in game_objects_iter() do
-        if not IsStalker(obj) or not obj:alive() then goto continue end
-        local squad = get_object_squad(obj)
-        if not squad or seen[squad.id] then goto continue end
-        seen[squad.id] = true
-        if opts.exclude_externally_scripted and is_externally_scripted(squad) then goto continue end
-        if (opts.exclude_permanent and is_permanent_squad(squad))
-        or (opts.exclude_active_role and has_active_role(squad))
-        or (opts.exclude_task_target and is_task_target(squad)) then goto continue end
-        if opts.factions and not opts.factions[squad.player_id] then goto continue end
-        if pos and max_dist_sqr and _outside_range(pos, squad.position, min_dist_sqr, max_dist_sqr) then goto continue end
-        result[#result + 1] = squad
-        if #result >= max_count then break end
-        ::continue::
-    end
-
-    return result
-end
 
 --- Get squad's current smart terrain
 --- Reads smart_id or assigned_target_id, resolves via alife_object, rejects non-smart entities via clsid check
