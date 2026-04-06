@@ -121,7 +121,7 @@ xsquad.release_squad(squad)
 - `is_permanent_squad(squad)` - Static identity check (story, trader, named_npc, empty), cached
 - `has_active_role(squad)` - Dynamic role check (task_giver, companion)
 - `is_task_target(squad)` - Task target check (task_squads hash + bounty/hostage member fallback)
-- `is_externally_scripted(squad)` - Check scripted_target, __lock, warfare, condlist, random_targets
+- `is_scripted(squad)` - Check engine/vanilla scripting fields (scripted_target, condlist, random_targets)
 - `iter_squads()` - Iterator over all SIMBOARD squads
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
 - `dump_squads()` - Diagnostic string of all SIMBOARD squads
@@ -383,7 +383,7 @@ MCM registration for xlibs. Banner slide, description, dynamic version text via 
 
 X-Ray's `alife():release()` and `SIMBOARD:remove_squad()` have zero built-in protection. Any script call will unconditionally destroy the entity and all children (cascading through squad member cleanup, smart terrain unregistration, and server_entity_on_unregister). All NPC/squad protection is script-side -- the engine tracks story_id objects in a registry but does not block their removal.
 
-This means every mod that releases or scripts squads must implement its own guard chain. xsquad provides four guards (`is_permanent_squad`, `has_active_role`, `is_task_target`, `is_externally_scripted`) that match Anomaly's own protection layers in sim_offline_combat.
+This means every mod that releases or scripts squads must implement its own guard chain. xsquad provides four guards (`is_permanent_squad`, `has_active_role`, `is_task_target`, `is_scripted`) that match Anomaly's own protection layers in sim_offline_combat.
 
 ---
 
