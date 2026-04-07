@@ -93,10 +93,6 @@ function is_smart_important(smart)
     return (props.base and props.base > 0) or (props.resource and props.resource > 0) or (props.territory and props.territory > 0)
 end
 
--- =============================================================================
--- RUNTIME QUERIES
--- =============================================================================
-
 -- Check smart terrain job list for job_type_id (shared by has_trader_job, has_mechanic_job)
 local function _has_job_type(smart, type_id, cache)
     local cached = cache[smart.id]
@@ -395,10 +391,6 @@ function has_capacity(smart, faction, incoming)
     return (count + (incoming or 0)) < smart.max_population
 end
 
--- =============================================================================
--- FACTION CONTROLLED
--- =============================================================================
-
 --- Faction -> generic simulation squad sections (novice, advanced, veteran)
 --- Copy of smart_terrain.script:16-29, pre-parsed as arrays
 local SQUADS_BY_FACTION = {
@@ -461,10 +453,6 @@ function clear_faction_controlled(smart)
     smart.faction = smart.default_faction
     return true
 end
-
--- =============================================================================
--- POPULATION RESET
--- =============================================================================
 
 --- Diagnostic dump of all smarts with faction and level info
 --- Iterates SIMBOARD.smarts, collects id:name:level:factions per smart for debug logging

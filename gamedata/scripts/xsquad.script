@@ -172,10 +172,6 @@ function is_scripted(squad)
     return false, nil
 end
 
--- =============================================================================
--- QUERIES
--- =============================================================================
-
 --- Get squad containing an NPC by member ID
 --- Looks up se_npc via alife_object, reads group_id, resolves squad via alife_object
 --- @safety SAFE - returns nil for invalid IDs, group_id >= INVALID_ENTITY_ID means no squad
@@ -432,10 +428,6 @@ function is_squad_at_base(squad)
     local smart = get_squad_smart(squad)
     return smart and xsmart.is_base(smart) or false
 end
-
--- =============================================================================
--- OPERATIONS
--- =============================================================================
 
 --- Take scripted control of squad, directing it to a smart terrain
 --- Sets scripted_target which overrides simulation targeting; rejects nil/empty name; squad stays bound until release_squad
