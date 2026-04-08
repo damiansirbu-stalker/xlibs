@@ -3,6 +3,7 @@
 local pcall = pcall
 
 local gg = nil
+local _vertex_level = {}
 
 local INVALID_LEVEL_VERTEX_ID = xconst.INVALID_LEVEL_VERTEX_ID
 
@@ -28,17 +29,22 @@ function get_game_hours()
 end
 
 --- Get level_id from server entity
---- Chains game_graph():vertex(gvid):level_id() for any server object with m_game_vertex_id
---- @safety nil guard on se_obj + game_graph (NULL singleton during transitions)
---- @see xray/xrGame/game_graph_script.cpp, anomaly/_g.script
---- @complexity O(1) | 3 luabind (m_game_vertex_id + vertex + level_id)
---- @param se_obj table Server object
+--- Vertex-to-level mapping is immutable (baked in game.graph). Cached after first lookup per gvid.
+--- @safety SAFE - nil guard on se_obj + game_graph (pcall cached in module-level gg)
+--- @cost O(1) | 0 luabind cached, 2 luabind trivial on miss (vertex: ptr+offset, level_id: field read)
+--- @src xray/game_graph_inline.h
+--- @param se_obj table Server object with m_game_vertex_id
 --- @return number|nil Level ID (nil during transitions)
 function get_level_id(se_obj)
     if not se_obj then return nil end
+    local gvid = se_obj.m_game_vertex_id
+    local cached = _vertex_level[gvid]
+    if cached then return cached end
     local graph = get_game_graph()
     if not graph then return nil end
-    return graph:vertex(se_obj.m_game_vertex_id):level_id()
+    local lvl = graph:vertex(gvid):level_id()
+    _vertex_level[gvid] = lvl
+    return lvl
 end
 
 --- Get actor's current level_id

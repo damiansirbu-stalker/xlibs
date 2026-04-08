@@ -1,3 +1,12 @@
+next
+  xlevel:
+    Added: vertex-to-level cache in get_level_id (gvid -> level_id, immutable, populated on first lookup)
+  xsquad:
+    Changed: is_externally_scripted renamed to is_scripted, checks engine/vanilla fields only
+    Added: exclude_filter option in _check_protected (generic function filter, runs first)
+    Changed: exclude_externally_scripted renamed to exclude_scripted in find_squad/find_squads
+    Removed: find_online_squads (dead code, zero callers)
+
 1.2.4
   X-Ray:
     Added: timed event scheduling works correctly with major modpacks (globals resolve at call time for demonized_time_events compatibility)
