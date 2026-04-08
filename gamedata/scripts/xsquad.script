@@ -90,8 +90,9 @@ local function _check_permanent(squad)
     if cached then return true, cached[1], cached[2] end
     -- Static: story squads (cheapest check first: 1 luabind, no commander needed)
     if get_object_story_id(squad.id) then
-        _static_cache[squad] = {"story_id"}
-        return true, "story_id"
+        local name = squad:section_name()
+        _static_cache[squad] = {"story_id", name}
+        return true, "story_id", name
     end
     -- Resolve commander for remaining checks
     local cmd_id, se_cmd, sec = _resolve_commander(squad)
@@ -219,28 +220,45 @@ local function _matches_faction(comm, factions)
     return comm == factions
 end
 
--- Check protection guards: exclude_filter, scripted, permanent, active role, task target
--- exclude_filter runs first (cheapest, catches mod-owned squads before luabind checks)
--- @complexity O(1) typical | 0-4 luabind (protection checks)
-local function _check_protected(squad, opts)
-    if opts.exclude_filter and opts.exclude_filter(squad) then return true end
-    if opts.exclude_scripted and is_scripted(squad) then return true end
+--- Check all protection guards with shared commander context
+--- Order: exclude_filter (cheapest) -> scripted -> permanent -> active_role (reuses cmd_id) -> task_target
+--- @safety SAFE - nil-guarded, returns true for nil squad (fail-safe)
+--- @cost O(1) cached | 0 luabind (cache hit) or 4-5 luabind medium (miss: alife_object, clsid, community)
+--- @src xray/alife_object_registry_inline.h, anomaly/_g.script
+--- @param squad se_squad Squad server object
+--- @param opts table { exclude_filter, exclude_filter_reason, exclude_scripted, exclude_permanent, exclude_active_role, exclude_task_target }
+--- @return boolean protected
+--- @return string|nil reason ("is_permanent", "has_active_role", "is_task_target", "is_scripted", or opts.exclude_filter_reason)
+--- @return string|nil detail (sub-reason: "story_id", "trader", "task_giver", "companion", "scripted:target", etc.)
+--- @return string|nil name (section_name, from permanent cache)
+function is_protected(squad, opts)
+    if opts.exclude_filter then
+        local result = opts.exclude_filter(squad)
+        if result then return true, opts.exclude_filter_reason or "excluded", result end
+    end
+    if opts.exclude_scripted then
+        local scripted, detail = is_scripted(squad)
+        if scripted then return true, "is_scripted", detail end
+    end
     local cmd_id, sec
     if opts.exclude_permanent then
-        local perm
-        perm, _, _, cmd_id, sec = _check_permanent(squad)
-        if perm then return true end
+        local perm, reason, name
+        perm, reason, name, cmd_id, sec = _check_permanent(squad)
+        if perm then return true, "is_permanent", reason, name end
     end
     if opts.exclude_active_role then
-        if _check_active_role(squad, cmd_id, sec) then return true end
+        local role, reason, name = _check_active_role(squad, cmd_id, sec)
+        if role then return true, "has_active_role", reason, name end
     end
-    if opts.exclude_task_target and is_task_target(squad) then return true end
+    if opts.exclude_task_target then
+        local task, detail = is_task_target(squad)
+        if task then return true, "is_task_target", detail end
+    end
     return false
 end
 
 -- Validate squad for queries: position, NPC count, level, smart exclusion, protection
--- Returns: ok, faction, skip_reason ("protected" when _check_protected rejects)
--- @complexity O(1) typical | 1-5 luabind (npc_count, get_level_id, _check_protected)
+-- @cost O(1) typical | 1-5 luabind (npc_count, get_level_id, is_protected)
 local function _squad_base_valid(squad, opts)
     if not squad or not squad.position then return false end
     if squad.npc_count and squad:npc_count() == 0 then return false end
@@ -248,7 +266,7 @@ local function _squad_base_valid(squad, opts)
     if not faction then return false end
     if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then return false end
     if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then return false end
-    if _check_protected(squad, opts) then return false, nil, "protected" end
+    if is_protected(squad, opts) then return false, nil, "protected" end
     return true, faction
 end
 

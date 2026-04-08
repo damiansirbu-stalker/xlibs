@@ -2,8 +2,12 @@ next
   xlevel:
     Added: vertex-to-level cache in get_level_id (gvid -> level_id, immutable, populated on first lookup)
   xsquad:
+    Added: is_protected(squad, opts) -- public composite guard with shared commander context, returns (bool, reason, detail, name)
+    Added: exclude_filter_reason opt for custom filter label in is_protected
+    Added: story_id squads cache section_name in _static_cache (eliminates repeated string alloc)
+    Changed: _check_protected removed, _squad_base_valid delegates to is_protected
     Changed: is_externally_scripted renamed to is_scripted, checks engine/vanilla fields only
-    Added: exclude_filter option in _check_protected (generic function filter, runs first)
+    Added: exclude_filter option in is_protected (generic function filter, runs first)
     Changed: exclude_externally_scripted renamed to exclude_scripted in find_squad/find_squads
     Removed: find_online_squads (dead code, zero callers)
 
