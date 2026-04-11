@@ -406,13 +406,24 @@ local SQUADS_BY_FACTION = {
     renegade = {"renegade_sim_squad_novice", "renegade_sim_squad_advanced", "renegade_sim_squad_veteran"},
     greh     = {"greh_sim_squad_novice", "greh_sim_squad_advanced", "greh_sim_squad_veteran"},
     isg      = {"isg_sim_squad_novice", "isg_sim_squad_advanced", "isg_sim_squad_veteran"},
+    --- Mutant factions: simulation_* sections from faction_expansions.script (vanilla Anomaly)
+    --- @see doc/library/xray/api/squad-factions.md, anomaly/faction_expansions.script
+    monster                 = {"simulation_tushkano", "simulation_cat"},
+    monster_vegetarian      = {"simulation_boar", "simulation_flesh", "simulation_mix_boar_flesh"},
+    monster_predatory_day   = {"simulation_dog", "simulation_pseudodog", "simulation_mix_dogs"},
+    monster_predatory_night = {"simulation_bloodsucker"},
+    monster_zombied_day     = {"simulation_zombie", "simulation_snork"},
+    monster_zombied_night   = {"simulation_zombie", "simulation_burer"},
+    monster_special         = {"simulation_chimera", "simulation_gigant"},
 }
 local ALL_FACTIONS_FC = "army, bandit, csky, dolg, ecolog, freedom, killer, monolith, stalker, renegade, greh, isg"
+    .. ", monster, monster_vegetarian, monster_predatory_day, monster_predatory_night"
+    .. ", monster_zombied_day, monster_zombied_night, monster_special"
 
 --- Set faction_controlled on smart terrain at runtime, enabling faction-aware respawns
---- Mirrors engine read_params (smart_terrain.script:246-267) for all 12 factions
+--- Mirrors engine read_params (smart_terrain.script:246-267) for all 19 factions (12 stalker + 7 mutant)
 --- @safety SAFE - pure Lua table writes on smart terrain object
---- @complexity O(12) factions | 0 luabind (parse_condlist is pure Lua)
+--- @complexity O(19) factions | 0 luabind (parse_condlist is pure Lua)
 --- @see anomaly/smart_terrain.script(246-267,1665-1672)
 --- @param smart se_smart_terrain Smart terrain to mutate
 --- @param faction string Conqueror faction community name (sets smart.faction)
@@ -438,7 +449,7 @@ end
 --- Clear faction_controlled from smart terrain, reverting to default behavior
 --- Removes all faction_controlled entries from respawn_params
 --- @safety SAFE - pure Lua table writes on smart terrain object
---- @complexity O(12) factions | 0 luabind
+--- @complexity O(19) factions | 0 luabind
 --- @see anomaly/smart_terrain.script(246-267)
 --- @param smart se_smart_terrain Smart terrain to revert
 --- @return boolean True if cleared
