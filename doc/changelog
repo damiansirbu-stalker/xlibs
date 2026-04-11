@@ -1,4 +1,4 @@
-next
+1.2.5
   xlevel:
     Added: vertex-to-level cache in get_level_id (gvid -> level_id, immutable, populated on first lookup)
   xsquad:

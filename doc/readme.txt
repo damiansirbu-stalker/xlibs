@@ -54,6 +54,7 @@ Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
 Compatibility:
+Compatible with all modded exe variants (Demonized, AOE, MT).
 Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
 
 Development:
@@ -64,6 +65,7 @@ Full report in doc/test-report.log.
 
 Credits:
 Stalker_Boss - Russian translation
+Altogolik - support, ideas, source materials
 
 Usage and License:
   Calling xlibs functions from your mod: intended use, no restrictions.

@@ -42,9 +42,9 @@ function get_level_id(se_obj)
     if cached then return cached end
     local graph = get_game_graph()
     if not graph then return nil end
-    local lvl = graph:vertex(gvid):level_id()
-    _vertex_level[gvid] = lvl
-    return lvl
+    local level = graph:vertex(gvid):level_id()
+    _vertex_level[gvid] = level
+    return level
 end
 
 --- Get actor's current level_id
