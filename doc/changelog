@@ -1,8 +1,16 @@
+next
+  Summary: Set operations, online-learning perceptron
+  xtable:
+    Added: merge(...) - set union of hash tables. Variadic, nil-safe, returns new table.
+    Added: subtract(base, ...) - set difference. Returns base keys minus all keys in remaining args.
+  xlearn:
+    Added: xlearn module. Lightweight online-learning perceptron with sigmoid activation and delta rule. create_perceptron(n, opts) with predict/learn/export/import. Per-feature normalization via declared ranges. Pure Lua, zero dependencies, ~40 lines core.
+
 1.2.5
   xlevel:
     Added: vertex-to-level cache in get_level_id (gvid -> level_id, immutable, populated on first lookup)
   xsquad:
-    Added: is_protected(squad, opts) -- public composite guard with shared commander context, returns (bool, reason, detail, name)
+    Added: is_protected(squad, opts) - public composite guard with shared commander context, returns (bool, reason, detail, name)
     Added: exclude_filter_reason opt for custom filter label in is_protected
     Added: story_id squads cache section_name in _static_cache (eliminates repeated string alloc)
     Changed: _check_protected removed, _squad_base_valid delegates to is_protected

@@ -1,4 +1,4 @@
---- xtable: Table utilities (filter, find, count, sweep, shuffle, sort, memoize)
+--- xtable: Table utilities (filter, find, count, sweep, shuffle, sort, memoize, merge, subtract)
 
 local pairs, ipairs, type, assert, error = pairs, ipairs, type, assert, error
 local clock = os.clock
@@ -312,3 +312,31 @@ end
 --- @safety SAFE - pure Lua
 --- @complexity O(1) | 0 luabind
 function clear_locks() _locks = {} end
+
+--- Set union of hash tables: merge(...) -> new table with all keys from all inputs
+--- Variadic: accepts 2+ tables. Returns a new table, inputs are not modified.
+--- @safety SAFE - pure Lua, nil-safe (skips nil arguments)
+--- @cost O(n) total keys across all inputs | 0 luabind
+function merge(...)
+    local out = {}
+    for i = 1, select("#", ...) do
+        local t = select(i, ...)
+        if t then for k in pairs(t) do out[k] = true end end
+    end
+    return out
+end
+
+--- Set difference: subtract(base, ...) -> new table with base keys minus all keys in remaining args
+--- Returns a new table, inputs are not modified.
+--- @safety SAFE - pure Lua, nil-safe (skips nil arguments)
+--- @cost O(n+m) base keys + excluded keys | 0 luabind
+function subtract(base, ...)
+    local out = {}
+    if not base then return out end
+    for k in pairs(base) do out[k] = true end
+    for i = 1, select("#", ...) do
+        local t = select(i, ...)
+        if t then for k in pairs(t) do out[k] = nil end end
+    end
+    return out
+end
