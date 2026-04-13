@@ -96,6 +96,8 @@ xcreature.query():stalkers():alive():on_level(lvl):each(fn)
 - `get_name(input)` - Get translated name
 - `pos(input)` - Get position
 - `give_money(obj, amount)` - Give rubles to game_object
+- `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog", etc.). Handles modded exe clsid reuse via section prefix fallback. player_id fast reject for stalkers (0 luabind).
+- `get_mutant_variant(input)` - Full NPC variant section ("bloodsucker_red_strong", "dog_weak_brown")
 - `is_unscriptable(obj)` - Check against xdata.unscriptable_npcs
 - `is_task_giver(obj)` - Check NPC/squad ID against active tasks
 - `query()` - Fluent server objects iterator:
@@ -204,6 +206,8 @@ local found = xtable.find(tbl, function(v) return v.id == target end)
 - `shuffle(t)`, `sort(t, comparator)`
 - `bisect_left(arr, value, compare_fn)` - Binary search insertion point
 - `binary_insert(arr, value, compare_fn)` - Sorted insert
+- `merge(...)` - Set union of hash tables. Variadic, nil-safe, returns new table.
+- `subtract(base, ...)` - Set difference. Returns base keys minus all keys in remaining args.
 - `memoize(fn)` - Function memoization
 - `acquire_lock(key, sec)` - Time-based lock (returns false if in window)
 - `clear_locks()` - Wipe all locks
@@ -223,6 +227,11 @@ local found = xtable.find(tbl, function(v) return v.id == target end)
   - `:acquire(key)` - Consume a token, returns true if available
   - `:peek(key)` - Check availability without consuming
   - `:reset(key)`, `:clear()`
+- `create_fifo_cache(opts)` - Bounded FIFO cache with ring buffer eviction
+  - `capacity` -> max entries (default 128)
+  - `:get(key)`, `:set(key, value)`, `:has(key)` - O(1) hash lookup
+  - `:clear()`, `:size()`
+  - Oldest entry evicted when capacity reached. Use false for negative cache entries.
 
 ### xslice.script - Time-Sliced Iteration
 

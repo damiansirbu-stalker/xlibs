@@ -251,3 +251,75 @@ function create_token_bucket(opts)
         _keys = {},
     }, _token_bucket_mt)
 end
+
+--------------------------------------------------------------------------------
+-- FIFO Cache: bounded key-value store with oldest-first eviction
+--------------------------------------------------------------------------------
+local _fifo_mt = {}
+_fifo_mt.__index = _fifo_mt
+
+--- Get cached value by key
+--- @complexity O(1) | 0 luabind
+--- @param key any Cache key
+--- @return any|nil Value or nil if not cached (false is a valid cached value)
+function _fifo_mt:get(key)
+    return self._data[key]
+end
+
+--- Check if key is cached
+--- @complexity O(1) | 0 luabind
+function _fifo_mt:has(key)
+    return self._data[key] ~= nil
+end
+
+--- Set key-value pair; evicts oldest entry when at capacity
+--- Updating an existing key changes its value but keeps its eviction position (correct FIFO).
+--- Ring buffer overwrites oldest slot on insert; hash map provides O(1) lookup.
+--- @complexity O(1) | 0 luabind
+--- @param key any Cache key
+--- @param value any Value to cache (nil not allowed, use false for negative cache entries)
+function _fifo_mt:set(key, value)
+    if value == nil then return end
+    if self._data[key] ~= nil then
+        self._data[key] = value
+        return
+    end
+    local old_key = self._ring[self._head]
+    if old_key ~= nil then
+        self._data[old_key] = nil
+    end
+    self._ring[self._head] = key
+    self._data[key] = value
+    self._head = self._head % self._capacity + 1
+end
+
+--- Clear all entries
+function _fifo_mt:clear()
+    self._data = {}
+    self._ring = {}
+    self._head = 1
+end
+
+--- Count cached entries
+--- @complexity O(n) | 0 luabind
+function _fifo_mt:size()
+    local n = 0
+    for _ in pairs(self._data) do n = n + 1 end
+    return n
+end
+
+--- Create bounded FIFO cache
+--- O(1) get/set with ring buffer eviction. When capacity is reached, the oldest entry is evicted.
+--- Values may not be nil; use false for negative cache entries (e.g. "checked, not a mutant").
+--- @safety SAFE - pure Lua tables, no luabind, no timers
+--- @complexity O(1) get/set | 0 luabind
+--- @param opts table|nil { capacity = number } (default 128)
+--- @return table FIFO cache with :get(key), :set(key, value), :has(key), :clear(), :size()
+function create_fifo_cache(opts)
+    return setmetatable({
+        _data = {},
+        _ring = {},
+        _head = 1,
+        _capacity = (opts and opts.capacity) or 128,
+    }, _fifo_mt)
+end

@@ -1,3 +1,11 @@
+next
+  Summary: Mutant species identification, FIFO cache
+  xcreature:
+    Added: get_mutant_species(input) - returns base species string from any entity (squad, se_obj, game_object, ID). Handles modded exe clsid reuse via section prefix fallback. player_id fast reject for stalkers (0 luabind).
+    Added: get_mutant_variant(input) - returns full NPC variant section (e.g. "bloodsucker_red_strong").
+  xttltable:
+    Added: create_fifo_cache(opts) - bounded FIFO cache with ring buffer eviction. O(1) get/set, oldest entry evicted at capacity. Default 128 entries.
+
 1.2.6
   Summary: Set operations
   xtable:
