@@ -392,10 +392,11 @@ function find_squads(pos, opts)
     local min_dist_sqr = (opts.min_distance or 0) ^ 2
     local max_count = opts.max_count or 3
 
+    local include_ids = opts.include_ids
     local candidates = {}
     local skipped_protected = 0
 
-    for squad_id in pairs(SIMBOARD.squads) do
+    for squad_id in pairs(include_ids or SIMBOARD.squads) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
         local ok, comm, skip_reason = _squad_base_valid(squad, opts)
