@@ -1,10 +1,8 @@
 next
-  Summary: Set operations, online-learning perceptron
+  Summary: Set operations
   xtable:
     Added: merge(...) - set union of hash tables. Variadic, nil-safe, returns new table.
     Added: subtract(base, ...) - set difference. Returns base keys minus all keys in remaining args.
-  xlearn:
-    Added: xlearn module. Lightweight online-learning perceptron with sigmoid activation and delta rule. create_perceptron(n, opts) with predict/learn/export/import. Per-feature normalization via declared ranges. Pure Lua, zero dependencies, ~40 lines core.
 
 1.2.5
   xlevel:
