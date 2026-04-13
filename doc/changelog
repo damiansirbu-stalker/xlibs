@@ -1,4 +1,4 @@
-next
+1.2.6
   Summary: Set operations
   xtable:
     Added: merge(...) - set union of hash tables. Variadic, nil-safe, returns new table.

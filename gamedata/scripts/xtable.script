@@ -309,25 +309,29 @@ end
 
 --- Clear all locks
 --- Replaces _locks with empty table; old references become stale
+--- @return nil
 --- @safety SAFE - pure Lua
 --- @complexity O(1) | 0 luabind
 function clear_locks() _locks = {} end
 
 --- Set union of hash tables: merge(...) -> new table with all keys from all inputs
 --- Variadic: accepts 2+ tables. Returns a new table, inputs are not modified.
+--- @return table New hash table with all keys set to true
 --- @safety SAFE - pure Lua, nil-safe (skips nil arguments)
 --- @cost O(n) total keys across all inputs | 0 luabind
 function merge(...)
     local out = {}
     for i = 1, select("#", ...) do
-        local t = select(i, ...)
-        if t then for k in pairs(t) do out[k] = true end end
+        local source = select(i, ...)
+        if source then for k in pairs(source) do out[k] = true end end
     end
     return out
 end
 
 --- Set difference: subtract(base, ...) -> new table with base keys minus all keys in remaining args
 --- Returns a new table, inputs are not modified.
+--- @param base table Base hash table (keys to keep)
+--- @return table New hash table with base keys minus excluded keys
 --- @safety SAFE - pure Lua, nil-safe (skips nil arguments)
 --- @cost O(n+m) base keys + excluded keys | 0 luabind
 function subtract(base, ...)
@@ -335,8 +339,8 @@ function subtract(base, ...)
     if not base then return out end
     for k in pairs(base) do out[k] = true end
     for i = 1, select("#", ...) do
-        local t = select(i, ...)
-        if t then for k in pairs(t) do out[k] = nil end end
+        local source = select(i, ...)
+        if source then for k in pairs(source) do out[k] = nil end end
     end
     return out
 end
