@@ -284,9 +284,9 @@ function _fifo_mt:set(key, value)
         self._data[key] = value
         return
     end
-    local old_key = self._ring[self._head]
-    if old_key ~= nil then
-        self._data[old_key] = nil
+    local evict_key = self._ring[self._head]
+    if evict_key ~= nil then
+        self._data[evict_key] = nil
     end
     self._ring[self._head] = key
     self._data[key] = value
@@ -303,9 +303,9 @@ end
 --- Count cached entries
 --- @complexity O(n) | 0 luabind
 function _fifo_mt:size()
-    local n = 0
-    for _ in pairs(self._data) do n = n + 1 end
-    return n
+    local count = 0
+    for _ in pairs(self._data) do count = count + 1 end
+    return count
 end
 
 --- Create bounded FIFO cache

@@ -392,11 +392,10 @@ function find_squads(pos, opts)
     local min_dist_sqr = (opts.min_distance or 0) ^ 2
     local max_count = opts.max_count or 3
 
-    local include_ids = opts.include_ids
     local candidates = {}
     local skipped_protected = 0
 
-    for squad_id in pairs(include_ids or SIMBOARD.squads) do
+    for squad_id in pairs(SIMBOARD.squads) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
         local ok, comm, skip_reason = _squad_base_valid(squad, opts)
@@ -448,13 +447,11 @@ function is_squad_at_base(squad)
     return smart and xsmart.is_base(smart) or false
 end
 
---- Take scripted control of squad, directing it to a smart terrain
---- Sets scripted_target which overrides simulation targeting; rejects nil/empty name; squad stays bound until release_squad
---- scripted_target causes specific_update (direct A->B) instead of generic_update (SIMBOARD:get_squad_target with detours and gulag reassignment)
---- rush_to_target sets move.run + anim.danger on online NPCs via xr_reach_task:300-313; without it, NPCs walk (move.walk + anim.free)
+--- Acquire: set scripted_target (routes to specific_update) + __lock (blocks generic_update fallback)
+--- scripted_target overrides simulation targeting; __lock prevents generic_update from reassigning if scripted_target is cleared between ticks
 --- @safety SAFE - pure field writes on squad userdata, rejects nil/empty :name()
 --- @complexity O(1) | 1 luabind (:name() on target_smart)
---- @see anomaly/sim_squad_scripted.script(258,233-238), anomaly/xr_reach_task.script(289-314)
+--- @src anomaly/sim_squad_scripted.script(258,233-238), anomaly/xr_reach_task.script(289-314)
 --- @param squad table Squad server object
 --- @param target_smart table Target smart terrain
 --- @param rush boolean|nil Rush to target (move.run + anim.danger when online)
@@ -465,6 +462,7 @@ function control_squad(squad, target_smart, rush)
     if not name or name == "" then return false end
 
     squad.scripted_target = name
+    squad.__lock = true
     squad.rush_to_target = rush == true
     squad.assigned_target_id = target_smart.id
     squad.current_action = 0
@@ -472,29 +470,46 @@ function control_squad(squad, target_smart, rush)
     return true
 end
 
---- Release squad from scripted control
---- Clears scripted_target and rush flag so engine resumes autonomous behavior
+--- Release: clear scripted_target (stops specific_update) + __lock (unblocks generic_update so sim resumes)
+--- Inverse of control_squad/target_actor; squad returns to SIMBOARD autonomous targeting
 --- @safety SAFE - pure field writes, nil-guarded
 --- @complexity O(1) | 0 luabind
---- @see anomaly/sim_squad_scripted.script(258)
+--- @src anomaly/sim_squad_scripted.script(258)
 --- @param squad table Squad server object
 function release_squad(squad)
     if not squad then return end
     squad.scripted_target = nil
+    squad.__lock = nil
     squad.rush_to_target = false
 end
 
---- Target player directly
---- Sets scripted_target to "actor" which engine interprets as pursue-player behavior
+--- Reassert: restore scripted_target + __lock if another mod overwrote them between scans
+--- Returns false (no-op) when both fields already match; callers use return value for debug logging
 --- @safety SAFE - pure field writes, nil-guarded
 --- @complexity O(1) | 0 luabind
---- @see anomaly/sim_squad_scripted.script(102)
+--- @param squad table Squad server object
+--- @param target string Expected scripted_target value
+--- @return boolean True if target was overwritten and restored
+function reassert_target(squad, target)
+    if not squad or not target then return false end
+    if squad.scripted_target == target and squad.__lock then return false end
+    squad.scripted_target = target
+    squad.__lock = true
+    return true
+end
+
+--- Acquire (actor): set scripted_target="actor" + __lock, squad pursues player
+--- Engine resolves "actor" to id=0 in get_script_target; no arrival detection (player moves)
+--- @safety SAFE - pure field writes, nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @src anomaly/sim_squad_scripted.script(102,128-129)
 --- @param squad se_squad Squad to command
 --- @param rush boolean Sprint to target
 --- @return boolean Success
 function target_actor(squad, rush)
     if not squad then return false end
     squad.scripted_target = "actor"
+    squad.__lock = true
     squad.rush_to_target = rush == true
     squad.current_action = 0
     return true

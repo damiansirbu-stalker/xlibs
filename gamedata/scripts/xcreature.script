@@ -68,6 +68,129 @@ function is_mutant(input) local cls = get_clsid(input) return cls and IsMonster(
 --- @return boolean
 function is_npc(input) return is_stalker(input) or is_mutant(input) end
 
+--- Clsid to species mapping (server + client clsids, vanilla + modded exes)
+--- Source: _g.script:2833-2866, ui_mutant_loot.script:34-54, xray-monolith object_factory
+local _clsid_to_species = {
+    [clsid.bloodsucker_s] = "bloodsucker", [clsid.bloodsucker] = "bloodsucker",
+    [clsid.boar_s] = "boar", [clsid.boar] = "boar",
+    [clsid.burer_s] = "burer", [clsid.burer] = "burer",
+    [clsid.chimera_s] = "chimera", [clsid.chimera] = "chimera",
+    [clsid.controller_s] = "controller", [clsid.controller] = "controller",
+    [clsid.dog_s] = "dog", [clsid.dog_red] = "dog",
+    [clsid.flesh_s] = "flesh", [clsid.flesh] = "flesh",
+    [clsid.gigant_s] = "gigant", [clsid.pseudo_gigant] = "gigant",
+    [clsid.psy_dog_s] = "psy_dog", [clsid.psy_dog_phantom_s] = "psy_dog",
+    [clsid.pseudodog_s] = "pseudodog", [clsid.dog_black] = "pseudodog",
+    [clsid.snork_s] = "snork", [clsid.snork] = "snork",
+    [clsid.tushkano_s] = "tushkano", [clsid.tushkano] = "tushkano",
+    [clsid.cat_s] = "cat", [clsid.cat] = "cat",
+    [clsid.fracture_s] = "fracture", [clsid.fracture] = "fracture",
+    [clsid.zombie_s] = "zombie", [clsid.zombie] = "zombie",
+    [clsid.poltergeist_s] = "poltergeist", [clsid.poltergeist] = "poltergeist",
+    [clsid.rat_s] = "rat", [clsid.rat] = "rat",
+}
+--- Modded exes (karlik, psysucker, lurker) -- guarded, not present in vanilla monolith
+if clsid.karlik_s then _clsid_to_species[clsid.karlik_s] = "karlik" end
+if clsid.karlik then _clsid_to_species[clsid.karlik] = "karlik" end
+if clsid.psysucker_s then _clsid_to_species[clsid.psysucker_s] = "psysucker" end
+if clsid.psysucker then _clsid_to_species[clsid.psysucker] = "psysucker" end
+if clsid.lurker_s then _clsid_to_species[clsid.lurker_s] = "lurker" end
+if clsid.lurker then _clsid_to_species[clsid.lurker] = "lurker" end
+
+--- Monster faction lookup for player_id fast reject (Lua field, zero bridge cost)
+local _is_monster_faction = {
+    ["monster_predatory_day"] = true, ["monster_predatory_night"] = true,
+    ["monster_vegetarian"] = true, ["monster_special"] = true,
+    ["monster_zombied_day"] = true, ["monster_zombied_night"] = true,
+    ["monster_zombied"] = true, ["monster"] = true, ["zoo_monster"] = true,
+}
+
+--- Ambiguous clsids: modded creatures that reuse vanilla clsids when their own _s clsid is not registered.
+--- Built at load time. Empty if modded exe registers proper clsids. Only these trigger section_name fallback.
+local _ambiguous_clsids = {}
+local _ambiguous_prefixes = {}
+if not clsid.lurker_s then
+    _ambiguous_clsids[clsid.chimera_s] = true
+    _ambiguous_prefixes.lurker = "lurker"
+end
+if not clsid.psysucker_s then
+    _ambiguous_clsids[clsid.bloodsucker_s] = true
+    _ambiguous_prefixes.psysucker = "psysucker"
+end
+if not clsid.karlik_s then
+    _ambiguous_clsids[clsid.tushkano_s] = true
+    _ambiguous_prefixes.m_karlik = "karlik"
+    _ambiguous_prefixes.karlik = "karlik"
+end
+
+-- Resolve species from NPC server entity: clsid first, section prefix fallback for ambiguous clsids only
+-- @complexity O(1) | 1-2 luabind (clsid + section_name for ambiguous)
+local function _resolve_npc_species(se_npc)
+    local cls = se_npc:clsid()
+    local species = _clsid_to_species[cls]
+    if not species then return nil end
+    if not _ambiguous_clsids[cls] then return species end
+    local section = se_npc:section_name()
+    if section then
+        for prefix, name in pairs(_ambiguous_prefixes) do
+            if section:sub(1, #prefix) == prefix then return name end
+        end
+    end
+    return species
+end
+
+--- Get mutant species from any entity (squad, se_obj, game_object, or ID)
+--- For squads: player_id fast reject (0 luabind for stalkers), then commander clsid + section fallback
+--- For NPCs/game_objects: direct clsid + section fallback
+--- Returns nil for stalkers, non-mutants, and unrecognized entities
+--- @safety SAFE - nil-guarded throughout
+--- @cost O(1) | 0 luabind (stalker squad fast reject) | 5 luabind (mutant squad) | 3 luabind (NPC)
+--- @see anomaly/_g.script(2833-2866), anomaly/ui_mutant_loot.script(34-54)
+--- @param input number|userdata Entity ID or object
+--- @return string|nil Species name ("bloodsucker", "dog", "lurker", etc.)
+function get_mutant_species(input)
+    local se = xobject.se(input)
+    if not se then return nil end
+    local pid = se.player_id
+    if pid and not _is_monster_faction[pid] then return nil end
+    local cls = se:clsid()
+    if cls == clsid.online_offline_group_s then
+        local cmd_id = se:commander_id()
+        if not cmd_id or cmd_id == 65535 then return nil end
+        local cmd = xobject.se(cmd_id)
+        if not cmd then return nil end
+        return _resolve_npc_species(cmd)
+    end
+    return _resolve_npc_species(se)
+end
+
+--- Get mutant variant (full NPC section) from any entity
+--- For squads: returns commander's section_name ("bloodsucker_red_strong", "dog_weak_brown")
+--- For NPCs: returns entity's section_name directly
+--- Returns nil for stalkers, non-mutants, and unrecognized entities
+--- @safety SAFE - nil-guarded throughout
+--- @cost O(1) | 0 luabind (stalker fast reject) | 4 luabind (mutant squad) | 2 luabind (NPC)
+--- @see anomaly/_g.script(2833-2866), anomaly/ui_mutant_loot.script(34-54)
+--- @param input number|userdata Entity ID or object
+--- @return string|nil Variant section name
+function get_mutant_variant(input)
+    local se = xobject.se(input)
+    if not se then return nil end
+    local pid = se.player_id
+    if pid and not _is_monster_faction[pid] then return nil end
+    local cls = se:clsid()
+    if cls == clsid.online_offline_group_s then
+        local cmd_id = se:commander_id()
+        if not cmd_id or cmd_id == 65535 then return nil end
+        local cmd = xobject.se(cmd_id)
+        if not cmd then return nil end
+        if not _resolve_npc_species(cmd) then return nil end
+        return cmd:section_name()
+    end
+    if not _resolve_npc_species(se) then return nil end
+    return se:section_name()
+end
+
 local _stalker_filter = function(e) return is_stalker(e) end
 local _mutant_filter = function(e) return is_mutant(e) end
 local _npc_filter = function(e) return is_npc(e) end
