@@ -8,7 +8,8 @@
 ---
 --- TTL Counter: sliding window occurrence counter.
 ---
---- Timing: os.clock (Lua C API, zero bridge overhead). All durations in seconds.
+--- Timing: os.clock by default (Lua C API, zero bridge overhead). All durations in seconds.
+--- Optional clock injection: pass opts.clock = fn to use game time or custom clock.
 
 local pairs, type, setmetatable = pairs, type, setmetatable
 local clock, min = os.clock, math.min
@@ -47,7 +48,7 @@ local _ttl_table_mt = {}
 _ttl_table_mt.__index = _ttl_table_mt
 
 function _ttl_table_mt:_cleanup()
-    local now = clock()
+    local now = self._clock()
     if now - self._last_cleanup < self._cleanup_interval then return end
     self._last_cleanup = now
     for key, entry in pairs(self._entries) do
@@ -64,7 +65,7 @@ function _ttl_table_mt:set(key, value, ttl)
     if not self._entries[key] then self._total[1] = self._total[1] + 1 end
     local entry = { value = value }
     local effective_ttl = ttl or self._default_ttl
-    if effective_ttl then entry.expires = clock() + effective_ttl end
+    if effective_ttl then entry.expires = self._clock() + effective_ttl end
     self._entries[key] = entry
     return true
 end
@@ -78,13 +79,13 @@ end
 --- Pure table lookup. No bridge calls.
 function _ttl_table_mt:has(key) return self._entries[key] ~= nil end
 
---- Calls os.clock for accurate expiry check
+--- Calls clock function for accurate expiry check
 --- @param key string
 --- @return number|nil Remaining seconds, or nil if expired/missing
 function _ttl_table_mt:remaining_ttl(key)
     local entry = self._entries[key]
     if not entry or not entry.expires then return nil end
-    local remaining = entry.expires - clock()
+    local remaining = entry.expires - self._clock()
     return remaining > 0 and remaining or nil
 end
 
@@ -121,7 +122,7 @@ end
 function _ttl_table_mt:import(data)
     if not data then return end
     self._entries, self._total[1] = {}, 0
-    local now = self._default_ttl and clock() or nil
+    local now = self._default_ttl and self._clock() or nil
     for key, value in pairs(data) do
         local entry = { value = value }
         if now then entry.expires = now + self._default_ttl end
@@ -131,16 +132,17 @@ function _ttl_table_mt:import(data)
 end
 
 --- Create TTL table
---- Returns metatable-backed store with auto-expiry via os.clock; cleanup piggybacked on set/size
---- @safety SAFE - pure Lua tables + os.clock (standard C API, not luabind)
---- @complexity O(1) creation | 0 luabind
---- @param opts table { default_ttl?, capacity?, cleanup_interval? } durations in seconds
+--- Returns metatable-backed store with auto-expiry; cleanup piggybacked on set/size
+--- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
+--- @complexity O(1) creation | 0 luabind (default clock), 2 luabind (game clock on set/cleanup)
+--- @param opts table { default_ttl?, capacity?, cleanup_interval?, clock? } durations in seconds
 --- @return table TTL table instance with :get(), :has(), :set(), :remove(), :size(), :all()
 function create_ttl_table(opts)
     opts = opts or {}
     return setmetatable({
         _default_ttl = opts.default_ttl, _capacity = opts.capacity,
         _cleanup_interval = opts.cleanup_interval or 10,
+        _clock = opts.clock or clock,
         _entries = {}, _total = {0}, _last_cleanup = 0,
     }, _ttl_table_mt)
 end
@@ -153,7 +155,7 @@ _ttl_counter_mt.__index = _ttl_counter_mt
 
 function _ttl_counter_mt:add(key, metadata)
     if not self._buckets[key] then self._buckets[key] = {} end
-    local entry = { time = clock() }
+    local entry = { time = self._clock() }
     if metadata then
         for meta_key, meta_val in pairs(metadata) do entry[meta_key] = meta_val end
     end
@@ -165,7 +167,7 @@ function _ttl_counter_mt:count(key)
     if not entries or #entries == 0 then return 0, {} end
     if not self._ttl then return #entries, {} end
 
-    local now = clock()
+    local now = self._clock()
     local valid_count, valid_entries, aggregated = 0, {}, {}
     for idx = 1, #entries do
         local event = entries[idx]
@@ -190,13 +192,13 @@ end
 
 --- Create TTL-based occurrence counter for sliding window rate limiting
 --- Returns metatable-backed counter with per-key buckets; expired entries pruned on count()
---- @safety SAFE - pure Lua tables + os.clock
---- @complexity O(1) creation | 0 luabind
---- @param opts table { ttl? } duration in seconds
+--- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
+--- @complexity O(1) creation | 0 luabind (default clock), 2 luabind (game clock on add/count)
+--- @param opts table { ttl?, clock? } duration in seconds
 --- @return table Counter instance with :add(), :count(), :reset()
 function create_ttl_counter(opts)
     opts = opts or {}
-    return setmetatable({ _ttl = opts.ttl, _buckets = {} }, _ttl_counter_mt)
+    return setmetatable({ _ttl = opts.ttl, _clock = opts.clock or clock, _buckets = {} }, _ttl_counter_mt)
 end
 
 --------------------------------------------------------------------------------
@@ -207,7 +209,7 @@ _token_bucket_mt.__index = _token_bucket_mt
 
 --- Acquire one token for key, return true if allowed
 function _token_bucket_mt:acquire(key)
-    local now = clock()
+    local now = self._clock()
     local state = self._keys[key]
     if not state then
         self._keys[key] = { tokens = self._capacity - 1, last_time = now }
@@ -228,7 +230,7 @@ end
 function _token_bucket_mt:peek(key)
     local state = self._keys[key]
     if not state then return true end
-    local elapsed = clock() - state.last_time
+    local elapsed = self._clock() - state.last_time
     return min(self._capacity, state.tokens + elapsed * self._rate) >= 1
 end
 
@@ -240,14 +242,15 @@ function _token_bucket_mt:clear() self._keys = {} end
 
 --- Create per-key token bucket rate limiter
 --- O(1) per acquire with fractional accumulation; bucket capacity is burst limit, rate controls sustained throughput
---- @safety SAFE - pure Lua tables + os.clock (standard C API, not luabind)
---- @complexity O(1) per acquire | 0 luabind
---- @param opts table { capacity, rate } capacity = max burst (tokens), rate = refill (tokens/sec)
+--- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
+--- @complexity O(1) per acquire | 0 luabind (default clock), 2 luabind (game clock on acquire/peek)
+--- @param opts table { capacity, rate, clock? } capacity = max burst (tokens), rate = refill (tokens/sec)
 --- @return table Token bucket with :acquire(key) -> bool, :reset(key), :clear()
 function create_token_bucket(opts)
     return setmetatable({
         _capacity = opts.capacity,
         _rate = opts.rate,
+        _clock = opts.clock or clock,
         _keys = {},
     }, _token_bucket_mt)
 end

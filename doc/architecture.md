@@ -173,7 +173,7 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `get_smart_factions(smart)` - All accepted factions from props (cached)
 - `get_smart_faction(smart)` - Owning faction (warfare -> runtime -> props -> "none")
 - `is_smart_empty(smart)` - No squads assigned
-- `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter)
+- `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter). Optimized filter order: cheapest checks first (exclude_id, factions hash, level_id) before the luabind distance_to_sqr call. Uses squared distance throughout (no sqrt). max_distance seeds the best_dist threshold so distant smarts are rejected after one comparison.
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
 - `get_proximity(squad, smart)` - Distance and arrival metadata
 - `has_capacity(smart, faction, incoming)` - SIMBOARD squads + incoming vs max_population
@@ -214,16 +214,19 @@ local found = xtable.find(tbl, function(v) return v.id == target end)
 
 ### xttltable.script - TTL Data Structures
 
+All three time-based structures support clock injection via `opts.clock`. Default is `os.clock` (zero luabind, wall time). Pass `xtime.game_sec` for game-time expiry (2 luabind per clock call). Use wall time for internal rate limiting and dedup guards. Use game time for gameplay-facing timers (decay windows, cooldowns) so they respect time acceleration, sleep, and realism mods.
+
 - `create_ttl_table(opts)` - TTL table with auto-expiry
-  - `default_ttl` -> expiry seconds
+  - `default_ttl` -> expiry seconds, `clock` -> clock function (default os.clock)
   - `:set(key, value, ttl)`, `:get(key)`, `:has(key)`, `:remove(key)`
-  - `:remaining_ttl(key)` - os.clock for accurate expiry
+  - `:remaining_ttl(key)` - calls clock function for accurate expiry
   - `:size()`, `:all()`, `:clear()`
   - `:export()`/`:import()` for save/load (imported entries get fresh TTL)
 - `create_ttl_counter(opts)` - Sliding window counter
+  - `clock` -> clock function (default os.clock)
   - `:add(key, metadata)`, `:count(key)`, `:reset(key)`, `:clear()`, `:all()`
 - `create_token_bucket(opts)` - Per-key O(1) rate limiter with fractional accumulation
-  - `capacity` -> max tokens, `rate` -> tokens per second
+  - `capacity` -> max tokens, `rate` -> tokens per second, `clock` -> clock function (default os.clock)
   - `:acquire(key)` - Consume a token, returns true if available
   - `:peek(key)` - Check availability without consuming
   - `:reset(key)`, `:clear()`

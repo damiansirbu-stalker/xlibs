@@ -8,6 +8,7 @@ next
     Added: get_mutant_species(input) returns the base species string for any entity. Accepts squads, server objects, game objects, or IDs. Handles modded exe clsid ambiguity via section prefix fallback. Stalker squads rejected at zero cost via player_id check.
     Added: get_mutant_variant(input) returns the full NPC variant section (e.g. "bloodsucker_red_strong").
   xttltable:
+    Added: clock injection (opts.clock) for ttl_table, ttl_counter, token_bucket. Callers can pass game-time or custom clock functions. Default remains os.clock (zero luabind).
     Added: create_fifo_cache(opts) creates a bounded cache with ring buffer eviction. Oldest entry evicted when capacity is reached.
 
 1.2.6
