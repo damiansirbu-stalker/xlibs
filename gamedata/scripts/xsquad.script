@@ -167,7 +167,8 @@ end
 --- @return string|nil Reason: "nil", "scripted:{target}", "condlist", "random_targets"
 function is_scripted(squad)
     if not squad then return true, "nil" end
-    if squad.scripted_target then return true, "scripted:" .. tostring(squad.scripted_target) end
+    local st = squad.scripted_target
+    if st and st ~= "" then return true, "scripted:" .. tostring(st) end
     if squad.action_condlist then return true, "condlist" end
     if squad.random_targets then return true, "random_targets" end
     return false, nil
@@ -447,8 +448,8 @@ function is_squad_at_base(squad)
     return smart and xsmart.is_base(smart) or false
 end
 
---- Acquire: set scripted_target (routes to specific_update) + __lock (blocks generic_update fallback)
---- scripted_target overrides simulation targeting; __lock prevents generic_update from reassigning if scripted_target is cleared between ticks
+--- Acquire: set scripted_target (routes to specific_update), clear __lock (AP does not use it)
+--- scripted_target alone overrides simulation targeting; __lock cleared so generic_update can run if another mod clears scripted_target
 --- @safety SAFE - pure field writes on squad userdata, rejects nil/empty :name()
 --- @complexity O(1) | 1 luabind (:name() on target_smart)
 --- @src anomaly/sim_squad_scripted.script(258,233-238), anomaly/xr_reach_task.script(289-314)
@@ -462,7 +463,7 @@ function control_squad(squad, target_smart, rush)
     if not name or name == "" then return false end
 
     squad.scripted_target = name
-    squad.__lock = true
+    squad.__lock = nil
     squad.rush_to_target = rush == true
     squad.assigned_target_id = target_smart.id
     squad.current_action = 0
@@ -483,8 +484,8 @@ function release_squad(squad)
     squad.rush_to_target = false
 end
 
---- Reassert: restore scripted_target + __lock if another mod overwrote them between scans
---- Returns false (no-op) when both fields already match; callers use return value for debug logging
+--- Reassert: restore scripted_target if another mod overwrote it between scans, clear __lock
+--- Returns false (no-op) when scripted_target already matches; callers use return value for debug logging
 --- @safety SAFE - pure field writes, nil-guarded
 --- @complexity O(1) | 0 luabind
 --- @param squad table Squad server object
@@ -492,13 +493,13 @@ end
 --- @return boolean True if target was overwritten and restored
 function reassert_target(squad, target)
     if not squad or not target then return false end
-    if squad.scripted_target == target and squad.__lock then return false end
+    if squad.scripted_target == target then return false end
     squad.scripted_target = target
-    squad.__lock = true
+    squad.__lock = nil
     return true
 end
 
---- Acquire (actor): set scripted_target="actor" + __lock, squad pursues player
+--- Acquire (actor): set scripted_target="actor", clear __lock, squad pursues player
 --- Engine resolves "actor" to id=0 in get_script_target; no arrival detection (player moves)
 --- @safety SAFE - pure field writes, nil-guarded
 --- @complexity O(1) | 0 luabind
@@ -509,7 +510,7 @@ end
 function target_actor(squad, rush)
     if not squad then return false end
     squad.scripted_target = "actor"
-    squad.__lock = true
+    squad.__lock = nil
     squad.rush_to_target = rush == true
     squad.current_action = 0
     return true
