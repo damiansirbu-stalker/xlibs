@@ -124,6 +124,8 @@ xsquad.release_squad(squad)
 - `has_active_role(squad)` - Dynamic role check (task_giver, companion)
 - `is_task_target(squad)` - Task target check (task_squads hash + bounty/hostage member fallback)
 - `is_scripted(squad)` - Check engine/vanilla scripting fields (scripted_target, condlist, random_targets)
+- `is_protected(squad, opts)` - Unified protection check. Runs guards in order: exclude_filter, is_scripted, is_permanent, has_active_role, is_task_target. Shares commander resolution across checks. Each guard toggled via opts flags.
+- `reassert_target(squad, target)` - Restore scripted_target if cleared by another mod between scans
 - `iter_squads()` - Iterator over all SIMBOARD squads
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
 - `dump_squads()` - Diagnostic string of all SIMBOARD squads

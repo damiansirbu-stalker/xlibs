@@ -1,9 +1,9 @@
-next
+1.2.7
   Summary: Species identification, squad control hardening, bounded cache
   xsquad:
-    Added: reassert_target(squad, target) restores scripted_target and __lock if another mod overwrites them between scans.
-    Changed: control_squad and target_actor now set __lock alongside scripted_target. Prevents generic_update from reassigning the squad if scripted_target is cleared between ticks.
-    Changed: release_squad clears __lock alongside scripted_target so simulation resumes.
+    Added: reassert_target(squad, target) restores scripted_target if another mod overwrote it between scans.
+    Changed: control_squad, target_actor, release_squad, reassert_target clear __lock (AP does not use it; scripted_target alone routes to specific_update).
+    Fixed: fatal crash in _resolve_commander when non-squad server object arrives via squad_on_update callback (clsid guard in _check_permanent, field guard in _resolve_commander)
   xcreature:
     Added: get_mutant_species(input) returns the base species string for any entity. Accepts squads, server objects, game objects, or IDs. Handles modded exe clsid ambiguity via section prefix fallback. Stalker squads rejected at zero cost via player_id check.
     Added: get_mutant_variant(input) returns the full NPC variant section (e.g. "bloodsucker_red_strong").

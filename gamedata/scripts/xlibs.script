@@ -1,6 +1,6 @@
 --- xlibs: Package metadata
 local tonumber = tonumber
-local _VERSION = "1.2.6"
+local _VERSION = "1.2.7"
 
 --- @return string Version string
 function get_version()

@@ -6,6 +6,7 @@ local alife, alife_object = alife, alife_object
 local get_object_story_id, IsStalker = get_object_story_id, IsStalker
 
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
+local CLSID_SQUAD = clsid.online_offline_group_s
 
 local function _EMPTY_ITER() return nil end
 
@@ -66,6 +67,7 @@ end
 -- Resolve commander entity and section from squad
 -- @complexity O(1) | 2-3 luabind (commander_id, alife_object, section_name)
 local function _resolve_commander(squad)
+    if not squad.commander_id then return INVALID_ENTITY_ID, nil, nil end
     local cmd_id = squad:commander_id()
     if cmd_id == INVALID_ENTITY_ID then return cmd_id, nil, nil end
     local se_cmd = alife_object(cmd_id)
@@ -85,6 +87,7 @@ end
 -- @complexity O(1) cached | O(1) uncached with 4-5 luabind (story_id + commander resolution)
 local function _check_permanent(squad)
     if not squad then return true, "nil_squad" end
+    if squad:clsid() ~= CLSID_SQUAD then return true, "not_squad" end
     -- Static cache hit (story_id, trader, named_npc -- immutable within session)
     local cached = _static_cache[squad]
     if cached then return true, cached[1], cached[2] end
@@ -130,7 +133,7 @@ end
 --- @see anomaly/_g.script(2674)
 --- @param squad se_squad Squad server object
 --- @return boolean True if permanent (nil squad returns true for safety)
---- @return string|nil Reason: "nil_squad", "story_id", "trader", "named_npc", "empty_squad"
+--- @return string|nil Reason: "nil_squad", "not_squad", "story_id", "trader", "named_npc", "empty_squad"
 --- @return string|nil Commander section_name (for "trader" and "named_npc" reasons)
 function is_permanent_squad(squad)
     local perm, reason, name = _check_permanent(squad)
