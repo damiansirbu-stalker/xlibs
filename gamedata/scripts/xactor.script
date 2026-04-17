@@ -1,0 +1,14 @@
+--- xactor: Actor helpers (info portions, state queries)
+
+--- Give info portion to actor
+--- Wraps db.actor:give_info_portion with nil guard
+--- @safety SAFE - nil-guarded, give_info_portion is engine-standard
+--- @cost O(1) | 1 luabind (give_info_portion)
+--- @src anomaly/_g.script, xray/xrGame/script_game_object_script.cpp
+--- @param info_id string Info portion ID
+--- @return boolean Success
+function give_info(info_id)
+    if not info_id or not db.actor then return false end
+    db.actor:give_info_portion(info_id)
+    return true
+end
