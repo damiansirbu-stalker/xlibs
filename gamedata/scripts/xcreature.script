@@ -329,11 +329,33 @@ function give_money(obj, amount)
     return true
 end
 
+-- game_objects_iter fallback for vanilla/AOEngine (no callbacks_gameobject.script)
+-- @cost O(n) | 0 luabind
+local _online_iter = game_objects_iter or function()
+    local k, data
+    return function()
+        repeat
+            k, data = next(db.storage, k)
+        until not k or (data and data.object)
+        return data and data.object
+    end
+end
+
+--- Iterator over all online game objects
+--- Uses game_objects_iter (Demonized modded exe) when available, falls back to db.storage
+--- @safety SAFE - nil-guarded, skips entries without valid game_object
+--- @cost O(n) online objects | 0 luabind (pure Lua table iteration)
+--- @src modded-exes/callbacks_gameobject.script(38)
+--- @return function Iterator yielding game_object instances
+function online_iter()
+    return _online_iter()
+end
+
 local function iterate_online(callback)
     local sim = alife()
     if not sim then return end
 
-    for obj in game_objects_iter() do
+    for obj in _online_iter() do
         local se = sim:object(obj:id())
         if se and callback(se) then return end
     end

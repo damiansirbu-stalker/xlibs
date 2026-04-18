@@ -36,7 +36,7 @@
 <li><b>xmcm</b> - MCM config getters and loaders with defaults extraction</li>
 </ul>
 <h2>Requirements</h2>
-<p>Anomaly 1.5.3<br />Modded exes<br /><br /></p>
+<p>Anomaly 1.5.3<br /><br /></p>
 <h2>Install (MO2)</h2>
 <p>1. Install xlibs<br />2. Load order does not matter (scripts are auto-loaded by the engine on demand)<br /><br /></p>
 <h2>Uninstall (MO2)</h2>
@@ -44,7 +44,7 @@
 <h2>Configuration</h2>
 <p>No configuration needed. xlibs is a passive library loaded on demand by other mods.<br /><br /></p>
 <h2>Compatibility</h2>
-<p>Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.<br /><br /></p>
+<p>Tested with vanilla Anomaly 1.5.3, Demonized main, Demonized MT, and AOEngine (latest versions).<br />Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.<br /><br /></p>
 <h2>Development</h2>
 <p>Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.<br />Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).<br />The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.<br />Full report in doc/test-report.log.<br /><br /></p>
 <h2>Usage and License</h2>

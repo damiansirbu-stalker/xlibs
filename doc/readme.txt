@@ -42,7 +42,6 @@ Integration:
 
 Requirements:
 Anomaly 1.5.3
-Modded exes
 
 Install (MO2):
 1. Install xlibs
@@ -55,7 +54,7 @@ Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
 Compatibility:
-Compatible with all modded exe variants (Demonized, AOE, MT).
+Tested with vanilla Anomaly 1.5.3, Demonized main, Demonized MT, and AOEngine (latest versions).
 Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
 
 Development:
