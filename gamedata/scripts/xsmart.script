@@ -208,6 +208,24 @@ function has_factions(smart, factions)
     return false
 end
 
+--- Check if smart terrain accepts a mutant faction (mirrors engine target_precondition gate 1)
+--- Checks props.all, props.all_monster, then props[player_id]. Same three-way OR the engine uses
+--- at smart_terrain.script:1532 to decide if a monster faction can target this smart.
+--- @safety SAFE - pure Lua table reads, nil-guarded
+--- @complexity O(1) | 0 luabind
+--- @see anomaly/smart_terrain.script(1531-1532), anomaly/simulation_objects_props.ltx
+--- @param smart smart_terrain Smart terrain to check
+--- @param player_id string Monster faction community (e.g. "monster_predatory_night")
+--- @return boolean True if smart accepts this mutant faction
+function accepts_mutant(smart, player_id)
+    if not smart or not player_id then return false end
+    local props = smart.props
+    if not props then return false end
+    if props.all and props.all > 0 then return true end
+    if props.all_monster and props.all_monster > 0 then return true end
+    return props[player_id] and props[player_id] > 0 or false
+end
+
 --- Get all stalker factions accepted by smart terrain
 --- Builds {[faction]=true} from props keys with value >0; cached per smart.id (props are static INI)
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
@@ -416,52 +434,83 @@ local SQUADS_BY_FACTION = {
     monster_zombied_night   = {"simulation_zombie", "simulation_burer"},
     monster_special         = {"simulation_chimera", "simulation_gigant"},
 }
-local ALL_FACTIONS_FC = "army, bandit, csky, dolg, ecolog, freedom, killer, monolith, stalker, renegade, greh, isg"
-    .. ", monster, monster_vegetarian, monster_predatory_day, monster_predatory_night"
-    .. ", monster_zombied_day, monster_zombied_night, monster_special"
-
---- Set faction_controlled on smart terrain at runtime, enabling faction-aware respawns
---- Mirrors engine read_params (smart_terrain.script:246-267) for all 19 factions (12 stalker + 7 mutant)
+--- Add shared spawn entry to smart terrain respawn_params (additive, originals keep spawning)
+--- No faction_controlled -- engine filter stays in "spawn all" mode, both LTX and injected entries fire
 --- @safety SAFE - pure Lua table writes on smart terrain object
---- @complexity O(19) factions | 0 luabind (parse_condlist is pure Lua)
---- @see anomaly/smart_terrain.script(246-267,1665-1672)
---- @param smart se_smart_terrain Smart terrain to mutate
---- @param faction string Conqueror faction community name (sets smart.faction)
---- @param spawn_num number|nil Max squads per faction entry (default 2)
---- @return boolean True if mutation applied
-function set_faction_controlled(smart, faction, spawn_num)
-    if not smart then return false end
+--- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
+--- @src anomaly/smart_terrain.script(1665-1716)
+--- @param smart se_smart_terrain Smart terrain to inject into
+--- @param key string Unique respawn_params key (e.g. "ap_conquest")
+--- @param faction string Faction community name (key into SQUADS_BY_FACTION)
+--- @param spawn_num number|nil Max squads for this entry (default 1)
+--- @return boolean True if applied
+function set_shared_spawn(smart, key, faction, spawn_num)
+    if not smart or not key then return false end
     if not SQUADS_BY_FACTION[faction] then return false end
-    smart.faction_controlled = ALL_FACTIONS_FC
     smart.respawn_params = smart.respawn_params or {}
     smart.already_spawned = smart.already_spawned or {}
     smart.respawn_point = true
-    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 2))
-    for fac, squads in pairs(SQUADS_BY_FACTION) do
-        local key = "faction_controlled_" .. fac
-        smart.respawn_params[key] = { num = condlist, squads = squads, faction = fac }
-        smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
-    end
-    smart.faction = faction
+    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
+    smart.respawn_params[key] = { num = condlist, squads = SQUADS_BY_FACTION[faction] }
+    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
     return true
 end
 
---- Clear faction_controlled from smart terrain, reverting to default behavior
---- Removes all faction_controlled entries from respawn_params
+--- Remove shared spawn entry from smart terrain
 --- @safety SAFE - pure Lua table writes on smart terrain object
---- @complexity O(19) factions | 0 luabind
---- @see anomaly/smart_terrain.script(246-267)
+--- @cost O(1) | 0 luabind
 --- @param smart se_smart_terrain Smart terrain to revert
+--- @param key string Respawn_params key to remove
 --- @return boolean True if cleared
-function clear_faction_controlled(smart)
-    if not smart then return false end
-    smart.faction_controlled = nil
+function clear_shared_spawn(smart, key)
+    if not smart or not key then return false end
     if smart.respawn_params then
-        for fac in pairs(SQUADS_BY_FACTION) do
-            smart.respawn_params["faction_controlled_" .. fac] = nil
-        end
+        smart.respawn_params[key] = nil
     end
+    return true
+end
+
+--- Set exclusive spawn on smart terrain (suppresses original LTX entries via faction filter)
+--- Sets faction_controlled + one entry with .faction; LTX entries lack .faction and fail the gate.
+--- Monster factions need periodic smart.faction re-apply (check_smart_faction ignores monsters).
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
+--- @src anomaly/smart_terrain.script(246-267,1665-1672)
+--- @param smart se_smart_terrain Smart terrain to mutate
+--- @param key string Unique respawn_params key (e.g. "ap_infest")
+--- @param faction string Faction community name (key into SQUADS_BY_FACTION)
+--- @param spawn_num number|nil Max squads for this entry (default 1)
+--- @return boolean True if applied
+function set_exclusive_spawn(smart, key, faction, spawn_num)
+    if not smart or not key then return false end
+    if not SQUADS_BY_FACTION[faction] then return false end
+    smart.faction_controlled = key
+    smart.faction = faction
+    smart.respawn_params = smart.respawn_params or {}
+    smart.already_spawned = smart.already_spawned or {}
+    smart.respawn_point = true
+    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
+    smart.respawn_params[key] = { num = condlist, squads = SQUADS_BY_FACTION[faction], faction = faction }
+    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
+    return true
+end
+
+--- Clear exclusive spawn from smart terrain, restoring original LTX spawning
+--- Clears faction_controlled (deactivates faction gate), reverts faction to default,
+--- removes the exclusive entry. Original LTX entries resume on next try_respawn.
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @cost O(1) | 0 luabind
+--- @src anomaly/smart_terrain.script(246-267,1665-1672)
+--- @param smart se_smart_terrain Smart terrain to revert
+--- @param key string Respawn_params key to remove
+--- @return boolean True if cleared
+function clear_exclusive_spawn(smart, key)
+    if not smart or not key then return false end
+    smart.faction_controlled = nil
     smart.faction = smart.default_faction
+    if smart.respawn_params then
+        smart.respawn_params[key] = nil
+    end
     return true
 end
 
@@ -491,6 +540,23 @@ function dump_smarts(factions, level_id)
     return "filter_fac=" .. (#fac_keys > 0 and table.concat(fac_keys, "/") or "nil")
         .. " filter_lv=" .. tostring(level_id or "nil")
         .. " smarts=" .. #parts .. " [" .. table.concat(parts, ", ") .. "]"
+end
+
+--- Iterator over all smart terrains in SIMBOARD
+--- Stateful iterator using next() on SIMBOARD.smarts; skips entries without valid smrt ref
+--- @safety SAFE - nil-guarded, returns empty iterator when SIMBOARD unavailable
+--- @cost O(n) smarts | 0 luabind (pure Lua table iteration)
+--- @see anomaly/sim_board.script(96), anomaly/smart_terrain.script(1)
+--- @return function Iterator yielding smart terrain server objects
+function smart_iter()
+    if not SIMBOARD or not SIMBOARD.smarts then return function() return nil end end
+    local k, data
+    return function()
+        repeat
+            k, data = next(SIMBOARD.smarts, k)
+        until not k or (data and data.smrt)
+        return data and data.smrt
+    end
 end
 
 --- Reset all smart terrain spawn counters to zero
