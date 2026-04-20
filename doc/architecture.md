@@ -35,6 +35,10 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  |  xconst   |  |  xdata    |  |  xlibs    |  | xlibs_mcm |       |
 |  | Sentinels |  | Static    |  | Metadata  |  | MCM Page  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
+|  +-----------+  +-----------+                                     |
+|  | xgrammar  |  |  xactor   |                                     |
+|  | TextGen   |  | Actor Ops |                                     |
+|  +-----------+  +-----------+                                     |
 +-------------------------------------------------------------------+
 ```
 
@@ -172,6 +176,7 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `is_base(smart)`, `is_lair(smart)`, `is_resource(smart)`, `is_territory(smart)`
 - `is_smart_important(smart)` - Base, resource, or territory
 - `has_faction(smart, faction)`, `has_factions(smart, factions)` - Props-based faction check
+- `accepts_mutant(smart, player_id)` - Engine target_precondition gate 1 (props.all OR props.all_monster OR props[player_id])
 - `get_smart_factions(smart)` - All accepted factions from props (cached)
 - `get_smart_faction(smart)` - Owning faction (warfare -> runtime -> props -> "none")
 - `is_smart_empty(smart)` - No squads assigned
@@ -179,9 +184,12 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
 - `get_proximity(squad, smart)` - Distance and arrival metadata
 - `has_capacity(smart, faction, incoming)` - SIMBOARD squads + incoming vs max_population
-- `set_faction_controlled(smart, faction, spawn_num)` - Runtime respawn mutation (mirrors engine read_params)
-- `clear_faction_controlled(smart)` - Revert to default faction
+- `set_shared_spawn(smart, key, faction, spawn_num)` - Additive spawn injection (adds entry alongside originals, no faction_controlled)
+- `clear_shared_spawn(smart, key)` - Remove shared spawn entry, restore original-only spawning
+- `set_exclusive_spawn(smart, key, faction, spawn_num)` - Exclusive spawn injection (sets faction_controlled, suppresses originals via faction gate)
+- `clear_exclusive_spawn(smart, key)` - Remove exclusive spawn, revert faction_controlled and faction to defaults
 - `get_smart_squads(smart_id)` - Raw SIMBOARD squads table for a smart terrain
+- `smart_iter()` - Stateful iterator over all SIMBOARD smart terrains (for smart in xsmart.smart_iter())
 - `dump_smarts(factions, level_id)` - Diagnostic dump
 - `reset_spawns()`, `repopulate()` - Smart terrain population management
 
@@ -370,6 +378,39 @@ X-Ray engine sentinel values extracted from C++ source headers.
 Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is_permanent_squad`.
 
 - `unscriptable_npcs` - Lookup table of trader, mechanic, leader, medic, barmen, guide, and story character squad IDs that should not be moved or despawned by mods
+
+### xgrammar.script - Replacement Grammar Text Generation
+
+Port of Tracery (Kate Compton 2015, lua-tracery by Aldous Rice-Leech 2020). Recursive `#symbol#` expansion with random alternatives, modifiers, and scoped context.
+
+```lua
+local grammar = xgrammar.create_grammar({
+    origin = { "#opener##faction# #verb# near #location#. #followup#." },
+    opener = { "", "Word came in. ", "Heard from a buddy. " },
+    verb = { "got wiped", "didn't make it" },
+})
+grammar:add_rule("faction", "Duty")
+grammar:add_rule("location", "the old factory")
+grammar:add_rule("followup", "Their guys are already hunting them down")
+local text = grammar:flatten("#origin#")
+```
+
+- `create_grammar(rules)` - Create grammar from rules table
+- Grammar methods:
+  - `expand(text)` / `flatten(text)` - Expand all `#symbol#` tokens, return resolved string
+  - `generate(symbol)` - Expand from named symbol (shorthand for `expand("#symbol#")`)
+  - `add_rule(symbol, value)` - Add/override rule in context
+  - `del_rule(symbol)` - Remove rule from context
+  - `push_rules(context)` / `pop_rules()` - Scoped context stack
+  - `add_modifiers(tbl)` - Register modifier functions (e.g. `xgrammar.base_modifiers`)
+  - `clear_state()` - Clear overridden rules
+- `base_modifiers` - Built-in English modifiers: capitalize, a/an, pluralize, lower, upper
+- Nil-safe: missing symbols expand to empty string
+- `[key:value]` inline actions push context state mid-expansion
+
+### xactor.script - Actor Helpers
+
+- `give_info(info_id)` - Give info portion to actor (nil-guarded)
 
 ### xlibs.script - Package Metadata
 

@@ -278,6 +278,7 @@ end
 --- Set key-value pair; evicts oldest entry when at capacity
 --- Updating an existing key changes its value but keeps its eviction position (correct FIFO).
 --- Ring buffer overwrites oldest slot on insert; hash map provides O(1) lookup.
+--- If on_evict callback is set, it is called with (evicted_value, evicted_key) before removal.
 --- @complexity O(1) | 0 luabind
 --- @param key any Cache key
 --- @param value any Value to cache (nil not allowed, use false for negative cache entries)
@@ -289,6 +290,7 @@ function _fifo_mt:set(key, value)
     end
     local evict_key = self._ring[self._head]
     if evict_key ~= nil then
+        if self._on_evict then self._on_evict(self._data[evict_key], evict_key) end
         self._data[evict_key] = nil
     end
     self._ring[self._head] = key
@@ -311,18 +313,32 @@ function _fifo_mt:size()
     return count
 end
 
+--- Iterate all cached values in insertion order (oldest first)
+--- @complexity O(capacity) | 0 luabind
+--- @param fn function(value, key) Called for each cached entry
+function _fifo_mt:each(fn)
+    local cap = self._capacity
+    local head = self._head
+    for offset = 0, cap - 1 do
+        local pos = (head + offset - 1) % cap + 1
+        local key = self._ring[pos]
+        if key ~= nil then fn(self._data[key], key) end
+    end
+end
+
 --- Create bounded FIFO cache
 --- O(1) get/set with ring buffer eviction. When capacity is reached, the oldest entry is evicted.
 --- Values may not be nil; use false for negative cache entries (e.g. "checked, not a mutant").
 --- @safety SAFE - pure Lua tables, no luabind, no timers
 --- @complexity O(1) get/set | 0 luabind
---- @param opts table|nil { capacity = number } (default 128)
---- @return table FIFO cache with :get(key), :set(key, value), :has(key), :clear(), :size()
+--- @param opts table|nil { capacity = number, on_evict = function(value, key) } (default capacity 128)
+--- @return table FIFO cache with :get(key), :set(key, value), :has(key), :each(fn), :clear(), :size()
 function create_fifo_cache(opts)
     return setmetatable({
         _data = {},
         _ring = {},
         _head = 1,
         _capacity = (opts and opts.capacity) or 128,
+        _on_evict = opts and opts.on_evict,
     }, _fifo_mt)
 end
