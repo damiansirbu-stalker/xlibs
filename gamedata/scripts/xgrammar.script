@@ -1,7 +1,7 @@
 --- xgrammar: Replacement grammar engine for procedural text generation (Tracery port)
 
-local pairs, type, tostring, setmetatable, getmetatable = pairs, type, tostring, setmetatable, getmetatable
-local math_random, table_insert = math.random, table.insert
+local pairs, ipairs, type, tostring, setmetatable, getmetatable = pairs, ipairs, type, tostring, setmetatable, getmetatable
+local math_random, table_insert, table_concat = math.random, table.insert, table.concat
 local string_sub, string_find, string_gmatch, string_gsub, string_match, string_lower, string_upper = string.sub, string.find, string.gmatch, string.gsub, string.match, string.lower, string.upper
 
 local _expand
@@ -40,6 +40,41 @@ base_modifiers = {
     upper = string_upper,
 }
 
+--- Factory: build a list-join modifier with custom conjunction and Oxford-comma style
+--- Consumes a list-typed rule value; returns a joined string
+--- @safety SAFE - pure string ops, nil-safe on empty/non-table input
+--- @cost O(n) where n = list length
+--- @param conjunction string Joining word ("and", "и", etc.)
+--- @param oxford boolean true = Oxford serial comma; false = no serial comma
+--- @return function Modifier function (list) -> joined string
+function make_list_and_modifier(conjunction, oxford)
+    return function(list)
+        if type(list) ~= "table" or #list == 0 then return "" end
+        if #list == 1 then return tostring(list[1]) end
+        if #list == 2 then return tostring(list[1]) .. " " .. conjunction .. " " .. tostring(list[2]) end
+        local parts = {}
+        for i, v in ipairs(list) do parts[i] = tostring(v) end
+        local head = table_concat(parts, ", ", 1, #parts - 1)
+        local sep = oxford and (", " .. conjunction .. " ") or (" " .. conjunction .. " ")
+        return head .. sep .. parts[#parts]
+    end
+end
+
+--- Factory: build a sequential-join modifier with custom connective (e.g. "then", "потом")
+--- @safety SAFE - pure string ops
+--- @cost O(n)
+--- @param connective string Sequential connective word
+--- @return function Modifier function (list) -> joined string
+function make_list_then_modifier(connective)
+    return function(list)
+        if type(list) ~= "table" or #list == 0 then return "" end
+        if #list == 1 then return tostring(list[1]) end
+        local parts = {}
+        for i, v in ipairs(list) do parts[i] = tostring(v) end
+        return table_concat(parts, ", " .. connective .. " ")
+    end
+end
+
 _generate = function(self, symbol, context)
     local rule = context[symbol]
     local local_context = setmetatable({}, { __index = context })
@@ -49,7 +84,11 @@ _generate = function(self, symbol, context)
 end
 
 local function _pick_rule(rule)
-    if type(rule) == "table" then return rule[math_random(#rule)] end
+    if type(rule) == "table" then
+        if rule._list then return table_concat(rule.items or {}, ", ") end
+        if #rule == 0 then return nil end
+        return rule[math_random(#rule)]
+    end
     if type(rule) == "function" then return tostring(rule()) end
     if rule == nil then return nil end
     return rule
@@ -81,8 +120,57 @@ local function _apply_modifiers(self, text, stripped)
     return text, parts[1]
 end
 
+-- Expand fallback chain #a|b|"literal"# -- first non-empty wins
+-- @complexity O(k) alternatives | 0 luabind
+local function _expand_fallback_chain(self, stripped, local_context)
+    for alt in string_gmatch(stripped, "[^|]+") do
+        local result
+        if string_sub(alt, 1, 1) == '"' and string_sub(alt, -1) == '"' then
+            result = string_sub(alt, 2, -2)
+        else
+            local _ctx
+            result, _ctx = _generate(self, alt, local_context)
+            for k, v in pairs(_ctx) do local_context[k] = v end
+        end
+        if result and result ~= "" then return result end
+    end
+    return ""
+end
+
+-- Apply modifier chain to a list-typed rule value; table result joined by comma
+-- @complexity O(m) modifiers + O(n) join | 0 luabind
+local function _expand_list_rule(self, stripped, base_symbol, rule_value)
+    local result = rule_value.items
+    for part in string_gmatch(string_sub(stripped, #base_symbol + 2), "[^.]+") do
+        local modifier = self._modifiers[part]
+        if modifier then result = modifier(result) end
+    end
+    if type(result) == "table" then return table_concat(result, ", ") end
+    return tostring(result or "")
+end
+
 local function _expand_rule_token(self, token, local_context)
     local stripped = string_sub(token, 2, -2)
+
+    -- Optional slot: #?sym# -- 50% expand, 50% skip
+    if string_sub(stripped, 1, 1) == "?" then
+        if math_random() < 0.5 then return "" end
+        stripped = string_sub(stripped, 2)
+    end
+
+    -- Fallback chain: #a|b|"literal"# -- first non-empty wins. No modifier support.
+    if string_find(stripped, "|", 1, true) and not string_find(stripped, ".", 1, true) then
+        return _expand_fallback_chain(self, stripped, local_context)
+    end
+
+    -- List rule with modifier(s): pass list directly to modifier instead of random-picking
+    local base_symbol = string_match(stripped, "^([^%.]+)")
+    local rule_value = base_symbol and local_context[base_symbol]
+    if type(rule_value) == "table" and rule_value._list then
+        return _expand_list_rule(self, stripped, base_symbol, rule_value)
+    end
+
+    -- Standard expansion
     local replacement, symbol = _apply_modifiers(self, "", stripped)
     local _context
     replacement, _context = _generate(self, symbol, local_context)
@@ -148,6 +236,9 @@ function create_grammar(rules)
 
     --- Add or override a rule in the grammar context
     function obj:add_rule(symbol, value) self._context[symbol] = value end
+
+    --- Add a list-typed rule. Modifiers receive the whole list; #sym# without modifier joins with ", ".
+    function obj:add_list_rule(symbol, list) self._context[symbol] = { _list = true, items = list } end
 
     --- Remove a rule from the grammar context
     function obj:del_rule(symbol) self._context[symbol] = nil end

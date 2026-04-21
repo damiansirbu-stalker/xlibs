@@ -73,6 +73,23 @@ local function get_current_level_name()
     return (translated and translated ~= lname) and translated or lname
 end
 
+--- Get translated level display name from a level_id
+--- Resolves via alife():level_name(id) then game.translate_string for localized display
+--- @safety SAFE - nil guards on alife and resolved name
+--- @cost O(1) | 2 luabind medium (alife:level_name + translate_string)
+--- @src anomaly/xr_conditions.script(1521), xray/lua_help.script.txt(1544)
+--- @param level_id number Level ID (from game_graph vertex)
+--- @return string Translated level display name, or nil if unresolvable
+function get_level_name(level_id)
+    if not level_id then return nil end
+    local sim = alife()
+    if not sim then return nil end
+    local lname = sim:level_name(level_id)
+    if not lname then return nil end
+    local translated = game.translate_string(lname)
+    return (translated and translated ~= lname) and translated or lname
+end
+
 --- Get translated smart terrain display name
 --- Delegates to Anomaly's smart_terrain.get_smart_terrain_name which uses a cached
 --- smart_names.ltx lookup table (lazy-loaded once, pure Lua hash after first call)
