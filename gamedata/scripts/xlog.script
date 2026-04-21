@@ -17,8 +17,8 @@ local math_floor, RegisterScriptCallback = math.floor, RegisterScriptCallback
 
 local defaults = {
     level = LEVELS.DEBUG,
-    buffer_size = 1000,
-    flush_interval = 300,
+    buffer_size = 100000,
+    flush_interval = 60,
     flush_on_level = LEVELS.ERROR,
     max_file_size = 100 * 1024 * 1024,
     stack_trace = true,

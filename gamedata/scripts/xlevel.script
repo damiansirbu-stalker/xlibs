@@ -74,29 +74,57 @@ local function get_current_level_name()
 end
 
 --- Get translated smart terrain display name
---- Builds st_<name>_name key and passes to game.translate_string; falls back to cleaned section name
---- @safety SAFE - returns "unknown" for nil, cleans underscores if translation missing
---- @complexity O(1) | 2 luabind (:name() + game.translate_string)
---- @see anomaly/smart_terrain.script(1209), xray/xrGame/script_game_object_script.cpp
+--- Delegates to Anomaly's smart_terrain.get_smart_terrain_name which uses a cached
+--- smart_names.ltx lookup table (lazy-loaded once, pure Lua hash after first call)
+--- @safety SAFE - returns "unknown" for nil
+--- Resolve smart's level to a translated display name, nil if unresolvable
+-- @complexity O(1) | 3 luabind (vertex + level_id + level_name)
+local function _resolve_smart_level_name(smart)
+    if not smart.m_game_vertex_id then return nil end
+    local graph = get_game_graph()
+    if not graph then return nil end
+    local sim = alife()
+    if not sim then return nil end
+    local lvid = graph:vertex(smart.m_game_vertex_id):level_id()
+    local lname = sim:level_name(lvid)
+    if not lname then return nil end
+    local tr = game.translate_string(lname)
+    if tr and tr ~= lname then return tr end
+    return nil
+end
+
+--- Get translated smart terrain display name
+--- Cascades: Anomaly smart_names.ltx (named smarts) -> Warfare "st_<name>_name" key -> level display name -> cleaned raw
+--- @safety SAFE - nil-guarded on smart/name, returns "unknown" on bad input
+--- @cost O(1) | 0 luabind on cache hit, 2-5 luabind on miss (cascading: smart_names, st_<name>_name key, level fallback)
+--- @src anomaly/smart_terrain.script(1766-1791)
 --- @param smart userdata Smart terrain server object
---- @return string Translated name or cleaned section name
+--- @return string Translated name; falls back to level name, then cleaned raw section
 function get_smart_display_name(smart)
     if not smart or not smart.name then return "unknown" end
-    local smart_name = smart:name()
-    if not smart_name then return "unknown" end
-    local key = "st_" .. smart_name .. "_name"
-    local translated = game.translate_string(key)
-    if translated and translated ~= key then
-        return translated:gsub(" %- ", " ")
+    local raw = smart:name() or "unknown"
+    if smart_terrain and smart_terrain.get_smart_terrain_name then
+        local translated = smart_terrain.get_smart_terrain_name(smart)
+        if translated and translated ~= raw then
+            local trimmed = translated:match("^[^%.]+%.%s+(.+)$")
+            return trimmed or translated
+        end
     end
-    return smart_name:gsub("_", " ")
+    local key = "st_" .. raw .. "_name"
+    local warfare_translated = game.translate_string(key)
+    if warfare_translated and warfare_translated ~= key then
+        return (warfare_translated:gsub(" %- ", " "))
+    end
+    local level_name = _resolve_smart_level_name(smart)
+    if level_name then return level_name end
+    return (raw:gsub("_", " "))
 end
 
 --- Get translated location name from nearest smart terrain
---- Finds nearest smart via xsmart.find_smart then translates its name
+--- Finds nearest smart then delegates to get_smart_display_name (cached smart_names.ltx)
 --- @safety SAFE - falls back to current level name if no smart found
---- @complexity O(n) smarts | 1 luabind per smart (delegates to xsmart.find_smart)
---- @see anomaly/smart_terrain.script(1209), anomaly/sim_board.script(96)
+--- @cost O(n) smarts for find_smart | 0 luabind for name resolution (cached)
+--- @src anomaly/smart_terrain.script(1766-1791), anomaly/sim_board.script(96)
 --- @param pos vector Position to search from
 --- @param lvl_id number Level ID filter
 --- @return string Location name
@@ -104,17 +132,9 @@ function get_location_name(pos, lvl_id)
     if not pos or not lvl_id then
         return get_current_level_name()
     end
-
     local smart = xsmart.find_smart(pos, { level_id = lvl_id })
-    if not smart or not smart.name then return get_current_level_name() end
-    local smart_name = smart:name()
-    if not smart_name then return get_current_level_name() end
-    local key = "st_" .. smart_name .. "_name"
-    local translated = game.translate_string(key)
-    if translated and translated ~= key then
-        return translated:gsub(" %- ", " ")
-    end
-    return smart_name:gsub("_", " ")
+    if not smart then return get_current_level_name() end
+    return get_smart_display_name(smart)
 end
 
 --- Check if server object has valid level vertex ID

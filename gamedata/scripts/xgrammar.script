@@ -1,0 +1,178 @@
+--- xgrammar: Replacement grammar engine for procedural text generation (Tracery port)
+
+local pairs, type, tostring, setmetatable, getmetatable = pairs, type, tostring, setmetatable, getmetatable
+local math_random, table_insert = math.random, table.insert
+local string_sub, string_find, string_gmatch, string_gsub, string_match, string_lower, string_upper = string.sub, string.find, string.gmatch, string.gsub, string.match, string.lower, string.upper
+
+local _expand
+local _generate
+
+local function _is_vowel(text)
+    text = string_lower(text)
+    return text == "a" or text == "e" or text == "i" or text == "o" or text == "u"
+end
+
+local function _pluralize(text)
+    local last = string_lower(string_sub(text, -1, -1))
+    if last == "s" or last == "h" or last == "x" then return text .. "es" end
+    if last == "y" and not _is_vowel(string_sub(text, -2, -2)) then return string_sub(text, 1, -2) .. "ies" end
+    return text .. "s"
+end
+
+local function _articlize(text)
+    local lower = string_lower(text)
+    if _is_vowel(string_sub(lower, 1, 1)) and not (string_sub(lower, 1, 1) == "u" and string_sub(lower, 3, 3) == "i") then
+        return "an " .. text
+    end
+    return "a " .. text
+end
+
+--- Built-in English modifiers: capitalize, pluralize, articles, case transforms
+--- Apply via grammar:add_modifiers(xgrammar.base_modifiers) then use #symbol.capitalize# syntax
+--- @safety SAFE - pure string operations
+--- @cost O(1) | 0 luabind
+--- @src https://github.com/DeltaF1/lua-tracery (Apache 2.0), https://github.com/galaxykate/tracery
+base_modifiers = {
+    capitalize = function(text) return string_upper(string_sub(text, 1, 1)) .. string_sub(text, 2) end,
+    a = _articlize,
+    s = _pluralize,
+    lower = string_lower,
+    upper = string_upper,
+}
+
+_generate = function(self, symbol, context)
+    local rule = context[symbol]
+    local local_context = setmetatable({}, { __index = context })
+    local expanded = _expand(self, rule, local_context)
+    if expanded == nil then expanded = "" end
+    return expanded, local_context
+end
+
+local function _pick_rule(rule)
+    if type(rule) == "table" then return rule[math_random(#rule)] end
+    if type(rule) == "function" then return tostring(rule()) end
+    if rule == nil then return nil end
+    return rule
+end
+
+local function _find_next_token(text, pointer)
+    local offset = string_sub(text, pointer + 1)
+    local rule_start, rule_end = string_find(offset, "^#.-[^\\]#")
+    if not rule_start then
+        rule_start, rule_end = string_find(offset, "[^\\]#.-[^\\]#")
+        if rule_start then rule_start = rule_start + 1 end
+    end
+    local act_start, act_end = string_find(offset, "%[.-%]")
+    if (not act_start) or (rule_start and act_start and rule_start < act_start) then
+        return rule_start and (rule_start + pointer), rule_end and (rule_end + pointer)
+    end
+    return act_start + pointer, act_end + pointer
+end
+
+local function _apply_modifiers(self, text, stripped)
+    local parts = {}
+    for part in string_gmatch(stripped .. ".", "(.-)%.") do
+        table_insert(parts, part)
+    end
+    for i = 2, #parts do
+        local modifier = self._modifiers[parts[i]]
+        if modifier then text = modifier(text) end
+    end
+    return text, parts[1]
+end
+
+local function _expand_rule_token(self, token, local_context)
+    local stripped = string_sub(token, 2, -2)
+    local replacement, symbol = _apply_modifiers(self, "", stripped)
+    local _context
+    replacement, _context = _generate(self, symbol, local_context)
+    for k, v in pairs(_context) do local_context[k] = v end
+    return _apply_modifiers(self, replacement, stripped)
+end
+
+local function _expand_action_token(self, token, local_context)
+    local name, value = string_match(token, "%[(.-):(.-)%]")
+    if not name then return token end
+    if value == "POP" then
+        local_context[name] = nil
+    else
+        local_context[name] = _expand(self, value, local_context)
+    end
+    return ""
+end
+
+local function _process_token(self, token, local_context)
+    if string_sub(token, 1, 1) == "#" then return _expand_rule_token(self, token, local_context) end
+    return _expand_action_token(self, token, local_context)
+end
+
+_expand = function(self, rule, context)
+    local local_context = setmetatable({}, { __index = context })
+    rule = _pick_rule(rule)
+    if not rule then return nil end
+
+    local pointer = 0
+    local istart, iend = _find_next_token(rule, pointer)
+    while istart do
+        local token = string_sub(rule, istart, iend)
+        local replacement = _process_token(self, token, local_context)
+        rule = string_sub(rule, 1, istart - 1) .. replacement .. string_sub(rule, iend + 1)
+        pointer = iend + (#replacement - #token)
+        istart, iend = _find_next_token(rule, pointer)
+    end
+
+    for k, v in pairs(local_context) do context[k] = v end
+    return string_gsub(rule, "\\#", "#")
+end
+
+--- Create a grammar object from a rules table
+--- #symbol# expands recursively, #symbol.modifier# chains transforms, [key:value] pushes context.
+--- Nil-safe: missing symbols expand to empty string. Rules are immutable (add_rule overrides in context).
+--- @safety SAFE - pure Lua string operations + metatables
+--- @cost O(k) per expand, k = number of #symbol# tokens in text | 0 luabind
+--- @src https://github.com/DeltaF1/lua-tracery (Apache 2.0), https://github.com/galaxykate/tracery
+--- @param rules table { symbol = {"alt1", "alt2"}, symbol2 = "single", ... }
+--- @return table Grammar: expand(text), generate(symbol), flatten(text), add_rule(k,v), add_modifiers(tbl)
+function create_grammar(rules)
+    local context = rules and setmetatable({}, { __index = rules }) or {}
+    local obj = { _context = context, _modifiers = {} }
+
+    --- Expand all #symbol# tokens in text, return resolved string
+    function obj:expand(text) return _expand(self, text, self._context) end
+
+    --- Generate from a named symbol (shorthand for expand("#symbol#"))
+    function obj:generate(symbol) return _expand(self, "#" .. (symbol or "origin") .. "#", self._context) end
+
+    --- Alias for expand
+    function obj:flatten(text) return self:expand(text) end
+
+    --- Add or override a rule in the grammar context
+    function obj:add_rule(symbol, value) self._context[symbol] = value end
+
+    --- Remove a rule from the grammar context
+    function obj:del_rule(symbol) self._context[symbol] = nil end
+
+    --- Push a new context layer (rules inherit from parent, non-destructive)
+    function obj:push_rules(new_context)
+        local copy = {}
+        for k, v in pairs(new_context) do copy[k] = v end
+        self._context = setmetatable(copy, { __index = self._context })
+    end
+
+    --- Pop the top context layer, restoring the parent
+    function obj:pop_rules()
+        self._context = getmetatable(self._context).__index
+    end
+
+    --- Register modifier functions (e.g. xgrammar.base_modifiers for capitalize, pluralize)
+    function obj:add_modifiers(modifiers)
+        for k, v in pairs(modifiers) do self._modifiers[k] = v end
+    end
+
+    --- Clear all overridden rules from the context (base rules remain via metatable)
+    function obj:clear_state()
+        for k in pairs(self._context) do self._context[k] = nil end
+    end
+
+    return obj
+end
