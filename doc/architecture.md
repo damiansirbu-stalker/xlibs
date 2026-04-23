@@ -35,10 +35,10 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  |  xconst   |  |  xdata    |  |  xlibs    |  | xlibs_mcm |       |
 |  | Sentinels |  | Static    |  | Metadata  |  | MCM Page  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+                                     |
-|  | xgrammar  |  |  xactor   |                                     |
-|  | TextGen   |  | Actor Ops |                                     |
-|  +-----------+  +-----------+                                     |
+|  +-----------+                                                    |
+|  |  xactor   |                                                    |
+|  | Actor Ops |                                                    |
+|  +-----------+                                                    |
 +-------------------------------------------------------------------+
 ```
 
@@ -378,35 +378,6 @@ X-Ray engine sentinel values extracted from C++ source headers.
 Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is_permanent_squad`.
 
 - `unscriptable_npcs` - Lookup table of trader, mechanic, leader, medic, barmen, guide, and story character squad IDs that should not be moved or despawned by mods
-
-### xgrammar.script - Replacement Grammar Text Generation
-
-Port of Tracery (Kate Compton 2015, lua-tracery by Aldous Rice-Leech 2020). Recursive `#symbol#` expansion with random alternatives, modifiers, and scoped context.
-
-```lua
-local grammar = xgrammar.create_grammar({
-    origin = { "#opener##faction# #verb# near #location#. #followup#." },
-    opener = { "", "Word came in. ", "Heard from a buddy. " },
-    verb = { "got wiped", "didn't make it" },
-})
-grammar:add_rule("faction", "Duty")
-grammar:add_rule("location", "the old factory")
-grammar:add_rule("followup", "Their guys are already hunting them down")
-local text = grammar:flatten("#origin#")
-```
-
-- `create_grammar(rules)` - Create grammar from rules table
-- Grammar methods:
-  - `expand(text)` / `flatten(text)` - Expand all `#symbol#` tokens, return resolved string
-  - `generate(symbol)` - Expand from named symbol (shorthand for `expand("#symbol#")`)
-  - `add_rule(symbol, value)` - Add/override rule in context
-  - `del_rule(symbol)` - Remove rule from context
-  - `push_rules(context)` / `pop_rules()` - Scoped context stack
-  - `add_modifiers(tbl)` - Register modifier functions (e.g. `xgrammar.base_modifiers`)
-  - `clear_state()` - Clear overridden rules
-- `base_modifiers` - Built-in English modifiers: capitalize, a/an, pluralize, lower, upper
-- Nil-safe: missing symbols expand to empty string
-- `[key:value]` inline actions push context state mid-expansion
 
 ### xactor.script - Actor Helpers
 

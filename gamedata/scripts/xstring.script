@@ -1,6 +1,20 @@
---- xstring: String utilities (format with named placeholders, split, trim)
+--- xstring: String utilities (format with named placeholders, split, trim, case-aware capitalize)
 
 local tostring, string_gsub = tostring, string.gsub
+local string_byte, string_char, string_sub = string.byte, string.char, string.sub
+
+-- Byte-indexed uppercase table: identity mapping plus ASCII and cp1251 lowercase->uppercase.
+-- Built once at module load. Lookup is O(1).
+-- Coverage:
+--   0x61-0x7A  ASCII a-z    -> 0x41-0x5A  A-Z     (offset -0x20)
+--   0xE0-0xFF  cp1251 а-я   -> 0xC0-0xDF  А-Я     (offset -0x20)
+--   0xB8       cp1251 ё     -> 0xA8       Ё       (offset -0x10)
+-- src: cp1251 codepage mapping (windows-1251), confirmed against engine font tables
+local _UPPER_BYTE = {}
+for b = 0, 255 do _UPPER_BYTE[b] = b end
+for b = 0x61, 0x7A do _UPPER_BYTE[b] = b - 0x20 end
+for b = 0xE0, 0xFF do _UPPER_BYTE[b] = b - 0x20 end
+_UPPER_BYTE[0xB8] = 0xA8
 
 --- Interpolate string with named placeholders
 --- Replaces {key} patterns via string.gsub with values from vars table; preserves unmatched placeholders
@@ -16,4 +30,20 @@ function interpolate(str, vars)
         local v = vars[key]
         return v ~= nil and tostring(v) or "{" .. key .. "}"
     end)
+end
+
+--- Capitalize the first character of a string, encoding-aware (ASCII + cp1251 Cyrillic)
+--- Lua 5.1 string.upper and %l patterns are ASCII-only; Cyrillic text stays lowercase.
+--- This helper handles both ASCII a-z and cp1251 а-я+ё via a precomputed byte table.
+--- @safety SAFE - pure Lua byte ops, nil/empty-guarded
+--- @complexity O(1) | 0 luabind
+--- @src cp1251 codepage (windows-1251) case mapping; xray-monolith string_table stores bytes as-is
+--- @param text string|nil Input (any encoding; ASCII and cp1251 handled; UTF-8 multi-byte unchanged)
+--- @return string|nil Input with first byte uppercased (unchanged if already upper or no mapping)
+function capitalize_first(text)
+    if not text or text == "" then return text end
+    local first = string_byte(text, 1)
+    local upper = _UPPER_BYTE[first]
+    if upper == first then return text end
+    return string_char(upper) .. string_sub(text, 2)
 end

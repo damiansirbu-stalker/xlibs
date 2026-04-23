@@ -126,6 +126,27 @@ local function _check_active_role(squad, cmd_id, sec)
     return false, nil, nil
 end
 
+--- Get squad commander's character name (human-readable)
+--- Resolves via the online game_object (CScriptGameObject binding, InventoryOwner-only).
+--- Returns nil for offline commanders, non-stalkers, and empty squads; callers should fall back to faction display.
+--- Server-side name is not a bound method in stock xray; online-only resolution keeps the contract stable across engine variants.
+--- @safety SAFE - nil-guards on db/storage/npc/IsStalker; character_name is a stable binding on game_object
+--- @cost O(1) | 1 luabind trivial when offline (commander_id), 2 luabind trivial when online (+character_name)
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(878-885)
+--- @param squad se_squad Squad server object
+--- @return string|nil Commander's character name, or nil when offline / not a stalker
+function get_commander_name(squad)
+    if not squad or not squad.commander_id then return nil end
+    local cmd_id = squad:commander_id()
+    if cmd_id == INVALID_ENTITY_ID then return nil end
+    local storage = db and db.storage and db.storage[cmd_id]
+    local npc = storage and storage.object
+    if not npc or not IsStalker(npc) then return nil end
+    local name = npc:character_name()
+    if type(name) == "string" and name ~= "" then return name end
+    return nil
+end
+
 --- Check if squad has permanent protected identity (story, trader, named NPC, empty)
 --- Static within session. Cached per squad object (weak keys, GC-safe).
 --- @safety SAFE - returns true for nil (fail-safe), alife_object returns nil for invalid

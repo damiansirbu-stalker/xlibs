@@ -110,27 +110,38 @@ local function _resolve_smart_level_name(smart)
     return nil
 end
 
+--- Strip "Level. " prefix from any smart display string
+--- Anomaly authors smart names as "Zaton. Claw Anomaly Camp" in st_smart_names.xml; warfare keys same pattern
+-- @cost O(1) | 0 luabind pure Lua regex
+local function _strip_level_prefix(text)
+    if not text then return nil end
+    local trimmed = text:match("^[^%.]+%.%s+(.+)$")
+    return trimmed or text
+end
+
 --- Get translated smart terrain display name
---- Cascades: Anomaly smart_names.ltx (named smarts) -> Warfare "st_<name>_name" key -> level display name -> cleaned raw
---- @safety SAFE - nil-guarded on smart/name, returns "unknown" on bad input
+--- Cascades: Anomaly smart_names.ltx (named smarts) -> Warfare "st_<name>_name" key -> level display name -> cleaned raw.
+--- Every return path passes through _strip_level_prefix so "Zaton. Claw Anomaly Camp" -> "Claw Anomaly Camp" regardless of source.
+--- Returns nil on invalid input; callers decide the fallback (xlibs stays pure, no baked-in English defaults).
+--- @safety SAFE - nil-guarded on smart/name, returns nil on bad input
 --- @cost O(1) | 0 luabind on cache hit, 2-5 luabind on miss (cascading: smart_names, st_<name>_name key, level fallback)
---- @src anomaly/smart_terrain.script(1766-1791)
+--- @src anomaly/smart_terrain.script(1766-1787)
 --- @param smart userdata Smart terrain server object
---- @return string Translated name; falls back to level name, then cleaned raw section
+--- @return string|nil Translated name; falls back to level name, then cleaned raw section; nil when input is invalid
 function get_smart_display_name(smart)
-    if not smart or not smart.name then return "unknown" end
-    local raw = smart:name() or "unknown"
+    if not smart or not smart.name then return nil end
+    local raw = smart:name()
+    if not raw then return nil end
     if smart_terrain and smart_terrain.get_smart_terrain_name then
         local translated = smart_terrain.get_smart_terrain_name(smart)
         if translated and translated ~= raw then
-            local trimmed = translated:match("^[^%.]+%.%s+(.+)$")
-            return trimmed or translated
+            return _strip_level_prefix(translated)
         end
     end
     local key = "st_" .. raw .. "_name"
     local warfare_translated = game.translate_string(key)
     if warfare_translated and warfare_translated ~= key then
-        return (warfare_translated:gsub(" %- ", " "))
+        return _strip_level_prefix(warfare_translated:gsub(" %- ", " "))
     end
     local level_name = _resolve_smart_level_name(smart)
     if level_name then return level_name end
