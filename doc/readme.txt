@@ -27,6 +27,7 @@ Data Structures:
   xmath        Probability rolls, weighted choice, random sampling, variation
   xslice       Time-sliced array iteration across frames
   xstring      String interpolation with ${key} placeholders
+  xtime        Game-time seconds accumulator (wraps engine game_time())
 
 Diagnostics:
   xlog         Buffered file logging with session management and rotation

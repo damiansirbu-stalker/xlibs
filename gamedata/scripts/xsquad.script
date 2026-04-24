@@ -257,6 +257,8 @@ end
 --- @return string|nil detail (sub-reason: "story_id", "trader", "task_giver", "companion", "scripted:target", etc.)
 --- @return string|nil name (section_name, from permanent cache)
 function is_protected(squad, opts)
+    if not squad then return true, "nil_squad" end
+    if not opts then return false end
     if opts.exclude_filter then
         local result = opts.exclude_filter(squad)
         if result then return true, opts.exclude_filter_reason or "excluded", result end

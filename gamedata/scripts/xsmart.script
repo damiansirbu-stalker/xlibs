@@ -409,31 +409,31 @@ function has_capacity(smart, faction, incoming)
     return (count + (incoming or 0)) < smart.max_population
 end
 
---- Faction -> generic simulation squad sections (novice, advanced, veteran)
---- Copy of smart_terrain.script:16-29, pre-parsed as arrays
+--- Faction -> generic simulation squad sections (novice, advanced, veteran). Copy of smart_terrain.script:16-29.
 local SQUADS_BY_FACTION = {
-    army     = {"army_sim_squad_novice", "army_sim_squad_advanced", "army_sim_squad_veteran"},
-    bandit   = {"bandit_sim_squad_novice", "bandit_sim_squad_advanced", "bandit_sim_squad_veteran"},
-    csky     = {"csky_sim_squad_novice", "csky_sim_squad_advanced", "csky_sim_squad_veteran"},
-    dolg     = {"duty_sim_squad_novice", "duty_sim_squad_advanced", "duty_sim_squad_veteran"},
-    ecolog   = {"ecolog_sim_squad_novice", "ecolog_sim_squad_advanced", "ecolog_sim_squad_veteran"},
-    freedom  = {"freedom_sim_squad_novice", "freedom_sim_squad_advanced", "freedom_sim_squad_veteran"},
-    killer   = {"merc_sim_squad_novice", "merc_sim_squad_advanced", "merc_sim_squad_veteran"},
-    monolith = {"monolith_sim_squad_novice", "monolith_sim_squad_advanced", "monolith_sim_squad_veteran"},
-    stalker  = {"stalker_sim_squad_novice", "stalker_sim_squad_advanced", "stalker_sim_squad_veteran"},
-    renegade = {"renegade_sim_squad_novice", "renegade_sim_squad_advanced", "renegade_sim_squad_veteran"},
-    greh     = {"greh_sim_squad_novice", "greh_sim_squad_advanced", "greh_sim_squad_veteran"},
-    isg      = {"isg_sim_squad_novice", "isg_sim_squad_advanced", "isg_sim_squad_veteran"},
-    --- Mutant factions: simulation_* sections from faction_expansions.script (vanilla Anomaly)
-    --- @see doc/library/xray/api/squad-factions.md, anomaly/faction_expansions.script
-    monster                 = {"simulation_tushkano", "simulation_cat"},
-    monster_vegetarian      = {"simulation_boar", "simulation_flesh", "simulation_mix_boar_flesh"},
-    monster_predatory_day   = {"simulation_dog", "simulation_pseudodog", "simulation_mix_dogs"},
-    monster_predatory_night = {"simulation_bloodsucker"},
-    monster_zombied_day     = {"simulation_zombie", "simulation_snork"},
-    monster_zombied_night   = {"simulation_zombie", "simulation_burer"},
-    monster_special         = {"simulation_chimera", "simulation_gigant"},
+    army = {"army_sim_squad_novice","army_sim_squad_advanced","army_sim_squad_veteran"},
+    bandit = {"bandit_sim_squad_novice","bandit_sim_squad_advanced","bandit_sim_squad_veteran"},
+    csky = {"csky_sim_squad_novice","csky_sim_squad_advanced","csky_sim_squad_veteran"},
+    dolg = {"duty_sim_squad_novice","duty_sim_squad_advanced","duty_sim_squad_veteran"},
+    ecolog = {"ecolog_sim_squad_novice","ecolog_sim_squad_advanced","ecolog_sim_squad_veteran"},
+    freedom = {"freedom_sim_squad_novice","freedom_sim_squad_advanced","freedom_sim_squad_veteran"},
+    killer = {"merc_sim_squad_novice","merc_sim_squad_advanced","merc_sim_squad_veteran"},
+    monolith = {"monolith_sim_squad_novice","monolith_sim_squad_advanced","monolith_sim_squad_veteran"},
+    stalker = {"stalker_sim_squad_novice","stalker_sim_squad_advanced","stalker_sim_squad_veteran"},
+    renegade = {"renegade_sim_squad_novice","renegade_sim_squad_advanced","renegade_sim_squad_veteran"},
+    greh = {"greh_sim_squad_novice","greh_sim_squad_advanced","greh_sim_squad_veteran"},
+    isg = {"isg_sim_squad_novice","isg_sim_squad_advanced","isg_sim_squad_veteran"},
 }
+--- Species -> single-species simulation squad section (species-pure for infest/conquest). See doc/library/xray/api/squad-factions.md.
+SQUADS_BY_SPECIES = {
+    bloodsucker = {"simulation_bloodsucker"}, boar = {"simulation_boar"}, burer = {"simulation_burer"}, cat = {"simulation_cat"},
+    chimera = {"simulation_chimera"}, controller = {"simulation_controller"}, dog = {"simulation_dog"}, flesh = {"simulation_flesh"},
+    fracture = {"simulation_fracture"}, gigant = {"simulation_gigant"}, karlik = {"simulation_karlik"}, lurker = {"simulation_lurker"},
+    poltergeist = {"simulation_poltergeist"}, pseudodog = {"simulation_pseudodog"}, psy_dog = {"simulation_psy_dog"}, psysucker = {"simulation_psysucker"},
+    rat = {"simulation_rat"}, snork = {"simulation_snork"}, tushkano = {"simulation_tushkano"}, zombie = {"simulation_zombie"},
+}
+local _SQUADS_BY_IDENTITY = xtable.merge(SQUADS_BY_FACTION, SQUADS_BY_SPECIES)
+
 --- Add shared spawn entry to smart terrain respawn_params (additive, originals keep spawning)
 --- No faction_controlled -- engine filter stays in "spawn all" mode, both LTX and injected entries fire
 --- @safety SAFE - pure Lua table writes on smart terrain object
@@ -441,17 +441,18 @@ local SQUADS_BY_FACTION = {
 --- @src anomaly/smart_terrain.script(1665-1716)
 --- @param smart se_smart_terrain Smart terrain to inject into
 --- @param key string Unique respawn_params key (e.g. "ap_conquest")
---- @param faction string Faction community name (key into SQUADS_BY_FACTION)
+--- @param identity string Stalker faction or mutant species (_SQUADS_BY_IDENTITY lookup)
 --- @param spawn_num number|nil Max squads for this entry (default 1)
 --- @return boolean True if applied
-function set_shared_spawn(smart, key, faction, spawn_num)
+function set_shared_spawn(smart, key, identity, spawn_num)
     if not smart or not key then return false end
-    if not SQUADS_BY_FACTION[faction] then return false end
+    local squads = _SQUADS_BY_IDENTITY[identity]
+    if not squads then return false end
     smart.respawn_params = smart.respawn_params or {}
     smart.already_spawned = smart.already_spawned or {}
     smart.respawn_point = true
     local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
-    smart.respawn_params[key] = { num = condlist, squads = SQUADS_BY_FACTION[faction] }
+    smart.respawn_params[key] = { num = condlist, squads = squads }
     smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
     return true
 end
@@ -471,26 +472,26 @@ function clear_shared_spawn(smart, key)
 end
 
 --- Set exclusive spawn on smart terrain (suppresses original LTX entries via faction filter)
---- Sets faction_controlled + one entry with .faction; LTX entries lack .faction and fail the gate.
---- Monster factions need periodic smart.faction re-apply (check_smart_faction ignores monsters).
+--- Sets faction_controlled + one entry with .faction; monster factions need periodic re-apply (check_smart_faction ignores monsters; see @src line 1209-1236).
 --- @safety SAFE - pure Lua table writes on smart terrain object
 --- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
---- @src anomaly/smart_terrain.script(246-267,1665-1672)
+--- @src anomaly/smart_terrain.script(246-267,1209-1236,1665-1672)
 --- @param smart se_smart_terrain Smart terrain to mutate
 --- @param key string Unique respawn_params key (e.g. "ap_infest")
---- @param faction string Faction community name (key into SQUADS_BY_FACTION)
+--- @param identity string Stalker faction or mutant species (_SQUADS_BY_IDENTITY lookup)
 --- @param spawn_num number|nil Max squads for this entry (default 1)
 --- @return boolean True if applied
-function set_exclusive_spawn(smart, key, faction, spawn_num)
+function set_exclusive_spawn(smart, key, identity, spawn_num)
     if not smart or not key then return false end
-    if not SQUADS_BY_FACTION[faction] then return false end
+    local squads = _SQUADS_BY_IDENTITY[identity]
+    if not squads then return false end
     smart.faction_controlled = key
-    smart.faction = faction
+    smart.faction = identity
     smart.respawn_params = smart.respawn_params or {}
     smart.already_spawned = smart.already_spawned or {}
     smart.respawn_point = true
     local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
-    smart.respawn_params[key] = { num = condlist, squads = SQUADS_BY_FACTION[faction], faction = faction }
+    smart.respawn_params[key] = { num = condlist, squads = squads, faction = identity }
     smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
     return true
 end

@@ -66,11 +66,33 @@ function get_actor_level_id()
 end
 
 local function get_current_level_name()
-    if not level.present() then return "the Zone" end
+    if not level.present() then return nil end
     local lname = level.name()
-    if not lname then return "the Zone" end
+    if not lname then return nil end
     local translated = game.translate_string(lname)
     return (translated and translated ~= lname) and translated or lname
+end
+
+local _level_names = nil
+
+-- Session-lifetime set of level names (raw + translated); populated lazily on first call
+-- @complexity O(n) levels first call | 0 luabind cached, ~100 luabind medium on miss
+local function _get_level_names()
+    if _level_names then return _level_names end
+    _level_names = {}
+    local sim = alife()
+    if not sim then return _level_names end
+    for i = 0, 50 do
+        local name = sim:level_name(i)
+        if not name then goto continue end
+        _level_names[name] = true
+        local translated = game.translate_string(name)
+        if translated and translated ~= name then
+            _level_names[translated] = true
+        end
+        ::continue::
+    end
+    return _level_names
 end
 
 --- Get translated level display name from a level_id
@@ -115,8 +137,10 @@ end
 -- @cost O(1) | 0 luabind pure Lua regex
 local function _strip_level_prefix(text)
     if not text then return nil end
-    local trimmed = text:match("^[^%.]+%.%s+(.+)$")
-    return trimmed or text
+    local prefix, rest = text:match("^([^%.]+)%.%s+(.+)$")
+    if not prefix then return text end
+    if _get_level_names()[prefix] then return rest end
+    return text
 end
 
 --- Get translated smart terrain display name
