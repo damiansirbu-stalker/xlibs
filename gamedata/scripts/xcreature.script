@@ -123,28 +123,46 @@ if not clsid.karlik_s then
     _ambiguous_prefixes.karlik = "karlik"
 end
 
--- Resolve species from NPC server entity: clsid first, section prefix fallback for ambiguous clsids only
--- @complexity O(1) | 1-2 luabind (clsid + section_name for ambiguous)
-local function _resolve_npc_species(se_npc)
+-- Per-NPC weak-key cache: clsid is invariant for a server entity's lifetime, so species is too.
+-- Mirrors _unscriptable_cache pattern. Stores `false` sentinel when species resolves to nil.
+local _species_cache = setmetatable({}, { __mode = "k" })
+
+-- Inner resolver: clsid -> species, with prefix fallback for ambiguous clsids
+-- @cost O(1) | 1-2 luabind (clsid + section_name for ambiguous)
+local function _resolve_clsid_species(se_npc)
     local cls = se_npc:clsid()
     local species = _clsid_to_species[cls]
     if not species then return nil end
     if not _ambiguous_clsids[cls] then return species end
     local section = se_npc:section_name()
-    if section then
-        for prefix, name in pairs(_ambiguous_prefixes) do
-            if section:sub(1, #prefix) == prefix then return name end
-        end
+    if not section then return species end
+    for prefix, name in pairs(_ambiguous_prefixes) do
+        if section:sub(1, #prefix) == prefix then return name end
     end
     return species
 end
 
+-- Cached wrapper: weak-key cache on the cse entity. Stores `false` sentinel for nil results.
+-- @cost O(1) | 0 luabind cached, 1-2 luabind on miss
+local function _resolve_npc_species(se_npc)
+    local cached = _species_cache[se_npc]
+    if cached ~= nil then return cached or nil end
+    local species = _resolve_clsid_species(se_npc)
+    _species_cache[se_npc] = species or false
+    return species
+end
+
+-- Per-squad weak-key cache: caches the full squad -> commander -> species chain.
+-- Squad species depends on commander species, which is invariant within a species-pure squad.
+-- AP squads are species-pure by design (mutant spawns don't mix species), so the cache is safe.
+local _squad_species_cache = setmetatable({}, { __mode = "k" })
+
 --- Get mutant species from any entity (squad, se_obj, game_object, or ID)
---- For squads: player_id fast reject (0 luabind for stalkers), then commander clsid + section fallback
---- For NPCs/game_objects: direct clsid + section fallback
---- Returns nil for stalkers, non-mutants, and unrecognized entities
+--- For squads: player_id fast reject for stalkers (0 luabind); commander chain cached weak-keyed.
+--- For NPCs/game_objects: direct clsid + section fallback, cached per-NPC.
+--- Returns nil for stalkers, non-mutants, and unrecognized entities.
 --- @safety SAFE - nil-guarded throughout
---- @cost O(1) | 0 luabind (stalker squad fast reject) | 5 luabind (mutant squad) | 3 luabind (NPC)
+--- @cost O(1) | 0 luabind cached or stalker fast-reject; 5 luabind on miss for mutant squad (clsid + commander_id + alife_object + cmd:clsid)
 --- @see anomaly/_g.script(2833-2866), anomaly/ui_mutant_loot.script(34-54)
 --- @param input number|userdata Entity ID or object
 --- @return string|nil Species name ("bloodsucker", "dog", "lurker", etc.)
@@ -153,15 +171,21 @@ function get_mutant_species(input)
     if not se then return nil end
     local pid = se.player_id
     if pid and not _is_monster_faction[pid] then return nil end
+    local cached = _squad_species_cache[se]
+    if cached ~= nil then return cached or nil end
     local cls = se:clsid()
+    local species
     if cls == clsid.online_offline_group_s then
         local cmd_id = se:commander_id()
-        if not cmd_id or cmd_id == 65535 then return nil end
-        local cmd = xobject.se(cmd_id)
-        if not cmd then return nil end
-        return _resolve_npc_species(cmd)
+        if cmd_id and cmd_id ~= 65535 then
+            local cmd = xobject.se(cmd_id)
+            if cmd then species = _resolve_npc_species(cmd) end
+        end
+    else
+        species = _resolve_npc_species(se)
     end
-    return _resolve_npc_species(se)
+    if species then _squad_species_cache[se] = species end
+    return species
 end
 
 --- Get mutant variant (full NPC section) from any entity

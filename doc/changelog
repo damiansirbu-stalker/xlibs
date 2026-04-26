@@ -4,7 +4,9 @@ next
     Changed: get_smart_display_name cascades Anomaly smart_names.ltx -> Warfare "st_<name>_name" key -> level name -> cleaned raw section (previously returned raw LTX section on unnamed smarts).
     Changed: get_smart_display_name returns nil on invalid input instead of the baked string "unknown". Callers decide the fallback. Keeps xlibs locale-pure.
   xsquad:
-    Added: get_commander_name(squad) -- returns the commander's character_name via the online game_object (CScriptGameObject binding). Returns nil for offline commanders, non-stalkers, and empty squads. No pcall, no modded-exes dependency.
+    Added: get_commander_name(squad) -- returns the commander's character_name. Hybrid resolver: tries online game_object via db.storage first (3 luabind fast path), falls back to cse_alife_trader_abstract:character_name() server-side binding (4 luabind, works for offline commanders). m_character_name is populated at NPC spawn and persists in saves; both paths return identical strings. Returns nil for empty squads, non-stalkers, and unregistered commanders.
+  xcreature:
+    Changed: get_mutant_species and _resolve_npc_species now use weak-key per-entity caches. Repeat lookups for the same squad or NPC entity are 0 luabind after the first call. False sentinel stored for "resolved to nil" results so cache miss vs cached-nil are distinguishable.
   xstring:
     Added: capitalize_first(text) -- encoding-aware first-character capitalization. 256-byte uppercase table covers ASCII a-z, cp1251 Cyrillic а-я (0xE0-0xFF), and cp1251 ё (0xB8 -> Ё 0xA8). Replaces string.upper + %l regex, which are ASCII-only in Lua 5.1.
   xttltable:

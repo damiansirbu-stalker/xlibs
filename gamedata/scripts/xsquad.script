@@ -127,22 +127,30 @@ local function _check_active_role(squad, cmd_id, sec)
 end
 
 --- Get squad commander's character name (human-readable)
---- Resolves via the online game_object (CScriptGameObject binding, InventoryOwner-only).
---- Returns nil for offline commanders, non-stalkers, and empty squads; callers should fall back to faction display.
---- Server-side name is not a bound method in stock xray; online-only resolution keeps the contract stable across engine variants.
---- @safety SAFE - nil-guards on db/storage/npc/IsStalker; character_name is a stable binding on game_object
---- @cost O(1) | 1 luabind trivial when offline (commander_id), 2 luabind trivial when online (+character_name)
---- @src xray/xrGame/script_game_object_inventory_owner.cpp(878-885)
+--- Tries online game_object first (db.storage hit + character_name = 3 luabind), falls back
+--- to cse_alife_trader_abstract:character_name() for offline commanders (4 luabind, server-side
+--- string field). m_character_name is populated at NPC spawn (TranslateName of generated
+--- name_X:lname_Y) and persists in saves; both paths return identical strings since
+--- set_character_name_script propagates writes to both the cse field and the inventory owner.
+--- @safety SAFE - all lookups nil-guarded; IsStalker filters non-stalker classes on both paths
+--- @cost O(1) | 3 luabind online (commander_id, IsStalker, character_name); 4 luabind offline (+alife_object, +clsid)
+--- @src xray/xrServerEntities/xrServer_Objects_ALife_Monsters_script.cpp(74), xray/xrServerEntities/xrServer_Objects_ALife_Monsters.cpp(284, 518)
 --- @param squad se_squad Squad server object
---- @return string|nil Commander's character name, or nil when offline / not a stalker
+--- @return string|nil Commander's character name, or nil for empty squads / non-stalkers / unregistered commanders
 function get_commander_name(squad)
     if not squad or not squad.commander_id then return nil end
     local cmd_id = squad:commander_id()
     if cmd_id == INVALID_ENTITY_ID then return nil end
     local storage = db and db.storage and db.storage[cmd_id]
     local npc = storage and storage.object
-    if not npc or not IsStalker(npc) then return nil end
-    local name = npc:character_name()
+    if npc and IsStalker(npc) then
+        local name = npc:character_name()
+        if type(name) == "string" and name ~= "" then return name end
+    end
+    local cmd_se = alife_object(cmd_id)
+    if not cmd_se then return nil end
+    if not IsStalker(nil, cmd_se:clsid()) then return nil end
+    local name = cmd_se.character_name and cmd_se:character_name()
     if type(name) == "string" and name ~= "" then return name end
     return nil
 end
