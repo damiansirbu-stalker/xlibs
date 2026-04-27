@@ -1,5 +1,10 @@
 next
 
+1.4.1
+  Summary: Spawn injection fix
+  xsmart:
+    Fixed: set_shared_spawn and set_exclusive_spawn write squad-section tables into respawn_params[key].squads. _SQUADS_BY_IDENTITY now built with an explicit value-preserving merge of SQUADS_BY_FACTION and SQUADS_BY_SPECIES (xtable.merge is set-merge and was storing boolean true, which crashed vanilla try_respawn at smart_terrain.script:1677 when v["squads"][1] tried to index it).
+
 1.4.0
   Summary: Generic spawn injection API, level/smart name cascade, commander name resolver, weak-key species cache, cp1251-aware capitalize, fifo_cache iteration and on_evict
   xsmart:

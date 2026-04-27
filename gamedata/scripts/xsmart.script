@@ -432,7 +432,12 @@ SQUADS_BY_SPECIES = {
     poltergeist = {"simulation_poltergeist"}, pseudodog = {"simulation_pseudodog"}, psy_dog = {"simulation_psy_dog"}, psysucker = {"simulation_psysucker"},
     rat = {"simulation_rat"}, snork = {"simulation_snork"}, tushkano = {"simulation_tushkano"}, zombie = {"simulation_zombie"},
 }
-local _SQUADS_BY_IDENTITY = xtable.merge(SQUADS_BY_FACTION, SQUADS_BY_SPECIES)
+-- Value-merge: xtable.merge is a set-merge (writes `true` for every key) and would
+-- store boolean `true` into respawn_params[key].squads, crashing vanilla try_respawn
+-- at smart_terrain.script:1677 (v["squads"][1] indexes a boolean).
+local _SQUADS_BY_IDENTITY = {}
+for k, v in pairs(SQUADS_BY_FACTION) do _SQUADS_BY_IDENTITY[k] = v end
+for k, v in pairs(SQUADS_BY_SPECIES) do _SQUADS_BY_IDENTITY[k] = v end
 
 --- Add shared spawn entry to smart terrain respawn_params (additive, originals keep spawning)
 --- No faction_controlled -- engine filter stays in "spawn all" mode, both LTX and injected entries fire
