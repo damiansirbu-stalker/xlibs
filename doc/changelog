@@ -1,16 +1,31 @@
 next
+
+1.4.0
+  Summary: Generic spawn injection API, level/smart name cascade, commander name resolver, weak-key species cache, cp1251-aware capitalize, fifo_cache iteration and on_evict
+  xsmart:
+    Removed: set_faction_controlled and clear_faction_controlled. Replaced by the generic spawn injection API below.
+    Added: set_shared_spawn(smart, key, identity, num) and clear_shared_spawn(smart, key). Additive injection. Original LTX entries keep spawning alongside the injected entry. No faction filter applied.
+    Added: set_exclusive_spawn(smart, key, identity, num) and clear_exclusive_spawn(smart, key). Faction-filtered injection. Sets faction_controlled + faction so only the injected entry spawns. Monster factions need periodic re-apply (engine check_smart_faction ignores monsters; smart_terrain.script:1209-1236).
+    Added: SQUADS_BY_SPECIES table -- single-species simulation_<species> sections (20 entries) for species-pure mutant injection. Identity slot in the spawn API accepts both stalker factions and mutant species.
+    Added: accepts_mutant(smart, player_id) mirrors the engine target_precondition mutant gate (props.all OR props.all_monster OR props[player_id]) at smart_terrain.script:1531-1532.
+    Added: smart_iter() iterator over SIMBOARD smarts. Stateful, skips entries without a valid smrt ref.
   xlevel:
     Added: get_level_name(level_id) -- resolves a level_id to its localized display name via alife():level_name + game.translate_string.
-    Changed: get_smart_display_name cascades Anomaly smart_names.ltx -> Warfare "st_<name>_name" key -> level name -> cleaned raw section (previously returned raw LTX section on unnamed smarts).
+    Changed: get_smart_display_name cascades Anomaly smart_names.ltx -> Warfare "st_<name>_name" key -> level display name -> cleaned raw section (previously returned raw LTX section on unnamed smarts). Every return path strips a recognized "Level. " prefix so "Zaton. Claw Anomaly Camp" becomes "Claw Anomaly Camp" regardless of source.
     Changed: get_smart_display_name returns nil on invalid input instead of the baked string "unknown". Callers decide the fallback. Keeps xlibs locale-pure.
+    Changed: get_current_level_name returns nil when no level / no name is available, instead of the baked string "the Zone". Locale-pure, callers decide the fallback.
+    Added: lazy session-cache of level names (raw + translated) used by the prefix-stripper.
   xsquad:
     Added: get_commander_name(squad) -- returns the commander's character_name. Hybrid resolver: tries online game_object via db.storage first (3 luabind fast path), falls back to cse_alife_trader_abstract:character_name() server-side binding (4 luabind, works for offline commanders). m_character_name is populated at NPC spawn and persists in saves; both paths return identical strings. Returns nil for empty squads, non-stalkers, and unregistered commanders.
+    Changed: is_protected gained nil-squad and nil-opts early guards. Returns true,"nil_squad" for nil squads (fail-safe) and false for nil opts (no-criteria check) instead of erroring.
   xcreature:
     Changed: get_mutant_species and _resolve_npc_species now use weak-key per-entity caches. Repeat lookups for the same squad or NPC entity are 0 luabind after the first call. False sentinel stored for "resolved to nil" results so cache miss vs cached-nil are distinguishable.
   xstring:
     Added: capitalize_first(text) -- encoding-aware first-character capitalization. 256-byte uppercase table covers ASCII a-z, cp1251 Cyrillic а-я (0xE0-0xFF), and cp1251 ё (0xB8 -> Ё 0xA8). Replaces string.upper + %l regex, which are ASCII-only in Lua 5.1.
   xttltable:
     Added: fifo_cache :each(fn) iterates all cached values in insertion order (oldest first), and on_evict callback fires when a value is pushed out of the ring.
+  xlog:
+    Changed: defaults retuned. buffer_size raised from 1000 to 100000, flush_interval lowered from 300s to 60s. Larger in-memory buffer, faster periodic flush.
 
 1.3.0
   xcreature:

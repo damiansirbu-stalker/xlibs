@@ -66,7 +66,6 @@ The code is validated in real time by a multi-stage pipeline: luacheck, selene, 
 Full report in doc/test-report.log.
 
 Credits:
-Stalker_Boss - Russian translation
 Altogolik - support, ideas, source materials
 
 Usage and License:
