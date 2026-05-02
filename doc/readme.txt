@@ -3,7 +3,7 @@ Version: 1.4.1
 GitHub: https://github.com/damiansirbu-stalker/xlibs
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
-Report a bug: https://github.com/damiansirbu-stalker/xlibs/issues
+Bugs, suggestions: https://github.com/damiansirbu-stalker/xlibs/issues
 
 xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 

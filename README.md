@@ -4,7 +4,7 @@ A modder's toolbox covering entity queries, squad operations, smart terrain logi
 
 Pure Lua where possible. No central loader. Just call the function and it works.
 
-[ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) | [Releases](https://github.com/damiansirbu-stalker/xlibs/releases) | [Report a bug](https://github.com/damiansirbu-stalker/xlibs/issues)
+[ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) | [Releases](https://github.com/damiansirbu-stalker/xlibs/releases) | [Bugs, suggestions](https://github.com/damiansirbu-stalker/xlibs/issues)
 
 Requires: Anomaly 1.5.3, Modded exes
 
