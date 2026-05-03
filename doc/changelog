@@ -1,4 +1,6 @@
 next
+  xconst:
+    Added: ACTOR_ENTITY_ID = 0. Engine convention for db.actor:id(). Pairs with INVALID_ENTITY_ID for actor-vs-other checks without magic numbers.
 
 1.4.1
   Summary: Spawn injection fix
