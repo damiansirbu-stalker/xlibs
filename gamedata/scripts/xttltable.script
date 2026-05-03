@@ -1,4 +1,4 @@
---- xttltable: Time-expiring table structures
+--- xttltable: TTL, counter, and budget primitives
 ---
 --- TTL Table: key-value store with auto-expiry.
 ---   - :get() and :has() are pure table lookups (zero bridge calls)
@@ -7,6 +7,9 @@
 ---   - Error margin: expired entries visible for up to cleanup_interval (default 10s)
 ---
 --- TTL Counter: sliding window occurrence counter.
+--- Token Bucket: per-key rate limiter with burst capacity.
+--- FIFO Cache: bounded key-value store with oldest-first eviction.
+--- Budget: fixed-capacity counter (caller-reset, no time component).
 ---
 --- Timing: os.clock by default (Lua C API, zero bridge overhead). All durations in seconds.
 --- Optional clock injection: pass opts.clock = fn to use game time or custom clock.
@@ -341,4 +344,38 @@ function create_fifo_cache(opts)
         _capacity = (opts and opts.capacity) or 128,
         _on_evict = opts and opts.on_evict,
     }, _fifo_mt)
+end
+
+--------------------------------------------------------------------------------
+-- Budget: fixed-capacity counter that decrements on take and resets on demand
+--------------------------------------------------------------------------------
+local _budget_mt = {}
+_budget_mt.__index = _budget_mt
+
+--- Take one slot, return true if available
+--- @complexity O(1) | 0 luabind
+function _budget_mt:take()
+    if self._n <= 0 then return false end
+    self._n = self._n - 1
+    return true
+end
+
+--- Reset to capacity (or new capacity if provided)
+--- @complexity O(1) | 0 luabind
+function _budget_mt:reset(capacity)
+    self._n = capacity or self._capacity
+end
+
+--- Check remaining slots without consuming
+--- @complexity O(1) | 0 luabind
+function _budget_mt:remaining() return self._n end
+
+--- Create a fixed-capacity budget that decrements on take and resets on demand
+--- Caller-managed: budget never auto-resets, holder must call :reset() per cycle (per tick, per frame, etc.)
+--- @safety SAFE - pure Lua integer counter
+--- @complexity O(1) take/reset/remaining | 0 luabind
+--- @param capacity number Maximum slots
+--- @return table Budget instance with :take(), :reset(), :remaining()
+function create_budget(capacity)
+    return setmetatable({ _n = capacity, _capacity = capacity }, _budget_mt)
 end
