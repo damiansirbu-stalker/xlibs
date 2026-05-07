@@ -9,11 +9,13 @@ local STALKER_FACTIONS = {
     "monolith", "stalker", "csky", "zombied", "greh", "isg", "renegade",
 }
 local _factions_cache = {}
-local _has_trader_cache = {}
-local _has_mechanic_cache = {}
 local ANOMALY_RADIUS_SQR = 2500
-local JOB_TYPE_TRADER = 15
-local JOB_TYPE_MECHANIC = 16
+
+JOB_TYPE_GENERIC_POINT = 0
+JOB_TYPE_CAMPFIRE_POINT = 1
+JOB_TYPE_TRADER = 15
+JOB_TYPE_MECHANIC = 16
+JOB_TYPE_MOB_HOME = 17
 
 --- Check if smart terrain is a base
 --- Reads props.base from simulation_objects_props.ltx; >0 means base type (surge shelter, faction HQ)
@@ -93,18 +95,61 @@ function is_smart_important(smart)
     return (props.base and props.base > 0) or (props.resource and props.resource > 0) or (props.territory and props.territory > 0)
 end
 
--- Check smart terrain job list for job_type_id (shared by has_trader_job, has_mechanic_job)
-local function _has_job_type(smart, type_id, cache)
-    local cached = cache[smart.id]
-    if cached ~= nil then return cached end
-    if not smart.stalker_jobs then return false end
-    for i = 1, #smart.stalker_jobs do
-        if smart.stalker_jobs[i].job_type_id == type_id then
-            cache[smart.id] = true
+-- Walk a job table; type_id nil matches any (non-empty), >0 matches specific job_type_id.
+local function _has_jobs_in(jobs, type_id)
+    if not jobs or #jobs == 0 then return false end
+    if not type_id then return true end
+    for i = 1, #jobs do
+        if jobs[i].job_type_id == type_id then return true end
+    end
+    return false
+end
+
+--- Check if smart's stalker_jobs has any entry, or a specific job_type_id
+--- type_id nil matches any non-empty table; integer matches one job_type_id (e.g. JOB_TYPE_TRADER)
+--- @safety SAFE - pure Lua iteration, nil-guarded
+--- @complexity O(k) k=jobs on smart (~10-30) | 0 luabind
+--- @see anomaly/gulag_general.script(281-303) job_info_by_job_type_id
+--- @param smart smart_terrain Smart terrain to check
+--- @param type_id number|nil Specific job_type_id, or nil for any non-empty
+--- @return boolean
+function has_stalker_jobs(smart, type_id)
+    return smart ~= nil and _has_jobs_in(smart.stalker_jobs, type_id)
+end
+
+--- Check if smart's monster_jobs has any entry, or a specific job_type_id
+--- type_id nil matches any non-empty table; integer matches one job_type_id (e.g. JOB_TYPE_MOB_HOME)
+--- @safety SAFE - pure Lua iteration, nil-guarded
+--- @complexity O(k) k=jobs on smart (~5-20) | 0 luabind
+--- @see anomaly/gulag_general.script(281-303) job_info_by_job_type_id
+--- @param smart smart_terrain Smart terrain to check
+--- @param type_id number|nil Specific job_type_id, or nil for any non-empty
+--- @return boolean
+function has_monster_jobs(smart, type_id)
+    return smart ~= nil and _has_jobs_in(smart.monster_jobs, type_id)
+end
+
+--- Check if smart has any non-stub stalker job
+--- Stubs (generic_point id=0, campfire_point id=1) are pushed unconditionally on every smart; non-stub = any other job_type_id (conditional auto-gen) or any exclusive LTX job (no job_type_id field; carries job.exclusive=true per gulag_general.script:1221,1238)
+--- @safety SAFE - pure Lua iteration, nil-guarded
+--- @complexity O(k) k=jobs on smart (~10-30) | 0 luabind
+--- @see anomaly/gulag_general.script(308,340,492-526) unconditional vs conditional inits
+--- @see anomaly/gulag_general.script(1183-1246) add_exclusive_job (LTX exclusive jobs)
+--- @see doc/library/modding/job-system.md "Unconditional vs Conditional Inits"
+--- @param smart smart_terrain Smart terrain to check
+--- @return boolean
+function has_animated_stalker_jobs(smart)
+    if not smart then return false end
+    local jobs = smart.stalker_jobs
+    if not jobs or #jobs == 0 then return false end
+    for i = 1, #jobs do
+        local job = jobs[i]
+        if job.exclusive then return true end
+        local id = job.job_type_id
+        if id and id ~= JOB_TYPE_GENERIC_POINT and id ~= JOB_TYPE_CAMPFIRE_POINT then
             return true
         end
     end
-    cache[smart.id] = false
     return false
 end
 
@@ -119,30 +164,6 @@ function has_campfire(smart)
     if not smart then return false end
     local tbl = db.campfire_table_by_smart_names and db.campfire_table_by_smart_names[smart:name()]
     return tbl and next(tbl) ~= nil or false
-end
-
---- Check if smart terrain has trader job slots
---- Checks job_type_id=15 in stalker_jobs; cached per smart.id (static after init)
---- @safety SAFE - pure Lua iteration, nil-guarded. Cached per smart.id (static after init).
---- @complexity O(k) jobs first call, O(1) cached | 0 luabind
---- @see anomaly/gulag_general.script(969-971), job_type_id=15, priority=59
---- @param smart smart_terrain Smart terrain to check
---- @return boolean True if smart has trader jobs
-function has_trader_job(smart)
-    if not smart then return false end
-    return _has_job_type(smart, JOB_TYPE_TRADER, _has_trader_cache)
-end
-
---- Check if smart terrain has mechanic job slots
---- Checks job_type_id=16 in stalker_jobs; cached per smart.id (static after init)
---- @safety SAFE - pure Lua iteration, nil-guarded. Cached per smart.id (static after init).
---- @complexity O(k) jobs first call, O(1) cached | 0 luabind
---- @see anomaly/gulag_general.script(994-996), job_type_id=16, priority=59
---- @param smart smart_terrain Smart terrain to check
---- @return boolean True if smart has mechanic jobs
-function has_mechanic_job(smart)
-    if not smart then return false end
-    return _has_job_type(smart, JOB_TYPE_MECHANIC, _has_mechanic_cache)
 end
 
 --- Check if smart terrain is near anomaly zones
@@ -379,10 +400,10 @@ function get_proximity(squad, smart)
 end
 
 --- Check if smart terrain has capacity for more squads
---- Counts squads in SIMBOARD.smarts[id].squads + incoming vs smart.max_population; optionally filters by faction
+--- Counts SIMBOARD.smarts[id].squads (sim-routing intent — written by on_reach_target at target-selection, not at physical arrival) + incoming vs max_population; scripted_target movements bypass SIMBOARD bookkeeping (sim_squad_scripted:assign_smart never calls SIMBOARD:assign_squad_to_smart) so this measures sim intent, not physical occupancy
 --- @safety SAFE - nil guards, returns true when data unavailable (safe default = allow)
 --- @complexity O(k) squads at smart | 1 luabind per squad when faction filter used (get_squad_community)
---- @see anomaly/smart_terrain.script(1521), anomaly/sim_board.script(84)
+--- @see anomaly/smart_terrain.script(1469-1480) on_reach_target, anomaly/sim_squad_scripted.script(517-540) bypass, anomaly/sim_board.script(226-266) assign_squad_to_smart
 --- @param smart smart_terrain Smart terrain to check
 --- @param faction string|nil Faction to count (nil = all factions)
 --- @param incoming number|nil Count of in-transit squads to add (default 0)
@@ -410,12 +431,10 @@ function has_capacity(smart, faction, incoming)
 end
 
 --- Check if every squad member has an engine-assigned job at the smart
---- Reads smart.npc_info[id].job per member; nil info or nil job -> false. Detects
---- the smart-at-full-job-allocation freeze (smart_terrain.script:1369-1376) where
---- select_npc_job returns nothing and setup_logic loops on unregister/register.
+--- Snapshot of npc_info[id].job per member; detects the full-job-allocation freeze (smart_terrain.script:1369-1376 setup_logic loops on nil job). Reliable only when caller has gated on smart.online && smart.is_on_actor_level (engine select_npc_job is gated there too). Does NOT predict mid-dwell precondition-flip invalidation (surge start/end, day<->night for sleeper, zombie state, trader has_items_to_sell). Trailing members live in arriving_npc[] not npc_info[] for ~5s after positional arrival until engine drains — caller's polling cadence absorbs the race. For mutant squads (stype=1) this rarely returns false because mob_home stubs are oversupplied (gulag_general.script:1018-1022 pushes max_population*4 with no precondition)
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
 --- @complexity O(n) members | 0 luabind
---- @see anomaly/smart_terrain.script(309-327, 626-798, 1369-1376), anomaly/gulag_general.script(114-118)
+--- @see anomaly/smart_terrain.script(309-327, 626-798, 1369-1376), anomaly/gulag_general.script(114-118), anomaly/gulag_general.script(1018-1022) mutant mob_home oversupply
 --- @param smart smart_terrain Smart terrain to check
 --- @param squad se_squad Squad whose members to verify
 --- @return boolean True if every member has a job
