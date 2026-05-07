@@ -409,6 +409,25 @@ function has_capacity(smart, faction, incoming)
     return (count + (incoming or 0)) < smart.max_population
 end
 
+--- Check if every squad member has an engine-assigned job at the smart
+--- Reads smart.npc_info[id].job per member; nil info or nil job -> false. Detects
+--- the smart-at-full-job-allocation freeze (smart_terrain.script:1369-1376) where
+--- select_npc_job returns nothing and setup_logic loops on unregister/register.
+--- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
+--- @complexity O(n) members | 0 luabind
+--- @see anomaly/smart_terrain.script(309-327, 626-798, 1369-1376), anomaly/gulag_general.script(114-118)
+--- @param smart smart_terrain Smart terrain to check
+--- @param squad se_squad Squad whose members to verify
+--- @return boolean True if every member has a job
+function has_jobs_for(smart, squad)
+    if not smart or not squad then return false end
+    for member_id in xsquad.iter_member_ids(squad) do
+        local info = smart.npc_info and smart.npc_info[member_id]
+        if not info or not info.job then return false end
+    end
+    return true
+end
+
 --- Faction -> generic simulation squad sections (novice, advanced, veteran). Copy of smart_terrain.script:16-29.
 local SQUADS_BY_FACTION = {
     army = {"army_sim_squad_novice","army_sim_squad_advanced","army_sim_squad_veteran"},
