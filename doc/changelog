@@ -1,6 +1,9 @@
 next
   xconst:
     Added: ACTOR_ENTITY_ID = 0. Engine convention for db.actor:id(). Pairs with INVALID_ENTITY_ID for actor-vs-other checks without magic numbers.
+  xsmart:
+    Refactored: prop-flag predicates (is_base, is_lair, is_resource, is_territory, has_surge_shelter, is_smart_important) share a single _prop_truthy(smart, key) helper. Drops file CC under the 200-sum cap.
+    Refactored: find_smart boolean preprocessing replaced and-or chains with explicit ifs (factions_check, min_dist_sqr, max_dist_sqr). Same behavior, lower CC.
 
 1.4.1
   Summary: Spawn injection fix

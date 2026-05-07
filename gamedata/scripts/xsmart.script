@@ -17,82 +17,40 @@ JOB_TYPE_TRADER = 15
 JOB_TYPE_MECHANIC = 16
 JOB_TYPE_MOB_HOME = 17
 
---- Check if smart terrain is a base
---- Reads props.base from simulation_objects_props.ltx; >0 means base type (surge shelter, faction HQ)
---- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
---- @complexity O(1) | 0 luabind
---- @see anomaly/simulation_objects.script(117), Vintar0/smart_terrain_warfare.script(316)
---- @param smart smart_terrain Smart terrain to check
---- @return boolean True if base
-function is_base(smart)
-    local props = smart and smart.props
-    if not props then return false end
-    return props.base and props.base > 0 or false
-end
-
---- Check if smart terrain is a lair (mutant nest)
---- Reads props.lair from simulation_objects_props.ltx; >0 means mutant nest
---- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
---- @complexity O(1) | 0 luabind
+--- Test smart.props[key] > 0. Used by all prop-flag predicates (is_base / is_lair / etc.).
+--- Reads simulation_objects_props.ltx flags; >0 means the flag is set.
 --- @see anomaly/simulation_objects.script(117)
---- @param smart smart_terrain Smart terrain to check
---- @return boolean True if lair
-function is_lair(smart)
-    local props = smart and smart.props
-    if not props then return false end
-    return props.lair and props.lair > 0 or false
-end
-
---- Check if smart terrain is a resource point
---- Reads props.resource from simulation_objects_props.ltx; >0 means resource point
---- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
---- @complexity O(1) | 0 luabind
---- @see anomaly/simulation_objects.script(117)
---- @param smart smart_terrain Smart terrain to check
---- @return boolean True if resource
-function is_resource(smart)
-    local props = smart and smart.props
-    if not props then return false end
-    return props.resource and props.resource > 0 or false
-end
-
---- Check if smart terrain is a territory
---- Reads props.territory from simulation_objects_props.ltx; >0 means contestable territory
---- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
---- @complexity O(1) | 0 luabind
---- @see anomaly/simulation_objects.script(117)
---- @param smart smart_terrain Smart terrain to check
---- @return boolean True if territory
-function is_territory(smart)
-    local props = smart and smart.props
-    if not props then return false end
-    return props.territory and props.territory > 0 or false
-end
-
---- Check if smart terrain has surge shelter (indoor/sheltered)
---- Reads props.surge from simulation_objects_props.ltx; >0 means emission shelter
---- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
---- @complexity O(1) | 0 luabind
---- @see anomaly/smart_terrain.script(1566), anomaly/surge_manager.script(1265)
---- @param smart smart_terrain Smart terrain to check
---- @return boolean True if smart has surge shelter
-function has_surge_shelter(smart)
-    local props = smart and smart.props
-    if not props then return false end
-    return props.surge and props.surge > 0 or false
-end
-
---- Check if smart terrain is important (base, resource, or territory)
---- Composite check of the three props that matter for A-Life simulation targeting
---- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
---- @complexity O(1) | 0 luabind
---- @see anomaly/simulation_objects.script(117)
---- @param smart smart_terrain Smart terrain to check
---- @return boolean True if important
-function is_smart_important(smart)
+local function _prop_truthy(smart, key)
     if not smart or not smart.props then return false end
-    local props = smart.props
-    return (props.base and props.base > 0) or (props.resource and props.resource > 0) or (props.territory and props.territory > 0)
+    local v = smart.props[key]
+    return v ~= nil and v > 0
+end
+
+--- @param smart smart_terrain
+--- @return boolean True if base (surge shelter, faction HQ)
+function is_base(smart) return _prop_truthy(smart, "base") end
+
+--- @param smart smart_terrain
+--- @return boolean True if lair (mutant nest)
+function is_lair(smart) return _prop_truthy(smart, "lair") end
+
+--- @param smart smart_terrain
+--- @return boolean True if resource point
+function is_resource(smart) return _prop_truthy(smart, "resource") end
+
+--- @param smart smart_terrain
+--- @return boolean True if territory (contestable)
+function is_territory(smart) return _prop_truthy(smart, "territory") end
+
+--- @param smart smart_terrain
+--- @return boolean True if smart has surge shelter (emission-safe indoor)
+--- @see anomaly/smart_terrain.script(1566), anomaly/surge_manager.script(1265)
+function has_surge_shelter(smart) return _prop_truthy(smart, "surge") end
+
+--- @param smart smart_terrain
+--- @return boolean True if base, resource, or territory
+function is_smart_important(smart)
+    return _prop_truthy(smart, "base") or _prop_truthy(smart, "resource") or _prop_truthy(smart, "territory")
 end
 
 -- Walk a job table; type_id nil matches any (non-empty), >0 matches specific job_type_id.
@@ -130,7 +88,9 @@ function has_monster_jobs(smart, type_id)
 end
 
 --- Check if smart has any non-stub stalker job
---- Stubs (generic_point id=0, campfire_point id=1) are pushed unconditionally on every smart; non-stub = any other job_type_id (conditional auto-gen) or any exclusive LTX job (no job_type_id field; carries job.exclusive=true per gulag_general.script:1221,1238)
+--- Stubs (generic_point id=0, campfire_point id=1) are pushed unconditionally on every smart;
+--- non-stub = any other job_type_id (conditional auto-gen) or any exclusive LTX job (no
+--- job_type_id field; carries job.exclusive=true per gulag_general.script:1221,1238)
 --- @safety SAFE - pure Lua iteration, nil-guarded
 --- @complexity O(k) k=jobs on smart (~10-30) | 0 luabind
 --- @see anomaly/gulag_general.script(308,340,492-526) unconditional vs conditional inits
@@ -333,9 +293,14 @@ function find_smart(pos, opts)
     local exclude_id = opts.exclude_id
     local factions = opts.factions
     local filter = opts.filter
-    local factions_check = factions and (type(factions) == "table" and has_factions or has_faction) or nil
-    local min_dist_sqr = opts.min_distance and (opts.min_distance * opts.min_distance) or -1
-    local max_dist_sqr = opts.max_distance and (opts.max_distance * opts.max_distance) or math.huge
+    local factions_check
+    if factions then
+        if type(factions) == "table" then factions_check = has_factions else factions_check = has_faction end
+    end
+    local min_dist_sqr = -1
+    if opts.min_distance then min_dist_sqr = opts.min_distance * opts.min_distance end
+    local max_dist_sqr = math.huge
+    if opts.max_distance then max_dist_sqr = opts.max_distance * opts.max_distance end
     local best, best_dist = nil, max_dist_sqr
 
     for _, smart in pairs(SIMBOARD.smarts_by_names) do
@@ -400,7 +365,10 @@ function get_proximity(squad, smart)
 end
 
 --- Check if smart terrain has capacity for more squads
---- Counts SIMBOARD.smarts[id].squads (sim-routing intent — written by on_reach_target at target-selection, not at physical arrival) + incoming vs max_population; scripted_target movements bypass SIMBOARD bookkeeping (sim_squad_scripted:assign_smart never calls SIMBOARD:assign_squad_to_smart) so this measures sim intent, not physical occupancy
+--- Counts SIMBOARD.smarts[id].squads (sim-routing intent — written by on_reach_target at
+--- target-selection, not at physical arrival) + incoming vs max_population; scripted_target
+--- movements bypass SIMBOARD bookkeeping (sim_squad_scripted:assign_smart never calls
+--- SIMBOARD:assign_squad_to_smart) so this measures sim intent, not physical occupancy
 --- @safety SAFE - nil guards, returns true when data unavailable (safe default = allow)
 --- @complexity O(k) squads at smart | 1 luabind per squad when faction filter used (get_squad_community)
 --- @see anomaly/smart_terrain.script(1469-1480) on_reach_target, anomaly/sim_squad_scripted.script(517-540) bypass, anomaly/sim_board.script(226-266) assign_squad_to_smart
@@ -431,7 +399,15 @@ function has_capacity(smart, faction, incoming)
 end
 
 --- Check if every squad member has an engine-assigned job at the smart
---- Snapshot of npc_info[id].job per member; detects the full-job-allocation freeze (smart_terrain.script:1369-1376 setup_logic loops on nil job). Reliable only when caller has gated on smart.online && smart.is_on_actor_level (engine select_npc_job is gated there too). Does NOT predict mid-dwell precondition-flip invalidation (surge start/end, day<->night for sleeper, zombie state, trader has_items_to_sell). Trailing members live in arriving_npc[] not npc_info[] for ~5s after positional arrival until engine drains — caller's polling cadence absorbs the race. For mutant squads (stype=1) this rarely returns false because mob_home stubs are oversupplied (gulag_general.script:1018-1022 pushes max_population*4 with no precondition)
+--- Snapshot of npc_info[id].job per member; detects the full-job-allocation freeze
+--- (smart_terrain.script:1369-1376 setup_logic loops on nil job). Reliable only when caller
+--- has gated on smart.online && smart.is_on_actor_level (engine select_npc_job is gated there
+--- too). Does NOT predict mid-dwell precondition-flip invalidation (surge start/end,
+--- day<->night for sleeper, zombie state, trader has_items_to_sell). Trailing members live in
+--- arriving_npc[] not npc_info[] for ~5s after positional arrival until engine drains —
+--- caller's polling cadence absorbs the race. For mutant squads (stype=1) this rarely returns
+--- false because mob_home stubs are oversupplied (gulag_general.script:1018-1022 pushes
+--- max_population*4 with no precondition)
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
 --- @complexity O(n) members | 0 luabind
 --- @see anomaly/smart_terrain.script(309-327, 626-798, 1369-1376), anomaly/gulag_general.script(114-118), anomaly/gulag_general.script(1018-1022) mutant mob_home oversupply
