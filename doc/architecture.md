@@ -112,12 +112,12 @@ xcreature.query():stalkers():alive():on_level(lvl):each(fn)
 
 ```lua
 local squads = xsquad.find_squads(pos, { factions = outlaws, max_distance = 500, level_id = lvl })
-xsquad.control_squad(squad, smart, true)
+xsquad.acquire_squad(squad, smart, true)
 xsquad.release_squad(squad)
 ```
 
 - `find_squad(pos, opts)`, `find_squads(pos, opts)` - Find matching squads
-- `control_squad(squad, smart, rush)` - Take scripted control, direct to smart terrain
+- `acquire_squad(squad, smart, rush)` - Take scripted control, direct to smart terrain
 - `target_actor(squad, rush)` - Script squad to chase actor (engine-native pursuit)
 - `release_squad(squad)` - Release from scripted control, return to simulation
 - `release_squads(opts)` - Bulk release with filter

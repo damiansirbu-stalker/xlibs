@@ -187,7 +187,7 @@ end
 --- Mod-specific fields (__lock, registered_with_warfare) handled by AP ownership registry.
 ---
 --- Fields checked (order = priority):
----   scripted_target - Any mod calling control_squad or setting directly (AP, Guards Spawner, etc.)
+---   scripted_target - Any mod calling acquire_squad or setting directly (AP, Guards Spawner, etc.)
 ---   action_condlist - Vanilla Anomaly: LTX condlist-driven target logic
 ---   random_targets  - Vanilla Anomaly: random patrol system
 ---
@@ -491,7 +491,7 @@ end
 --- @param target_smart table Target smart terrain
 --- @param rush boolean|nil Rush to target (move.run + anim.danger when online)
 --- @return boolean Success
-function control_squad(squad, target_smart, rush)
+function acquire_squad(squad, target_smart, rush)
     if not squad or not target_smart then return false end
     local name = target_smart:name()
     if not name or name == "" then return false end
@@ -506,7 +506,7 @@ function control_squad(squad, target_smart, rush)
 end
 
 --- Release: clear scripted_target (stops specific_update) + __lock (unblocks generic_update so sim resumes)
---- Inverse of control_squad/target_actor; squad returns to SIMBOARD autonomous targeting
+--- Inverse of acquire_squad/target_actor; squad returns to SIMBOARD autonomous targeting
 --- @safety SAFE - pure field writes, nil-guarded
 --- @complexity O(1) | 0 luabind
 --- @src anomaly/sim_squad_scripted.script(258)

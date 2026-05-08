@@ -2,8 +2,17 @@ next
   xconst:
     Added: ACTOR_ENTITY_ID = 0. Engine convention for db.actor:id(). Pairs with INVALID_ENTITY_ID for actor-vs-other checks without magic numbers.
   xsmart:
+    Added: has_jobs_for(smart, squad). True when every squad member has an engine-assigned job at the smart. Reads smart.npc_info[id].job per member; nil info or nil job returns false. Detects at arrival whether the engine allocated jobs (animation will run) or left members without slots (visible freeze case).
+    Added: has_stalker_jobs(smart, type_id) and has_monster_jobs(smart, type_id) walk the matching job table; nil type_id matches any non-empty.
+    Added: has_animated_stalker_jobs(smart). True on any non-stub stalker job_type_id (stubs are generic_point id=0, campfire_point id=1) and on any LTX exclusive job (job.exclusive=true, set by gulag_general add_exclusive_job). Use to filter smarts whose stalker_jobs[] holds only generic_point and campfire_point stubs (level designer authored no walker / guard / sniper / sleep / etc patrol paths).
+    Added: JOB_TYPE_GENERIC_POINT, JOB_TYPE_CAMPFIRE_POINT, JOB_TYPE_MOB_HOME constants alongside the existing JOB_TYPE_TRADER and JOB_TYPE_MECHANIC.
+    Removed: has_trader_job, has_mechanic_job, _has_job_type and the per-id caches. Callers use the parametric has_stalker_jobs(JOB_TYPE_TRADER) / has_stalker_jobs(JOB_TYPE_MECHANIC) form.
     Refactored: prop-flag predicates (is_base, is_lair, is_resource, is_territory, has_surge_shelter, is_smart_important) share a single _prop_truthy(smart, key) helper. Drops file CC under the 200-sum cap.
     Refactored: find_smart boolean preprocessing replaced and-or chains with explicit ifs (factions_check, min_dist_sqr, max_dist_sqr). Same behavior, lower CC.
+  xsquad:
+    Renamed: control_squad -> acquire_squad. Pairs with release_squad as acquire/release vocabulary; "control" was less specific than the multi-field engine acquire the function performs.
+  xttltable:
+    Added: create_budget(opts). Fixed-capacity counter with caller-managed reset. take / reset / remaining for per-tick or per-frame budgets. Pure-Lua O(1).
 
 1.4.1
   Summary: Spawn injection fix
