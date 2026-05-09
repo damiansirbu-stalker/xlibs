@@ -1,4 +1,6 @@
 next
+  xchange:
+    Added: xchange. Liquibase-style changeset registry for save-data migrations. Mods register changesets by globally-unique id and call run(m_data) from their LOAD_STATE handler. Each id runs once per save, recorded in m_data.xchange_log; subsequent loads skip applied changesets. API: register(id, fn), run(m_data).
   xconst:
     Added: ACTOR_ENTITY_ID = 0. Engine convention for db.actor:id(). Pairs with INVALID_ENTITY_ID for actor-vs-other checks without magic numbers.
   xsmart:
