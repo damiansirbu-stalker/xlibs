@@ -1,5 +1,5 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
-Version: 1.4.1
+Version: 1.5.0
 GitHub: https://github.com/damiansirbu-stalker/xlibs
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
@@ -16,7 +16,7 @@ Features:
 Entity and World:
   xcreature    Creature identification, type checks, fluent server object query iterator
   xsquad       Squad search, scripted control, release, chase, iteration
-  xsmart       Smart terrain queries, faction detection, capacity, arrival, conquest
+  xsmart       Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
   xlevel       Level/map queries, game time, location names, vertex validation
   xobject      Server object resolution from any input type, offline item creation
   xstash       Stash discovery, looting, filling, item filtering
@@ -25,7 +25,7 @@ Entity and World:
 
 Data Structures:
   xtable       Filter, find, reduce, clone, shuffle, sort, binary insert, memoize, locks
-  xttltable    TTL key-value store and sliding window counter with auto-expiry
+  xttltable    TTL key-value store, sliding window counter, fixed-capacity budget
   xmath        Probability rolls, weighted choice, random sampling, variation
   xslice       Time-sliced array iteration across frames
   xstring      String interpolation with ${key} placeholders
@@ -42,6 +42,7 @@ Integration:
   xevent       Runtime function hooking for synthetic callbacks
   xpda         PDA messages and map markers (squad and entity)
   xmcm         MCM config getters and loaders with defaults extraction
+  xchange      Liquibase-style save data migration registry; each changeset runs once per save
 
 Requirements:
 Anomaly 1.5.3

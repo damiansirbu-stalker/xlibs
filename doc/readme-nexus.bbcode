@@ -1,4 +1,4 @@
-Version: 1.4.1
+Version: 1.5.0
 
 [url=https://github.com/damiansirbu-stalker/xlibs]GitHub[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog]Changelog[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt]На русском[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/issues]Bugs, suggestions[/url]
 
@@ -16,7 +16,7 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 [list]
 [*][b]xcreature[/b] - Creature identification, type checks, fluent server object query iterator
 [*][b]xsquad[/b] - Squad search, scripted control, release, chase, iteration
-[*][b]xsmart[/b] - Smart terrain queries, faction detection, capacity, arrival, conquest
+[*][b]xsmart[/b] - Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
 [*][b]xlevel[/b] - Level/map queries, game time, location names, vertex validation
 [*][b]xobject[/b] - Server object resolution from any input type, offline item creation
 [*][b]xstash[/b] - Stash discovery, looting, filling, item filtering
@@ -27,7 +27,7 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 [size=2][b]Data Structures[/b][/size]
 [list]
 [*][b]xtable[/b] - Filter, find, reduce, clone, shuffle, sort, binary insert, memoize, locks
-[*][b]xttltable[/b] - TTL key-value store and sliding window counter with auto-expiry
+[*][b]xttltable[/b] - TTL key-value store, sliding window counter, fixed-capacity budget
 [*][b]xslice[/b] - Time-sliced array iteration across frames
 [*][b]xmath[/b] - Probability rolls, weighted choice, random sampling, variation
 [*][b]xstring[/b] - String interpolation with ${key} placeholders
@@ -48,6 +48,7 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 [*][b]xevent[/b] - Runtime function hooking for synthetic callbacks
 [*][b]xpda[/b] - PDA messages and map markers (squad and entity)
 [*][b]xmcm[/b] - MCM config getters and loaders with defaults extraction
+[*][b]xchange[/b] - Liquibase-style save data migration registry; each changeset runs once per save
 [/list]
 
 [line]
