@@ -1,6 +1,6 @@
 --- xchange: Liquibase-style data migrations. Register changesets by id, run once per save.
 
-local type, ipairs = type, ipairs
+local type = type
 
 local _registry = {}
 local LOG_KEY = "xchange_log"
