@@ -1,34 +1,44 @@
 --- xchange: Liquibase-style data migrations. Register changesets by id, run once per save.
 
-local type = type
+local type, tostring, os_time = type, tostring, os.time
 
 local _registry = {}
+local _ids = {}
+local _logger = xlog.get_logger("xchange", { level = "WARN" })
 local LOG_KEY = "xchange_log"
 
+-- Apply one changeset if not already in log; stamp os.time on success.
+-- @cost O(1) | 0 luabind on skip, 1 libc os.time on apply
+local function _apply(m_data, log, cs)
+    if log[cs.id] then return end
+    cs.fn(m_data)
+    log[cs.id] = os_time()
+end
+
 --- Register a changeset. Append-only registry; declaration order is run order.
---- Duplicate ids are not deduped here -- the applied check in run() skips re-execution.
+--- Rejects bad input and duplicate ids with a warn so caller bugs surface at load time.
+--- @safety SAFE - pure table push, guards bad input
+--- @cost O(1) | 0 luabind
 --- @param id string Globally unique changeset id (e.g. "ap_v12_to_v13_release_orphaned_squads")
 --- @param fn function(m_data) Apply the change to m_data
 function register(id, fn)
-    if type(id) ~= "string" or id == "" then return end
-    if type(fn) ~= "function" then return end
+    if type(id) ~= "string" or id == "" then _logger.warn("[xchange] register: bad id %s", tostring(id)) return end
+    if type(fn) ~= "function" then _logger.warn("[xchange] register: bad fn for id=%s", id) return end
+    if _ids[id] then _logger.warn("[xchange] register: duplicate id=%s, skipped", id) return end
+    _ids[id] = true
     _registry[#_registry + 1] = { id = id, fn = fn }
 end
 
 --- Run all registered changesets not yet applied to this save.
---- Each applied id is recorded in m_data.xchange_log with its xtime.game_sec apply time.
+--- Stamps applied id with os.time (libc); xtime.game_sec AVs at load_state because
+--- CLevel::game is null during CALifeSimulator ctor (alife_storage_manager.cpp:131).
 --- Idempotent: changesets in the log are skipped on subsequent loads.
+--- @safety SAFE - pure table writes, no engine APIs (os.time is libc)
+--- @cost O(n) registry | 1 libc os.time per applied
 --- @param m_data table Save data table
 function run(m_data)
     if type(m_data) ~= "table" then return end
     local log = m_data[LOG_KEY]
     if type(log) ~= "table" then log = {}; m_data[LOG_KEY] = log end
-    local now = xtime.game_sec()
-    for i = 1, #_registry do
-        local cs = _registry[i]
-        if not log[cs.id] then
-            cs.fn(m_data)
-            log[cs.id] = now
-        end
-    end
+    for i = 1, #_registry do _apply(m_data, log, _registry[i]) end
 end
