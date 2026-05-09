@@ -11,15 +11,11 @@
     Removed: has_trader_job, has_mechanic_job, _has_job_type and the per-id caches. Callers use the parametric has_stalker_jobs(JOB_TYPE_TRADER) / has_stalker_jobs(JOB_TYPE_MECHANIC) form.
     Refactored: prop-flag predicates (is_base, is_lair, is_resource, is_territory, has_surge_shelter, is_smart_important) share a single _prop_truthy(smart, key) helper. Drops file CC under the 200-sum cap.
     Refactored: find_smart boolean preprocessing replaced and-or chains with explicit ifs (factions_check, min_dist_sqr, max_dist_sqr). Same behavior, lower CC.
+    Fixed: set_shared_spawn and set_exclusive_spawn write squad-section tables into respawn_params[key].squads. _SQUADS_BY_IDENTITY now built with an explicit value-preserving merge of SQUADS_BY_FACTION and SQUADS_BY_SPECIES (xtable.merge is set-merge and was storing boolean true, which crashed vanilla try_respawn at smart_terrain.script:1677 when v["squads"][1] tried to index it).
   xsquad:
     Renamed: control_squad -> acquire_squad. Pairs with release_squad as acquire/release vocabulary; "control" was less specific than the multi-field engine acquire the function performs.
   xttltable:
     Added: create_budget(opts). Fixed-capacity counter with caller-managed reset. take / reset / remaining for per-tick or per-frame budgets. Pure-Lua O(1).
-
-1.4.1
-  Summary: Spawn injection fix
-  xsmart:
-    Fixed: set_shared_spawn and set_exclusive_spawn write squad-section tables into respawn_params[key].squads. _SQUADS_BY_IDENTITY now built with an explicit value-preserving merge of SQUADS_BY_FACTION and SQUADS_BY_SPECIES (xtable.merge is set-merge and was storing boolean true, which crashed vanilla try_respawn at smart_terrain.script:1677 when v["squads"][1] tried to index it).
 
 1.4.0
   Summary: Generic spawn injection API, level/smart name cascade, commander name resolver, weak-key species cache, cp1251-aware capitalize, fifo_cache iteration and on_evict
