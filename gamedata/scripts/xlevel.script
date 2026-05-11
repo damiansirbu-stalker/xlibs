@@ -1,9 +1,10 @@
 --- xlevel: Level/map and time queries
 
-local pcall = pcall
+local pcall, pairs = pcall, pairs
 
 local gg = nil
 local _vertex_level = {}
+local _level_id_by_name = nil
 
 local INVALID_LEVEL_VERTEX_ID = xconst.INVALID_LEVEL_VERTEX_ID
 
@@ -200,4 +201,31 @@ function is_valid_lvid(se_obj)
     if not se_obj then return false end
     if not se_obj.m_level_vertex_id then return false end
     return se_obj.m_level_vertex_id < INVALID_LEVEL_VERTEX_ID
+end
+
+--- Get level_id by raw level name (e.g. "l05_bar" -> 5)
+--- Lazy-built name->id map from SIMBOARD.smarts_by_names; covers every level with at least one smart.
+--- Lua VM restarts on level transition so the cache is naturally fresh per game session.
+--- @safety SAFE - nil guards on alife/SIMBOARD/graph; returns nil if level lookup is unavailable
+--- @complexity O(n_smarts) first call (~300-500 smarts in GAMMA), O(1) cached
+--- @src anomaly/sim_board.script, xray/game_graph_inline.h
+--- @param name string Raw level name (sim:level_name format)
+--- @return number|nil Level ID, or nil if name unknown or SIMBOARD unavailable
+function get_level_id_by_name(name)
+    if not name then return nil end
+    if _level_id_by_name then return _level_id_by_name[name] end
+    local sim = alife()
+    if not sim or not SIMBOARD or not SIMBOARD.smarts_by_names then return nil end
+    local graph = get_game_graph()
+    if not graph then return nil end
+    local map = {}
+    for _, smart in pairs(SIMBOARD.smarts_by_names) do
+        if smart and smart.m_game_vertex_id then
+            local lid = graph:vertex(smart.m_game_vertex_id):level_id()
+            local lname = sim:level_name(lid)
+            if lname and not map[lname] then map[lname] = lid end
+        end
+    end
+    _level_id_by_name = map
+    return map[name]
 end
