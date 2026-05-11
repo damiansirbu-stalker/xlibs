@@ -187,6 +187,13 @@ end
 function _ttl_counter_mt:reset(key) self._buckets[key] = nil end
 function _ttl_counter_mt:clear() self._buckets = {} end
 
+--- Export bucket state for save/load. Timestamps inside entries are clock-domain-specific
+--- (game_sec persists meaningfully; os.clock does not survive VM restart).
+function _ttl_counter_mt:export() return self._buckets end
+
+--- Restore bucket state from save data. Replaces current state wholesale.
+function _ttl_counter_mt:import(data) self._buckets = data or {} end
+
 function _ttl_counter_mt:all()
     local result = {}
     for key in pairs(self._buckets) do result[key] = self:count(key) end
