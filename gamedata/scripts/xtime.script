@@ -17,15 +17,28 @@ function game_sec()
 end
 
 --- Get the engine CTime for the current in-game moment, or nil when no level is present.
---- Wrapper over game.get_game_time so callers can read clock fields (:hour(), :min()) without
---- a raw engine call.
+--- Wrapper over game.get_game_time. Engine CTime exposes only :get(Y,M,D,h,m,s,ms),
+--- :diffSec, :add, :sub, :set*, :dateToString, :timeToString -- there is no :hour() / :min().
 --- @safety SAFE - returns nil when no level
 --- @complexity O(1) | 1 luabind (get_game_time)
---- @see xray/xrGame/level_script.cpp(2733), xray/xrGame/xr_time.cpp
+--- @see xray/xrGame/level_script.cpp(2695), xray/xrGame/xr_time.cpp
 --- @return userdata|nil CTime or nil
 function game_time()
     if not level.present() then return nil end
     return game.get_game_time()
+end
+
+--- Get the current in-game hour and minute via CTime:get(). nil, nil when no level.
+--- @safety SAFE - returns nil, nil when no level
+--- @complexity O(1) | 2 luabind (get_game_time + :get)
+--- @return number|nil h
+--- @return number|nil m
+function hms()
+    local game_t = game_time()
+    if not game_t then return nil, nil end
+    local Y, M, D, h, m, s, ms = 0, 0, 0, 0, 0, 0, 0
+    Y, M, D, h, m, s, ms = game_t:get(Y, M, D, h, m, s, ms)
+    return h, m
 end
 
 function on_game_start()
