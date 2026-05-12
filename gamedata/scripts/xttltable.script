@@ -250,6 +250,9 @@ function _token_bucket_mt:reset(key) self._keys[key] = nil end
 --- Clear all bucket states
 function _token_bucket_mt:clear() self._keys = {} end
 
+--- Update refill rate (tokens/sec). In-flight state preserved; next refill uses new rate.
+function _token_bucket_mt:set_rate(rate) self._rate = rate end
+
 --- Create per-key token bucket rate limiter
 --- O(1) per acquire with fractional accumulation; bucket capacity is burst limit, rate controls sustained throughput
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
