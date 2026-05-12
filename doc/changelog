@@ -1,3 +1,7 @@
+next
+  xttltable:
+    Added: token bucket :set_rate(rate). Updates refill rate without rebuilding; preserves in-flight token state.
+
 1.5.0
   xchange:
     Added: xchange. Liquibase-style changeset registry for save-data migrations. Mods register changesets by globally-unique id and call run(m_data) from their LOAD_STATE handler. Each id runs once per save, recorded in m_data.xchange_log; subsequent loads skip applied changesets. register() warns on bad input or duplicate id. API: register(id, fn), run(m_data).
