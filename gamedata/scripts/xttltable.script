@@ -44,9 +44,7 @@ local function _aggregate_event(agg, event)
     end
 end
 
---------------------------------------------------------------------------------
--- TTL Table: key-value store with auto-expiry
---------------------------------------------------------------------------------
+--- TTL Table: key-value store with auto-expiry
 local _ttl_table_mt = {}
 _ttl_table_mt.__index = _ttl_table_mt
 
@@ -150,9 +148,7 @@ function create_ttl_table(opts)
     }, _ttl_table_mt)
 end
 
---------------------------------------------------------------------------------
--- TTL Counter: sliding window occurrence counter with metadata aggregation
---------------------------------------------------------------------------------
+--- TTL Counter: sliding window occurrence counter with metadata aggregation
 local _ttl_counter_mt = {}
 _ttl_counter_mt.__index = _ttl_counter_mt
 
@@ -211,9 +207,7 @@ function create_ttl_counter(opts)
     return setmetatable({ _ttl = opts.ttl, _clock = opts.clock or clock, _buckets = {} }, _ttl_counter_mt)
 end
 
---------------------------------------------------------------------------------
--- Token Bucket: per-key rate limiter with burst control
---------------------------------------------------------------------------------
+--- Token Bucket: per-key rate limiter with burst control
 local _token_bucket_mt = {}
 _token_bucket_mt.__index = _token_bucket_mt
 
@@ -268,9 +262,7 @@ function create_token_bucket(opts)
     }, _token_bucket_mt)
 end
 
---------------------------------------------------------------------------------
--- FIFO Cache: bounded key-value store with oldest-first eviction
---------------------------------------------------------------------------------
+--- FIFO Cache: bounded key-value store with oldest-first eviction
 local _fifo_mt = {}
 _fifo_mt.__index = _fifo_mt
 
@@ -356,9 +348,7 @@ function create_fifo_cache(opts)
     }, _fifo_mt)
 end
 
---------------------------------------------------------------------------------
--- Budget: fixed-capacity counter that decrements on take and resets on demand
---------------------------------------------------------------------------------
+--- Budget: fixed-capacity counter that decrements on take and resets on demand
 local _budget_mt = {}
 _budget_mt.__index = _budget_mt
 
