@@ -1,5 +1,7 @@
 --- xlibs_mcm: MCM info page for xlibs
 
+local xlibs = xlibs
+
 function on_mcm_load()
     return {
         id = "xlibs",

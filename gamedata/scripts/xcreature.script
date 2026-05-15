@@ -4,6 +4,7 @@ local pairs, type, pcall, setmetatable = pairs, type, pcall, setmetatable
 local string = string
 local IsMonster, IsStalker, alife_character_community = IsMonster, IsStalker, alife_character_community
 local get_object_story_id, get_object_squad = get_object_story_id, get_object_squad
+local xobject, xlevel, xdata = xobject, xlevel, xdata
 
 ENTITY = {
     STALKER = "stalker",

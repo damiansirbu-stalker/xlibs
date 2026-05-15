@@ -4,6 +4,7 @@ local pairs, type, next, tostring = pairs, type, next, tostring
 local string_format, table_concat = string.format, table.concat
 local alife, alife_object = alife, alife_object
 local get_object_story_id, IsStalker = get_object_story_id, IsStalker
+local xsmart, xlevel, xmath, xdata = xsmart, xlevel, xmath, xdata
 
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 local CLSID_SQUAD = clsid.online_offline_group_s

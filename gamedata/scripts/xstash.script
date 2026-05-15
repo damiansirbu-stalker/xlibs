@@ -1,6 +1,7 @@
 --- xstash: Stash/treasure operations
 
 local pairs, ipairs, pcall, type, table_concat = pairs, ipairs, pcall, type, table.concat
+local xobject, xlevel, xmath = xobject, xlevel, xmath
 
 local NOTABLE_PREFIXES = {
     "wpn_", "outfit_", "stalker_outfit", "novice_outfit", "bandit_outfit",

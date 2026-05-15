@@ -1,6 +1,7 @@
 --- xlevel: Level/map and time queries
 
 local pcall, pairs = pcall, pairs
+local xsmart = xsmart
 
 local gg = nil
 local _vertex_level = {}
