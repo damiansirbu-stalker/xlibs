@@ -1,4 +1,6 @@
 next
+  xobject:
+    Changed: create_item offline-cross-map fallback routes through alife_create_item with table owner {pos, lvi, gvi, npc_id} instead of calling alife():create directly. Property table t is now forwarded on this branch (t.ammo splits into multiple boxes atomically at spawn, t.cond and t.uses queue via ItemProcessor). Section non-existence is guarded; previously alife():create would Debug.fatal on missing sections. Header documents the ~0.16s ItemProcessor drop window for cond/uses on items whose carrier stays offline (relevant for offline-cross-map loot/trade flows).
   xttltable:
     Added: token bucket :set_rate(rate). Updates refill rate without rebuilding; preserves in-flight token state.
 
