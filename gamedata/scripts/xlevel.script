@@ -230,3 +230,61 @@ function get_level_id_by_name(name)
     _level_id_by_name = map
     return map[name]
 end
+
+local _neighbors_cache = {}
+
+-- Walk one BFS frontier hop, marking newly-reached levels in visited
+-- @complexity O(k) k=neighbors of lvl | 0 luabind
+local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
+    local links = level_targets and level_targets.level_links and level_targets.level_links[lvl]
+    if not links then return end
+    for neighbor in pairs(links) do
+        if not visited[neighbor] then
+            visited[neighbor] = true
+            next_frontier[neighbor] = true
+        end
+    end
+end
+
+-- Expand frontier by one hop; returns the freshly-discovered ids only
+-- @complexity O(f * k) f=frontier size, k=avg neighbors | 0 luabind
+local function _expand_one_hop(frontier, visited)
+    local next_frontier = {}
+    for lvl in pairs(frontier) do
+        _collect_unvisited_neighbors(lvl, next_frontier, visited)
+    end
+    return next_frontier
+end
+
+--- Get level_ids reachable within `hops` BFS hops from source_id (excludes source itself)
+--- BFS over anomaly/level_targets.level_links - the A-Life cross-level adjacency graph. The graph
+--- is directed (uses outgoing edges only) and parse-time static. Reflects whatever level_targets.script
+--- the MO2 VFS resolves to; GAMMA scan (2026-05) confirms no mod ships a replacement and player-facing
+--- level_changer mods (Extra level transitions, Fast Travel) do NOT extend this graph - they only
+--- spawn portals/PDA shortcuts for the actor. A-Life routing therefore uses vanilla adjacency unless
+--- a mod explicitly replaces or runtime-patches level_targets.level_links.
+--- Cache is keyed (source_id*100 + hops); stays valid for the session because level_targets is
+--- parse-time immutable. ~32 levels x ~3 reasonable hop values -> ~96 entries upper bound, each a
+--- small set; growth is bounded by construction, no eviction needed.
+--- @scope global - level_targets is parse-time data, available from on_game_start onward
+--- @safety SAFE - nil-guarded on level_targets / source_id / hops; returns empty set on invalid input
+--- @cost O(hops * sum(degree)) on miss, O(1) on hit | 0 luabind (pure Lua table ops)
+--- @src anomaly/level_targets.script(39-74) level_links graph; anomaly/sim_squad_warfare.script(731-733) precedent consumer
+--- @param source_id number Engine level_id of the source level
+--- @param hops number BFS depth (1 = direct neighbors only, 2 = direct + neighbors-of-neighbors, etc.)
+--- @return table Set { [level_id]=true, ... } excluding source_id; empty when source unreachable or invalid
+function get_neighbor_levels(source_id, hops)
+    if not source_id or not hops or hops < 1 then return {} end
+    local key = source_id * 100 + hops
+    local cached = _neighbors_cache[key]
+    if cached then return cached end
+    if not level_targets or not level_targets.level_links then return {} end
+    local visited = { [source_id] = true }
+    local frontier = { [source_id] = true }
+    for _ = 1, hops do
+        frontier = _expand_one_hop(frontier, visited)
+    end
+    visited[source_id] = nil
+    _neighbors_cache[key] = visited
+    return visited
+end

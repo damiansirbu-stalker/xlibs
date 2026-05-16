@@ -174,7 +174,6 @@ local has_room = xsmart.has_capacity(smart, faction)
 
 - `get_actor_smart()` - Nearest smart to actor (engine-maintained, O(1))
 - `is_base(smart)`, `is_lair(smart)`, `is_resource(smart)`, `is_territory(smart)`
-- `is_smart_important(smart)` - Base, resource, or territory
 - `has_faction(smart, faction)`, `has_factions(smart, factions)` - Props-based faction check
 - `accepts_mutant(smart, player_id)` - Engine target_precondition gate 1 (props.all OR props.all_monster OR props[player_id])
 - `get_smart_factions(smart)` - All accepted factions from props (cached)
