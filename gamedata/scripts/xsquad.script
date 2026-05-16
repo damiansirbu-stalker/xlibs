@@ -127,6 +127,29 @@ local function _check_active_role(squad, cmd_id, sec)
     return false, nil, nil
 end
 
+--- Get squad commander's character rank as integer
+--- Tries online game_object first (db.storage hit + character_rank = 3 luabind), falls back
+--- to cse_alife_trader_abstract:rank() for offline commanders (4 luabind). The two paths read
+--- different fields (CharacterInfo().Rank() online vs CSE_ALifeTraderAbstract::m_rank offline)
+--- but they are kept in sync atomically by CInventoryOwner::SetRank (InventoryOwner.cpp:462-465);
+--- both seeded from RankDef at first specific_character() resolution.
+--- @safety SAFE - all lookups nil-guarded; IsStalker filters non-stalker classes on both paths
+--- @cost O(1) | 3 luabind online (commander_id, IsStalker, character_rank); 4 luabind offline (+alife_object, +clsid, +rank)
+--- @src xray/xrGame/script_game_object_script3.cpp(309), xray/xrServerEntities/xrServer_Objects_ALife_Monsters_script4.cpp(125)
+--- @param squad se_squad Squad server object
+--- @return number Commander rank, or 0 for empty squads / non-stalkers / unresolved commanders
+function get_commander_rank(squad)
+    if not squad or not squad.commander_id then return 0 end
+    local cmd_id = squad:commander_id()
+    if cmd_id == INVALID_ENTITY_ID then return 0 end
+    local storage = db and db.storage and db.storage[cmd_id]
+    local npc = storage and storage.object
+    if npc and IsStalker(npc) then return npc:character_rank() end
+    local cmd_se = alife_object(cmd_id)
+    if cmd_se and IsStalker(nil, cmd_se:clsid()) and cmd_se.rank then return cmd_se:rank() end
+    return 0
+end
+
 --- Get squad commander's character name (human-readable)
 --- Tries online game_object first (db.storage hit + character_name = 3 luabind), falls back
 --- to cse_alife_trader_abstract:character_name() for offline commanders (4 luabind, server-side

@@ -27,32 +27,32 @@ local function _prop_truthy(smart, key)
     return v ~= nil and v > 0
 end
 
+--- @scope global - smart.props from simulation_objects_props.ltx loaded at on_register; same value on all levels regardless of online state
+--- @see doc/library/modding/online-offline-scoping.md
 --- @param smart smart_terrain
 --- @return boolean True if base (surge shelter, faction HQ)
 function is_base(smart) return _prop_truthy(smart, "base") end
 
+--- @scope global - smart.props from simulation_objects_props.ltx
 --- @param smart smart_terrain
 --- @return boolean True if lair (mutant nest)
 function is_lair(smart) return _prop_truthy(smart, "lair") end
 
+--- @scope global - smart.props from simulation_objects_props.ltx
 --- @param smart smart_terrain
 --- @return boolean True if resource point
 function is_resource(smart) return _prop_truthy(smart, "resource") end
 
+--- @scope global - smart.props from simulation_objects_props.ltx
 --- @param smart smart_terrain
 --- @return boolean True if territory (contestable)
 function is_territory(smart) return _prop_truthy(smart, "territory") end
 
+--- @scope global - smart.props from simulation_objects_props.ltx
 --- @param smart smart_terrain
 --- @return boolean True if smart has surge shelter (emission-safe indoor)
 --- @see anomaly/smart_terrain.script(1566), anomaly/surge_manager.script(1265)
 function has_surge_shelter(smart) return _prop_truthy(smart, "surge") end
-
---- @param smart smart_terrain
---- @return boolean True if base, resource, or territory
-function is_smart_important(smart)
-    return _prop_truthy(smart, "base") or _prop_truthy(smart, "resource") or _prop_truthy(smart, "territory")
-end
 
 -- Walk a job table; type_id nil matches any (non-empty), >0 matches specific job_type_id.
 local function _has_jobs_in(jobs, type_id)
@@ -66,9 +66,12 @@ end
 
 --- Check if smart's stalker_jobs has any entry, or a specific job_type_id
 --- type_id nil matches any non-empty table; integer matches one job_type_id (e.g. JOB_TYPE_TRADER)
+--- @scope level - smart.stalker_jobs populated by gulag_general.load_job gated on smart_terrain.script:462 is_on_actor_level; nil for smarts on other levels
 --- @safety SAFE - pure Lua iteration, nil-guarded
 --- @complexity O(k) k=jobs on smart (~10-30) | 0 luabind
 --- @see anomaly/gulag_general.script(281-303) job_info_by_job_type_id
+--- @see anomaly/smart_terrain.script(457-464) load_jobs is_on_actor_level gate
+--- @see doc/library/modding/online-offline-scoping.md current-level scope
 --- @param smart smart_terrain Smart terrain to check
 --- @param type_id number|nil Specific job_type_id, or nil for any non-empty
 --- @return boolean
@@ -76,22 +79,11 @@ function has_stalker_jobs(smart, type_id)
     return smart ~= nil and _has_jobs_in(smart.stalker_jobs, type_id)
 end
 
---- Check if smart's monster_jobs has any entry, or a specific job_type_id
---- type_id nil matches any non-empty table; integer matches one job_type_id (e.g. JOB_TYPE_MOB_HOME)
---- @safety SAFE - pure Lua iteration, nil-guarded
---- @complexity O(k) k=jobs on smart (~5-20) | 0 luabind
---- @see anomaly/gulag_general.script(281-303) job_info_by_job_type_id
---- @param smart smart_terrain Smart terrain to check
---- @param type_id number|nil Specific job_type_id, or nil for any non-empty
---- @return boolean
-function has_monster_jobs(smart, type_id)
-    return smart ~= nil and _has_jobs_in(smart.monster_jobs, type_id)
-end
-
 --- Check if smart has any non-stub stalker job
 --- Stubs (generic_point id=0, campfire_point id=1) are pushed unconditionally on every smart;
 --- non-stub = any other job_type_id (conditional auto-gen) or any exclusive LTX job (no
 --- job_type_id field; carries job.exclusive=true per gulag_general.script:1221,1238)
+--- @scope level - reads smart.stalker_jobs which load_jobs only populates for current-actor-level smarts (smart_terrain.script:462)
 --- @safety SAFE - pure Lua iteration, nil-guarded
 --- @complexity O(k) k=jobs on smart (~10-30) | 0 luabind
 --- @see anomaly/gulag_general.script(308,340,492-526) unconditional vs conditional inits
@@ -116,9 +108,11 @@ end
 
 --- Check if smart terrain has a campfire
 --- Reads db.campfire_table_by_smart_names populated by bind_campfire.script on net_spawn; online scope (switch_distance)
+--- @scope online - per-campfire binder; entries added at net_spawn (alife_dynamic_object.cpp:129-163), removed at net_destroy (bind_campfire.script:295-302). Defaults online_distance = 675m (alife_switch_manager_inline.h:38)
 --- @safety SAFE - nil-guarded, next() guards empty sub-tables left by individual campfire net_destroy
 --- @complexity O(1) | 1 luabind (smart:name())
---- @see anomaly/bind_campfire.script(288-293,311-318), anomaly/axr_turn_on_campfire.script(136-137)
+--- @see anomaly/bind_campfire.script(272-278,295-302), anomaly/axr_turn_on_campfire.script(136-137)
+--- @see doc/library/modding/online-offline-scoping.md online scope
 --- @param smart smart_terrain Smart terrain to check
 --- @return boolean True if smart has campfire(s)
 function has_campfire(smart)
@@ -129,6 +123,7 @@ end
 
 --- Check if smart terrain is near anomaly zones
 --- Proximity check against db.anomaly_by_name; online scope (switch_distance, not current-level)
+--- @scope online - db.anomaly_by_name populated by anomaly zone binders at net_spawn; binder.object is the online physics object. Same online_distance / offline_distance hysteresis as campfires.
 --- @safety SAFE - nil-guarded, no pcall. binder.object guarded for net_destroy transition edge case
 --- @complexity O(k) k=online anomaly zones (5-15) | 1+2k luabind (smart.position, position(), distance_to_sqr)
 --- @see anomaly/db.script(29,94-100), anomaly/bind_anomaly_zone.script(485,492)
@@ -150,9 +145,10 @@ end
 
 --- Get nearest smart terrain to actor
 --- Reads engine-maintained nearest_to_actor_smart table (updated every online smart tick, zero search cost)
+--- @scope online - smart_terrain.nearest_to_actor_smart is updated by smart tick gated on self.online (smart_terrain.script:1256); only online smarts compete for the slot
 --- @safety SAFE - nil-guarded, alife_object returns nil for invalid IDs
 --- @complexity O(1) | 1 luabind (alife_object)
---- @see anomaly/smart_terrain.script(11,1262), anomaly/se_actor.script(96), anomaly/axr_companions.script(412)
+--- @see anomaly/smart_terrain.script(11,1256,1262), anomaly/se_actor.script(96), anomaly/axr_companions.script(412)
 --- @return se_smart|nil Nearest smart terrain to actor
 function get_actor_smart()
     local data = smart_terrain and smart_terrain.nearest_to_actor_smart
@@ -162,6 +158,7 @@ end
 
 --- Check if smart terrain accepts a specific faction
 --- Reads props[faction] from simulation_objects_props.ltx; >0 means faction is welcome
+--- @scope global - smart.props from simulation_objects_props.ltx
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
 --- @complexity O(1) | 0 luabind
 --- @see anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
@@ -176,6 +173,7 @@ end
 
 --- Check if smart terrain accepts any faction from a set
 --- Iterates factions table, returns true on first match via has_faction
+--- @scope global - smart.props
 --- @safety SAFE - pure Lua, nil-guarded
 --- @complexity O(k) factions | 0 luabind
 --- @see anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
@@ -193,6 +191,7 @@ end
 --- Check if smart terrain accepts a mutant faction (mirrors engine target_precondition gate 1)
 --- Checks props.all, props.all_monster, then props[player_id]. Same three-way OR the engine uses
 --- at smart_terrain.script:1532 to decide if a monster faction can target this smart.
+--- @scope global - smart.props from simulation_objects_props.ltx
 --- @safety SAFE - pure Lua table reads, nil-guarded
 --- @complexity O(1) | 0 luabind
 --- @see anomaly/smart_terrain.script(1531-1532), anomaly/simulation_objects_props.ltx
@@ -210,6 +209,7 @@ end
 
 --- Get all stalker factions accepted by smart terrain
 --- Builds {[faction]=true} from props keys with value >0; cached per smart.id (props are static INI)
+--- @scope global - smart.props from simulation_objects_props.ltx
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
 --- @complexity O(13) factions | 0 luabind (cached after first call)
 --- @see anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
@@ -237,6 +237,7 @@ end
 
 --- Get smart terrain's owning faction
 --- Falls back: warfare owning_faction -> runtime faction -> props-based first faction -> "none"
+--- @scope global - smart.owning_faction (warfare runtime) / smart.faction / smart.props; all set at server-entity register, no online dependency
 --- @safety SAFE - pure Lua field reads (no luabind), nil-guarded
 --- @complexity O(1) | 0 luabind (get_smart_factions is cached)
 --- @see anomaly/smart_terrain.script(1209), anomaly/smart_terrain_warfare.script(167), anomaly/simulation_objects.script(117)
@@ -251,6 +252,7 @@ end
 
 --- Check if smart terrain is empty (no squads assigned)
 --- Reads SIMBOARD.smarts[id].squads; next() is cheapest empty check (no luabind)
+--- @scope global - SIMBOARD.smarts populated at server-entity register (sim_board.script init_smart); roster reflects sim intent, not physical occupancy
 --- @safety SAFE - pure Lua, nil-guarded at every level
 --- @complexity O(1) | 0 luabind
 --- @see anomaly/sim_board.script(96), xcvb/night_mutants.script(92)
@@ -266,6 +268,7 @@ end
 
 --- Get squads table for a smart terrain by ID
 --- Returns the raw SIMBOARD.smarts[id].squads hash ({[squad_id]=true}); caller iterates via next()
+--- @scope global - SIMBOARD.smarts populated at register
 --- @safety SAFE - pure Lua, nil-guarded at every level
 --- @complexity O(1) | 0 luabind
 --- @see anomaly/sim_board.script(96,258)
@@ -281,6 +284,7 @@ end
 
 --- Find nearest smart terrain matching criteria
 --- Iterates smarts_by_names; cheapest filters first (exclude_id, factions, level_id), distance_to_sqr last
+--- @scope global - iterates SIMBOARD.smarts_by_names across all levels; per-candidate scope depends on the filter caller provides (e.g. has_animated_stalker_jobs narrows to level scope, has_campfire to online scope, is_base remains global)
 --- @safety SAFE - nil-guarded; xlevel.get_level_id uses pcall internally
 --- @complexity O(n) smarts | 1 luabind per non-filtered smart (distance_to_sqr)
 --- @see anomaly/sim_board.script(96), anomaly/simulation_objects.script(117)
@@ -320,8 +324,46 @@ function find_smart(pos, opts)
     return best
 end
 
+-- Per-smart predicate for find_first_smart; cheapest filters first
+-- @complexity O(1) | 0-1 luabind (xlevel.get_level_id cached, filter caller-provided)
+local function _smart_matches(smart, exclude_id, factions, factions_check, level_id, filter)
+    if not smart then return false end
+    if exclude_id and smart.id == exclude_id then return false end
+    if factions_check and not factions_check(smart, factions) then return false end
+    if level_id and xlevel.get_level_id(smart) ~= level_id then return false end
+    if filter and not filter(smart) then return false end
+    return true
+end
+
+--- Find the first smart matching criteria (no distance ranking)
+--- Distance-free variant of find_smart for cases where caller has no meaningful position
+--- (e.g. picking a destination from a different level's coordinate frame). Iterates in
+--- SIMBOARD.smarts_by_names hash order; deterministic per session, but no spatial preference.
+--- Use find_smart when the caller has a comparable position; use this when "any matching" is enough.
+--- @scope global - iterates SIMBOARD.smarts_by_names across all levels
+--- @safety SAFE - nil-guarded; xlevel.get_level_id uses pcall internally
+--- @cost O(n) smarts worst case (early exit on first match) | 0 luabind on filter-less hit
+--- @src anomaly/sim_board.script(96)
+--- @param opts table { level_id, factions, exclude_id, filter }
+--- @return smart_terrain|nil First matching smart, or nil if none
+function find_first_smart(opts)
+    if not opts or not SIMBOARD or not SIMBOARD.smarts_by_names then return nil end
+    local factions = opts.factions
+    local factions_check
+    if factions then
+        if type(factions) == "table" then factions_check = has_factions else factions_check = has_faction end
+    end
+    for _, smart in pairs(SIMBOARD.smarts_by_names) do
+        if _smart_matches(smart, opts.exclude_id, factions, factions_check, opts.level_id, opts.filter) then
+            return smart
+        end
+    end
+    return nil
+end
+
 --- Check if squad has arrived at smart terrain
 --- Delegates to engine's am_i_reached: same game vertex -> true, different level -> false, distance <= arrive_dist^2
+--- @scope global - engine method on server entity, cross-level safe (returns false for different-level case)
 --- @safety SAFE - am_i_reached used by engine without pcall in specific_update
 --- @complexity O(1) | 1 luabind (am_i_reached)
 --- @see anomaly/smart_terrain.script(1440), anomaly/sim_squad_scripted.script(304)
@@ -336,6 +378,7 @@ end
 
 --- Get spatial proximity between squad and smart terrain
 --- Mirrors am_i_reached decision tree; returns distance, threshold, and match conditions for diagnostics
+--- @scope global - reads game_graph + server-entity position; cross-level safe (returns dist=-1 on level mismatch)
 --- @safety guard: game_graph() is NULL singleton during transitions, see doc/library/modding/pcall-safety.md
 --- @complexity O(1) | 2 luabind worst case (game_graph vertex, distance_to_sqr); 0 on gvid match
 --- @see anomaly/smart_terrain.script(1440-1456)
@@ -370,6 +413,7 @@ end
 --- target-selection, not at physical arrival) + incoming vs max_population; scripted_target
 --- movements bypass SIMBOARD bookkeeping (sim_squad_scripted:assign_smart never calls
 --- SIMBOARD:assign_squad_to_smart) so this measures sim intent, not physical occupancy
+--- @scope global - SIMBOARD.smarts + smart.max_population; works cross-level
 --- @safety SAFE - nil guards, returns true when data unavailable (safe default = allow)
 --- @complexity O(k) squads at smart | 1 luabind per squad when faction filter used (get_squad_community)
 --- @see anomaly/smart_terrain.script(1469-1480) on_reach_target, anomaly/sim_squad_scripted.script(517-540) bypass, anomaly/sim_board.script(226-266) assign_squad_to_smart
@@ -409,6 +453,7 @@ end
 --- caller's polling cadence absorbs the race. For mutant squads (stype=1) this rarely returns
 --- false because mob_home stubs are oversupplied (gulag_general.script:1018-1022 pushes
 --- max_population*4 with no precondition)
+--- @scope online - reads smart.npc_info populated by smart_terrain:update_jobs gated on self.online AND is_on_actor_level (smart_terrain.script:582-588); empty for offline smarts even on the actor's level
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
 --- @complexity O(n) members | 0 luabind
 --- @see anomaly/smart_terrain.script(309-327, 626-798, 1369-1376), anomaly/gulag_general.script(114-118), anomaly/gulag_general.script(1018-1022) mutant mob_home oversupply
@@ -456,6 +501,7 @@ for k, v in pairs(SQUADS_BY_SPECIES) do _SQUADS_BY_IDENTITY[k] = v end
 
 --- Add shared spawn entry to smart terrain respawn_params (additive, originals keep spawning)
 --- No faction_controlled -- engine filter stays in "spawn all" mode, both LTX and injected entries fire
+--- @scope global - mutates server-entity fields directly; respawn evaluates in try_respawn (cse_alife_schedulable tick, runs offline)
 --- @safety SAFE - pure Lua table writes on smart terrain object
 --- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
 --- @src anomaly/smart_terrain.script(1665-1716)
@@ -478,6 +524,7 @@ function set_shared_spawn(smart, key, identity, spawn_num)
 end
 
 --- Remove shared spawn entry from smart terrain
+--- @scope global - mutates server-entity respawn_params directly
 --- @safety SAFE - pure Lua table writes on smart terrain object
 --- @cost O(1) | 0 luabind
 --- @param smart se_smart_terrain Smart terrain to revert
@@ -493,6 +540,7 @@ end
 
 --- Set exclusive spawn on smart terrain (suppresses original LTX entries via faction filter)
 --- Sets faction_controlled + one entry with .faction; monster factions need periodic re-apply (check_smart_faction ignores monsters; see @src line 1209-1236).
+--- @scope global - mutates server-entity fields directly; faction_controlled gate evaluates in try_respawn
 --- @safety SAFE - pure Lua table writes on smart terrain object
 --- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
 --- @src anomaly/smart_terrain.script(246-267,1209-1236,1665-1672)
@@ -519,6 +567,7 @@ end
 --- Clear exclusive spawn from smart terrain, restoring original LTX spawning
 --- Clears faction_controlled (deactivates faction gate), reverts faction to default,
 --- removes the exclusive entry. Original LTX entries resume on next try_respawn.
+--- @scope global - mutates server-entity fields directly
 --- @safety SAFE - pure Lua table writes on smart terrain object
 --- @cost O(1) | 0 luabind
 --- @src anomaly/smart_terrain.script(246-267,1665-1672)
@@ -537,6 +586,7 @@ end
 
 --- Diagnostic dump of all smarts with faction and level info
 --- Iterates SIMBOARD.smarts, collects id:name:level:factions per smart for debug logging
+--- @scope global - iterates SIMBOARD.smarts (all levels)
 --- @safety SAFE - pure Lua iteration, nil-guarded
 --- @complexity O(n) smarts | 1 luabind per smart (get_level_id)
 --- @see anomaly/sim_board.script(96), anomaly/smart_terrain.script(1209)
@@ -565,6 +615,7 @@ end
 
 --- Iterator over all smart terrains in SIMBOARD
 --- Stateful iterator using next() on SIMBOARD.smarts; skips entries without valid smrt ref
+--- @scope global - iterates SIMBOARD.smarts (all levels)
 --- @safety SAFE - nil-guarded, returns empty iterator when SIMBOARD unavailable
 --- @cost O(n) smarts | 0 luabind (pure Lua table iteration)
 --- @see anomaly/sim_board.script(96), anomaly/smart_terrain.script(1)
@@ -582,6 +633,7 @@ end
 
 --- Reset all smart terrain spawn counters to zero
 --- Zeros already_spawned[k].num and clears last_respawn_update on all respawn-capable smarts
+--- @scope global - iterates SIMBOARD.smarts and mutates server-entity fields
 --- @safety SAFE - pure Lua field writes on smart terrain objects, nil-guarded
 --- @complexity O(n) smarts * O(k) spawn sections | 0 luabind (SIMBOARD.smarts holds direct refs)
 --- @see anomaly/smart_terrain.script(251,886,1625), anomaly/sim_board.script(302)
@@ -607,6 +659,7 @@ end
 
 --- Reset population and re-seed world from simulation preset
 --- Resets spawn counters, clears start_position_filled flag, calls fill_start_position
+--- @scope global - mutates SIMBOARD and triggers fill_start_position
 --- @safety SAFE - delegates to engine's fill_start_position (runs on every new game start)
 --- @complexity O(n) smarts for reset + O(n) smarts for fill | see fill_start_position
 --- @see anomaly/se_actor.script(14), anomaly/sim_board.script(284)
