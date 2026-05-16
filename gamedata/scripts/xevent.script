@@ -6,7 +6,7 @@ local _originals = {}
 local type, rawget, pairs = type, rawget, pairs
 
 -- Resolve module table from _G by name
--- @complexity O(1) | 0 luabind
+-- @cost O(1) | 0 luabind (pure Lua rawget bypasses _G's auto_load __index)
 local function _get_module(name)
     return rawget(_G, name)
 end
@@ -18,7 +18,7 @@ end
 --- Hook a module function with a wrapper
 --- Reads module from _G via rawget, stores original, replaces with wrapper(original, ...) closure
 --- @safety SAFE - rawget never crashes, type-checks function before replacing
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua _G read + table assignment + closure construction)
 --- @param module_name string Module name (e.g., "xr_eat_medkit")
 --- @param func_name string Function name (e.g., "consume_medkit")
 --- @param wrapper function Wrapper fn(original, ...) -> return original(...)
@@ -45,7 +45,7 @@ end
 --- Unhook a previously hooked function
 --- Restores original function from _originals table, clears hook state
 --- @safety SAFE - no-op if not hooked, restores original reference
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua table read + restore)
 --- @param module_name string Module name
 --- @param func_name string Function name
 --- @return boolean success
@@ -64,9 +64,9 @@ end
 
 --- Emit a synthetic callback
 --- Delegates to SendScriptCallback which dispatches to all registered handlers
---- @safety SAFE - SendScriptCallback is nil-safe, handlers run in pcall internally
---- @complexity O(k) handlers | 1 luabind (SendScriptCallback)
---- @see anomaly/_g.script(112)
+--- @safety SAFE - SendScriptCallback dispatches via axr_main.make_callback; per-handler pcall is the registrar's responsibility
+--- @cost O(k) handlers | 0 luabind (pure Lua dispatch: axr_main.make_callback iterates registered handlers + optional axr_main[name](...))
+--- @src anomaly/_g.script(112), anomaly/axr_main.script make_callback
 --- @param name string Callback name
 --- @param ... any Callback arguments
 function emit(name, ...)
@@ -76,7 +76,7 @@ end
 --- Check if a function is hooked
 --- Looks up key in _hooks table
 --- @safety SAFE - pure Lua table lookup
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua hash table read)
 --- @param module_name string Module name
 --- @param func_name string Function name
 --- @return boolean
@@ -87,7 +87,7 @@ end
 --- Get list of active hooks
 --- Iterates _hooks table keys into array
 --- @safety SAFE - pure Lua table iteration
---- @complexity O(n) hooks | 0 luabind
+--- @cost O(n) hooks | 0 luabind (pure Lua pairs() over hash table)
 --- @return table Array of "module.function" strings
 function list_hooks()
     local result = {}

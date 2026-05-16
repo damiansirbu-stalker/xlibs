@@ -29,7 +29,7 @@ local function _is_task_giver(squad_id, cmd_id)
 end
 
 -- Fallback: check member IDs against bounties/hostages (covers timing gap before task_squads is populated)
--- @complexity O(m*b) members * bounties+hostages | 1 luabind (npc_count) + iterator
+-- @cost O(m*b) members * bounties+hostages | 1 luabind medium (npc_count: m_members.size()) + squad_members iterator
 local function _check_member_task_target(squad)
     if not axr_task_manager then return false, nil end
     local bounties = axr_task_manager.bounties_by_id
@@ -51,8 +51,8 @@ end
 --- Check if squad is an active task target (assault, bounty, hostage, delivery, dominance, rescue, etc.)
 --- O(1) hash check against task_squads, then member-level bounty/hostage fallback for timing gaps
 --- @safety SAFE - nil-guarded, returns true for nil (fail-safe)
---- @complexity O(1) typical (hash hit) | O(m*b) worst case (member iteration, m=members, b=bounties+hostages)
---- @see anomaly/sim_offline_combat.script(53), anomaly/axr_task_manager.script(bounties_by_id, hostages_by_id)
+--- @cost O(1) typical (hash hit, pure Lua) | O(m*b) worst case via _check_member_task_target
+--- @src anomaly/sim_offline_combat.script(53), anomaly/axr_task_manager.script bounties_by_id hostages_by_id
 --- @param squad se_squad Squad server object
 --- @return boolean True if squad is a task target (nil squad returns true for safety)
 --- @return string|nil Reason: "nil", "task_squads", "bounty", "hostage"
@@ -66,7 +66,7 @@ function is_task_target(squad)
 end
 
 -- Resolve commander entity and section from squad
--- @complexity O(1) | 2-3 luabind (commander_id, alife_object, section_name)
+-- @cost O(log n) | 3 luabind (commander_id trivial, alife_object medium xr_map find, section_name heavy shared_str)
 local function _resolve_commander(squad)
     if not squad.commander_id then return INVALID_ENTITY_ID, nil, nil end
     local cmd_id = squad:commander_id()
@@ -77,7 +77,7 @@ local function _resolve_commander(squad)
 end
 
 -- Check if commander is trader or named NPC (immutable within session)
--- @complexity O(1) | 2 luabind (clsid, community)
+-- @cost O(1) | 2 luabind (clsid trivial, community heavy shared_str alloc)
 local function _check_static_identity(se_cmd, sec)
     if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == "trader" then return "trader" end
     if sec and xdata.unscriptable_npcs[sec] then return "named_npc" end
@@ -85,7 +85,7 @@ local function _check_static_identity(se_cmd, sec)
 end
 
 -- Check all permanent (session-immutable) protection reasons with caching
--- @complexity O(1) cached | O(1) uncached with 4-5 luabind (story_id + commander resolution)
+-- @cost O(1) cached | uncached: get_object_story_id 0 luabind + commander resolve 3 luabind (commander_id trivial + alife_object medium + section_name heavy) + clsid+community 2 luabind
 local function _check_permanent(squad)
     if not squad then return true, "nil_squad" end
     if squad:clsid() ~= CLSID_SQUAD then return true, "not_squad" end
@@ -182,8 +182,8 @@ end
 --- Check if squad has permanent protected identity (story, trader, named NPC, empty)
 --- Static within session. Cached per squad object (weak keys, GC-safe).
 --- @safety SAFE - returns true for nil (fail-safe), alife_object returns nil for invalid
---- @complexity O(1) cache hit | O(1) uncached with 4-5 luabind
---- @see anomaly/_g.script(2674)
+--- @cost O(1) cache hit | uncached 4-5 luabind mixed weights (story_id 0, commander_id trivial, alife_object medium, section_name heavy, clsid trivial, community heavy)
+--- @src anomaly/_g.script(2674) get_object_story_id
 --- @param squad se_squad Squad server object
 --- @return boolean True if permanent (nil squad returns true for safety)
 --- @return string|nil Reason: "nil_squad", "not_squad", "story_id", "trader", "named_npc", "empty_squad"
@@ -196,8 +196,8 @@ end
 --- Check if squad currently has a system-assigned role that prevents scripting
 --- Dynamic, re-evaluated every call (roles change as tasks are accepted/dismissed).
 --- @safety SAFE - nil-guarded, O(t) task_info scan for task_giver
---- @complexity O(1) + O(t) task_info scan (t = active tasks, typically 3-10)
---- @see anomaly/axr_companions.script(25,150), anomaly/task_manager.script(task_info)
+--- @cost O(1) commander resolve + O(t) task_info scan (t = active tasks, typically 3-10) | 3 luabind on commander resolve (commander_id trivial + alife_object medium + section_name heavy); task scan pure Lua
+--- @src anomaly/axr_companions.script(25,150), anomaly/axr_task_manager.script task_info
 --- @param squad se_squad Squad server object
 --- @return boolean True if has active role (nil squad returns true for safety)
 --- @return string|nil Reason: "nil", "task_giver", "companion"
@@ -216,8 +216,8 @@ end
 ---   random_targets  - Vanilla Anomaly: random patrol system
 ---
 --- @safety SAFE - pure Lua field reads, nil-guarded, no luabind
---- @complexity O(1) | 0 luabind
---- @see anomaly/sim_squad_scripted.script(37-39,55-69,105,336)
+--- @cost O(1) | 0-3 luabind for the .scripted_target/.action_condlist/.random_targets field reads (each is a userdata field access, trivial when present, falls through on nil)
+--- @src anomaly/sim_squad_scripted.script(37-39,55-69,105,336)
 --- @param squad se_squad Squad server object
 --- @return boolean True if scripted (nil returns true for safety)
 --- @return string|nil Reason: "nil", "scripted:{target}", "condlist", "random_targets"
@@ -233,8 +233,8 @@ end
 --- Get squad containing an NPC by member ID
 --- Looks up se_npc via alife_object, reads group_id, resolves squad via alife_object
 --- @safety SAFE - returns nil for invalid IDs, group_id >= INVALID_ENTITY_ID means no squad
---- @complexity O(1) | 2 luabind (alife_object for NPC + alife_object for squad)
---- @see anomaly/_g.script(2044), xray/xrServerEntities/xrServer_Objects_ALife_script.cpp
+--- @cost O(log n) | 2 luabind medium (alife_object for NPC + alife_object for squad, both xr_map finds) + 1 trivial (group_id field read on cse userdata)
+--- @src anomaly/_g.script(2044), xray/xrGame/alife_simulator_script.cpp(40)
 --- @param npc_id number NPC ID (can be offline)
 --- @return se_squad|nil Squad server object or nil if not in squad
 function get_squad_by_member(npc_id)
@@ -249,8 +249,8 @@ end
 --- Get translated squad community name
 --- Safe wrapper: nil-guarded get_squad_community + game.translate_string
 --- @safety SAFE - nil-guarded, falls back to "stalker" translation key
---- @complexity O(1) | 2 luabind (get_squad_community + translate_string)
---- @see anomaly/sim_squad_scripted.script(105), anomaly/_g.script(2273)
+--- @cost O(log n) | 2 luabind (get_squad_community heavy shared_str return, translate_string medium std::map find on STRING_TABLE_MAP)
+--- @src anomaly/sim_squad_scripted.script(105), anomaly/_g.script(2273), xray/xrGame/string_table.cpp(226)
 --- @param squad userdata Squad server object
 --- @return string Translated community name (never nil)
 function get_community_name(squad)
@@ -259,7 +259,7 @@ function get_community_name(squad)
 end
 
 -- Check if target position is outside [min_sqr, max_sqr] distance range from origin
--- @complexity O(1) | 1 luabind (distance_to_sqr)
+-- @cost O(1) | 1 luabind trivial (distance_to_sqr: 3 sub + 3 mul, no sqrt)
 local function _outside_range(origin, target_pos, min_sqr, max_sqr)
     local dist_sqr = origin:distance_to_sqr(target_pos)
     return dist_sqr > max_sqr or dist_sqr < min_sqr
@@ -332,8 +332,8 @@ end
 --- Iterate all SIMBOARD squads as resolved server entities
 --- Handles SIMBOARD/alife nil guards and skips deleted squads (nil from alife_object)
 --- @safety SAFE - alife_object returns nil for deleted, skipped automatically
---- @complexity O(n) squads | 1 luabind per squad (alife_object)
---- @see anomaly/sim_board.script(84), anomaly/_g.script(2044)
+--- @cost O(n) squads | 1 luabind medium per squad (sim:object: xr_map find)
+--- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
 --- @return function Iterator yielding squad server objects
 function iter_squads()
     if not SIMBOARD or not SIMBOARD.squads then return _EMPTY_ITER end
@@ -355,8 +355,8 @@ end
 --- Iterate squad member IDs as plain numbers
 --- Wraps engine member iterator with nil/empty guard, yields k.id per member
 --- @safety SAFE - nil-guarded, engine iterator yields nil on empty squad
---- @complexity O(n) members | 0 luabind (iterator is C++ but no additional bridge calls)
---- @see xray/xrServerEntities/xrServer_Objects_ALife_script.cpp, anomaly/sim_squad_scripted.script(413)
+--- @cost O(n) members | 0-1 luabind per member (squad_members C++ iterator + .id field read trivial)
+--- @src xray/xrServerEntities/xrServer_Objects_ALife_script.cpp, anomaly/sim_squad_scripted.script(413)
 --- @param squad se_squad Squad server object
 --- @return function Iterator yielding member IDs (numbers)
 function iter_member_ids(squad)
@@ -372,8 +372,8 @@ end
 --- Dump all SIMBOARD squads as a diagnostic string
 --- Shows raw engine fields: player_id, smart_id (physical location), assigned_target_id (simulation intent)
 --- @safety SAFE - iter_squads handles nil SIMBOARD, read-only field access
---- @complexity O(n) squads | 4 luabind per squad (alife_object + get_squad_community + npc_count + get_level_id)
---- @see anomaly/sim_squad_scripted.script(35,39)
+--- @cost O(n) squads | per squad: 1 medium (sim:object) + 1 heavy (get_squad_community shared_str) + 1 medium (npc_count) + 0-2 luabind trivial (get_level_id cached, m_game_vertex_id field read on miss)
+--- @src anomaly/sim_squad_scripted.script(35,39)
 --- @return string Diagnostic dump (e.g. "squads=5 [123:stalker:pid=stalker:lv2:npc3:at=17769:tgt=17780, ...]")
 function dump_squads()
     local parts = {}
@@ -394,8 +394,8 @@ end
 --- Find squad matching criteria within distance range
 --- Iterates SIMBOARD.squads, resolves each via alife_object, filters by faction/distance/level
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
---- @complexity O(n) squads | 2 luabind per squad (alife_object + distance_to_sqr)
---- @see anomaly/sim_board.script(84), anomaly/_g.script(2044)
+--- @cost O(n) squads | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
+--- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
 ---   exclude_at_smart_id, exclude_permanent, exclude_active_role, exclude_task_target,
@@ -432,8 +432,8 @@ end
 --- Find multiple squads matching criteria
 --- Same as find_squad but returns up to max_count results via random sampling
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
---- @complexity O(n) squads | 2 luabind per squad (alife_object + distance_to_sqr)
---- @see anomaly/sim_board.script(84), anomaly/_g.script(2044)
+--- @cost O(n) squads | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
+--- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
 ---   max_count, exclude_at_smart_id, exclude_permanent, exclude_active_role,
@@ -481,8 +481,8 @@ end
 --- Get squad's current smart terrain
 --- Reads smart_id or assigned_target_id, resolves via alife_object, rejects non-smart entities via clsid check
 --- @safety SAFE - returns nil for nil squad, missing entity, or non-smart entity
---- @complexity O(1) | 2 luabind (alife_object + clsid)
---- @see anomaly/sim_squad_scripted.script(102,288), anomaly/_g.script(2044)
+--- @cost O(log n) | 2 luabind (alife_object medium + clsid trivial)
+--- @src anomaly/sim_squad_scripted.script(102,288), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param squad se_squad Squad object
 --- @return se_smart|nil Current smart terrain or nil
 function get_squad_smart(squad)
@@ -497,8 +497,8 @@ end
 --- Check if squad is at a base
 --- Resolves smart via get_squad_smart then delegates to xsmart.is_base
 --- @safety SAFE - returns false for nil
---- @complexity O(1) | 1 luabind (alife_object for smart)
---- @see anomaly/sim_board.script(96), anomaly/simulation_objects.script(117)
+--- @cost O(log n) | 2 luabind (get_squad_smart: alife_object medium + clsid trivial; is_base pure Lua)
+--- @src anomaly/sim_board.script(96), anomaly/simulation_objects.script(117)
 --- @param squad se_squad Squad object
 --- @return boolean True if at base
 function is_squad_at_base(squad)
@@ -509,7 +509,7 @@ end
 --- Acquire: set scripted_target (routes to specific_update), clear __lock (AP does not use it)
 --- scripted_target alone overrides simulation targeting; __lock cleared so generic_update can run if another mod clears scripted_target
 --- @safety SAFE - pure field writes on squad userdata, rejects nil/empty :name()
---- @complexity O(1) | 1 luabind (:name() on target_smart)
+--- @cost O(1) | 1 luabind heavy (target_smart:name() shared_str alloc) + 4 trivial userdata field writes (scripted_target, __lock, rush_to_target, assigned_target_id, current_action)
 --- @src anomaly/sim_squad_scripted.script(258,233-238), anomaly/xr_reach_task.script(289-314)
 --- @param squad table Squad server object
 --- @param target_smart table Target smart terrain
@@ -532,7 +532,7 @@ end
 --- Release: clear scripted_target (stops specific_update) + __lock (unblocks generic_update so sim resumes)
 --- Inverse of acquire_squad/target_actor; squad returns to SIMBOARD autonomous targeting
 --- @safety SAFE - pure field writes, nil-guarded
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 3 luabind trivial (scripted_target, __lock, rush_to_target field writes on squad userdata)
 --- @src anomaly/sim_squad_scripted.script(258)
 --- @param squad table Squad server object
 function release_squad(squad)
@@ -545,7 +545,7 @@ end
 --- Reassert: restore scripted_target if another mod overwrote it between scans, clear __lock
 --- Returns false (no-op) when scripted_target already matches; callers use return value for debug logging
 --- @safety SAFE - pure field writes, nil-guarded
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 1 luabind trivial (read scripted_target) + 2 luabind trivial on mismatch (write scripted_target, __lock)
 --- @param squad table Squad server object
 --- @param target string Expected scripted_target value
 --- @return boolean True if target was overwritten and restored
@@ -560,7 +560,7 @@ end
 --- Acquire (actor): set scripted_target="actor", clear __lock, squad pursues player
 --- Engine resolves "actor" to id=0 in get_script_target; no arrival detection (player moves)
 --- @safety SAFE - pure field writes, nil-guarded
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 4 luabind trivial (scripted_target, __lock, rush_to_target, current_action field writes on squad userdata)
 --- @src anomaly/sim_squad_scripted.script(102,128-129)
 --- @param squad se_squad Squad to command
 --- @param rush boolean Sprint to target
@@ -577,8 +577,8 @@ end
 --- Release squads from SIMBOARD (delete from world)
 --- Collects IDs first to avoid mutating SIMBOARD.squads during iteration, then calls remove_squad on each
 --- @safety SAFE - iter_squads handles nil SIMBOARD; remove_squad is engine standard cleanup
---- @complexity O(n) squads | 1 luabind per squad (alife_object via iter_squads)
---- @see anomaly/debug_cmd_list.script(2146), anomaly/sim_squad_scripted.script(413)
+--- @cost O(n) squads | per squad: 1 luabind medium (sim:object xr_map find via iter_squads); protection guards add 4-5 luabind on commander resolve
+--- @src anomaly/debug_cmd_list.script(2146), anomaly/sim_squad_scripted.script(413), anomaly/sim_board.script SIMBOARD:remove_squad
 --- @param opts table|nil { common_only = bool } - if common_only, skip non-common squads
 --- @return number Count of squads released
 function release_squads(opts)

@@ -135,7 +135,7 @@ end
 --- Create TTL table
 --- Returns metatable-backed store with auto-expiry; cleanup piggybacked on set/size
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
---- @complexity O(1) creation | 0 luabind (default clock), 2 luabind (game clock on set/cleanup)
+--- @cost O(1) creation, O(n) per cleanup sweep | 0 luabind with os.clock (libc), 2 luabind medium per clock call with xtime.game_sec (get_game_time + diffSec)
 --- @param opts table { default_ttl?, capacity?, cleanup_interval?, clock? } durations in seconds
 --- @return table TTL table instance with :get(), :has(), :set(), :remove(), :size(), :all()
 function create_ttl_table(opts)
@@ -199,7 +199,7 @@ end
 --- Create TTL-based occurrence counter for sliding window rate limiting
 --- Returns metatable-backed counter with per-key buckets; expired entries pruned on count()
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
---- @complexity O(1) creation | 0 luabind (default clock), 2 luabind (game clock on add/count)
+--- @cost O(1) add, O(n) count over key's bucket | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.game_sec
 --- @param opts table { ttl?, clock? } duration in seconds
 --- @return table Counter instance with :add(), :count(), :reset()
 function create_ttl_counter(opts)
@@ -230,7 +230,7 @@ function _token_bucket_mt:acquire(key)
 end
 
 --- Check if a token is available for key without consuming it
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua)
 function _token_bucket_mt:peek(key)
     local state = self._keys[key]
     if not state then return true end
@@ -250,7 +250,7 @@ function _token_bucket_mt:set_rate(rate) self._rate = rate end
 --- Create per-key token bucket rate limiter
 --- O(1) per acquire with fractional accumulation; bucket capacity is burst limit, rate controls sustained throughput
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
---- @complexity O(1) per acquire | 0 luabind (default clock), 2 luabind (game clock on acquire/peek)
+--- @cost O(1) per acquire/peek | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.game_sec
 --- @param opts table { capacity, rate, clock? } capacity = max burst (tokens), rate = refill (tokens/sec)
 --- @return table Token bucket with :acquire(key) -> bool, :reset(key), :clear()
 function create_token_bucket(opts)
@@ -267,7 +267,7 @@ local _fifo_mt = {}
 _fifo_mt.__index = _fifo_mt
 
 --- Get cached value by key
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua)
 --- @param key any Cache key
 --- @return any|nil Value or nil if not cached (false is a valid cached value)
 function _fifo_mt:get(key)
@@ -275,7 +275,7 @@ function _fifo_mt:get(key)
 end
 
 --- Check if key is cached
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua)
 function _fifo_mt:has(key)
     return self._data[key] ~= nil
 end
@@ -284,7 +284,7 @@ end
 --- Updating an existing key changes its value but keeps its eviction position (correct FIFO).
 --- Ring buffer overwrites oldest slot on insert; hash map provides O(1) lookup.
 --- If on_evict callback is set, it is called with (evicted_value, evicted_key) before removal.
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua)
 --- @param key any Cache key
 --- @param value any Value to cache (nil not allowed, use false for negative cache entries)
 function _fifo_mt:set(key, value)
@@ -311,7 +311,7 @@ function _fifo_mt:clear()
 end
 
 --- Count cached entries
---- @complexity O(n) | 0 luabind
+--- @cost O(n) | 0 luabind (pairs over hash table)
 function _fifo_mt:size()
     local count = 0
     for _ in pairs(self._data) do count = count + 1 end
@@ -319,7 +319,7 @@ function _fifo_mt:size()
 end
 
 --- Iterate all cached values in insertion order (oldest first)
---- @complexity O(capacity) | 0 luabind
+--- @cost O(capacity) | 0 luabind (pure Lua loop over ring)
 --- @param fn function(value, key) Called for each cached entry
 function _fifo_mt:each(fn)
     local cap = self._capacity
@@ -335,7 +335,7 @@ end
 --- O(1) get/set with ring buffer eviction. When capacity is reached, the oldest entry is evicted.
 --- Values may not be nil; use false for negative cache entries (e.g. "checked, not a mutant").
 --- @safety SAFE - pure Lua tables, no luabind, no timers
---- @complexity O(1) get/set | 0 luabind
+--- @cost O(1) get/set | 0 luabind (pure Lua hash + ring buffer mod arithmetic)
 --- @param opts table|nil { capacity = number, on_evict = function(value, key) } (default capacity 128)
 --- @return table FIFO cache with :get(key), :set(key, value), :has(key), :each(fn), :clear(), :size()
 function create_fifo_cache(opts)
@@ -353,7 +353,7 @@ local _budget_mt = {}
 _budget_mt.__index = _budget_mt
 
 --- Take one slot, return true if available
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua)
 function _budget_mt:take()
     if self._n <= 0 then return false end
     self._n = self._n - 1
@@ -361,19 +361,19 @@ function _budget_mt:take()
 end
 
 --- Reset to capacity (or new capacity if provided)
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua)
 function _budget_mt:reset(capacity)
     self._n = capacity or self._capacity
 end
 
 --- Check remaining slots without consuming
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua)
 function _budget_mt:remaining() return self._n end
 
 --- Create a fixed-capacity budget that decrements on take and resets on demand
 --- Caller-managed: budget never auto-resets, holder must call :reset() per cycle (per tick, per frame, etc.)
 --- @safety SAFE - pure Lua integer counter
---- @complexity O(1) take/reset/remaining | 0 luabind
+--- @cost O(1) take/reset/remaining | 0 luabind (integer counter)
 --- @param capacity number Maximum slots
 --- @return table Budget instance with :take(), :reset(), :remaining()
 function create_budget(capacity)

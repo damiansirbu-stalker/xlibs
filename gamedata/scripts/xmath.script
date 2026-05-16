@@ -5,7 +5,7 @@ local pairs, math_random, math_min, math_floor = pairs, math.random, math.min, m
 --- Return random element from array
 --- Uses math.random for index selection; assumes #t > 0
 --- @safety SAFE - pure Lua, crashes on empty table (caller's responsibility)
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
 --- @param t table Array to sample from
 --- @return any Random element
 function sample(t)
@@ -15,7 +15,7 @@ end
 --- Shuffle first n elements of array in-place
 --- Fisher-Yates partial shuffle: swaps each position with random later element
 --- @safety SAFE - pure Lua, mutates input table
---- @complexity O(n) | 0 luabind
+--- @cost O(n) | 0 luabind (pure Lua loop + math.random per step)
 --- @param t table Array to shuffle
 --- @param n number|nil Number of elements to shuffle (default: all)
 --- @return table Same array, shuffled
@@ -31,7 +31,7 @@ end
 --- Return true with given probability
 --- Compares math.random(100) against threshold; 0 = never, 100 = always
 --- @safety SAFE - pure Lua
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
 --- @param percent number Chance percentage (0-100)
 --- @return boolean
 --- @usage if xmath.chance(25) then ... end
@@ -42,7 +42,7 @@ end
 --- Pick random key from table with weighted probabilities
 --- Sums weights, picks random point in range, iterates until cumulative weight exceeds it
 --- @safety SAFE - pure Lua, returns nil for empty table (pairs order non-deterministic)
---- @complexity O(n) keys | 0 luabind
+--- @cost O(n) keys | 0 luabind (two pure Lua pairs passes: sum then cumulative pick)
 --- @param weights table Keys with numeric weights, e.g. {bandit=50, army=30, freedom=20}
 --- @return any Selected key
 --- @usage local faction = xmath.weighted_choice({bandit=50, army=30, freedom=20})
@@ -61,7 +61,7 @@ end
 --- Sample up to n random elements from array (in-place partial shuffle)
 --- Delegates to partial_shuffle then picks random count up to available
 --- @safety SAFE - pure Lua, mutates input table
---- @complexity O(n) | 0 luabind
+--- @cost O(n) | 0 luabind (pure Lua loop + math.random per step)
 --- @param t table Source array
 --- @param n number Max elements to sample
 --- @return table Same array (first k elements are the sample), number k
@@ -75,7 +75,7 @@ end
 --- Vary value by +/- percent
 --- Generates uniform random in [value - range, value + range] where range = value * percent / 100
 --- @safety SAFE - pure Lua arithmetic
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
 --- @param value number Base value
 --- @param percent number Variance (10 = +/-10%)
 --- @return number
@@ -115,7 +115,7 @@ local _prd_state = {}
 --- Reset PRD state for a key (callers with dynamic keys call this on entity death/cleanup)
 --- Prevents unbounded growth of _prd_state when keys are per-entity rather than static
 --- @safety SAFE - pure Lua table nil assignment
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
 --- @param key string Key to reset
 function prd_reset(key)
     _prd_state[key] = nil
@@ -124,7 +124,7 @@ end
 --- Roll with pseudo-random distribution, reducing streak variance
 --- Dota 2 PRD: P(N) = C * N, N increments on failure, resets on success
 --- @safety SAFE - pure Lua, stateful (per-key failure counter in module table)
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
 --- @param key string Unique identifier for this roll stream
 --- @param percent number Chance percentage (1-99 integers; <1 false, >=100 true)
 --- @return boolean

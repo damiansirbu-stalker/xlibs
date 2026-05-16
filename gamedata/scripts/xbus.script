@@ -25,7 +25,7 @@ end
 --- Subscribe to an event
 --- Appends {callback, name} to subscribers[event] array; rejects duplicates by name
 --- @safety SAFE - pure Lua, type-checks callback, nil-guarded
---- @complexity O(n) subscribers (duplicate check) | 0 luabind
+--- @cost O(n) subscribers (linear dup check) | 0 luabind (pure Lua ipairs + table append)
 --- @param event string Event name
 --- @param callback function Callback function(event_data)
 --- @param name string Unique subscriber identifier
@@ -45,7 +45,7 @@ end
 --- Unsubscribe from an event
 --- Finds subscriber by name, removes via table.remove (shifts array)
 --- @safety SAFE - no-op if not subscribed
---- @complexity O(n) subscribers (linear search + shift) | 0 luabind
+--- @cost O(n) subscribers | 0 luabind (linear search + table.remove shift)
 --- @param event string Event name
 --- @param name string Subscriber identifier
 --- @return boolean success
@@ -59,7 +59,7 @@ end
 --- Publish an event to all subscribers
 --- Iterates subscribers, calls each directly (no pcall - internal modules, errors must be visible)
 --- @safety SAFE - pure Lua dispatch, subscribers are internal modules
---- @complexity O(n) subscribers | 0 luabind
+--- @cost O(n) subscribers + per-callback cost | 0 luabind (pure Lua dispatch)
 --- @param event string Event name
 --- @param data table Event payload
 --- @return number delivered Number of successful deliveries
@@ -83,7 +83,7 @@ end
 --- Get list of subscriber names for an event
 --- Extracts .name field from each subscriber entry into array
 --- @safety SAFE - pure Lua table iteration
---- @complexity O(n) subscribers | 0 luabind
+--- @cost O(n) subscribers | 0 luabind
 --- @param event string Event name
 --- @return table List of subscriber names
 function get_subscribers(event)
@@ -99,7 +99,7 @@ end
 --- Get subscriber count for an event
 --- Returns #subscribers array length or 0 if no subscribers
 --- @safety SAFE - pure Lua
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (Lua # operator on array part)
 --- @param event string Event name
 --- @return number count
 function count(event)
@@ -110,7 +110,7 @@ end
 --- Check if a subscriber exists
 --- Linear search by name in subscribers array
 --- @safety SAFE - pure Lua table iteration
---- @complexity O(n) subscribers | 0 luabind
+--- @cost O(n) subscribers | 0 luabind
 --- @param event string Event name
 --- @param name string Subscriber identifier
 --- @return boolean exists
@@ -121,7 +121,7 @@ end
 --- Get event statistics
 --- Returns reference to internal event_stats table (not a copy)
 --- @safety SAFE - pure Lua table reference
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind
 --- @return table Stats by event name {published, delivered}
 function stats()
     return event_stats
@@ -130,7 +130,7 @@ end
 --- Reset statistics
 --- Replaces event_stats with empty table; old references become stale
 --- @safety SAFE - pure Lua
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind
 function reset_stats()
     event_stats = {}
 end
@@ -138,7 +138,7 @@ end
 --- Debug: get full state of subscribers table
 --- Builds diagnostic snapshot with names and counts per event
 --- @safety SAFE - pure Lua table traversal
---- @complexity O(n) events * O(k) subscribers | 0 luabind
+--- @cost O(n) events * O(k) subscribers | 0 luabind
 --- @return table { event = { names = {}, count_hash = n, count_pairs = n }, ... }
 function debug_state()
     local result = {}

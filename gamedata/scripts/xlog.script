@@ -189,8 +189,8 @@ local function _check_deadband(self, msg, lvl)
     return false
 end
 
--- @complexity O(1) | 0 luabind
---- @safety pcall: string.format may error on mismatched args
+-- Format the log line: pcall(string.format) when fmt has % and there are args; otherwise space-join via format_args
+-- @cost O(n) args | 0 luabind (pure Lua string.format / table.concat, pcall ~2-3x overhead on format error path)
 local function _format_msg(fmt, ...)
     if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then
         local ok, result = pcall(string.format, fmt, ...)
@@ -309,7 +309,7 @@ end
 --- Initialize with platform bindings
 --- Stores bindings table, starts periodic flush timer, registers lifecycle callbacks
 --- @safety SAFE - asserts bindings non-nil, all setup delegates to pure Lua
---- @complexity O(1) | 0 luabind (bindings are closures, called later)
+--- @cost O(1) | 0 luabind (bindings are closures, deferred until flush/callback fire)
 --- @param bindings table { get_logs_path, create_timer, console_print, register_callback }
 function init(bindings)
     assert(bindings, "xlog.init: bindings required")
@@ -321,7 +321,7 @@ end
 --- Get or create isolated logger
 --- Returns cached facade or creates new Logger + facade pair; facades expose level methods (fatal..trace)
 --- @safety SAFE - pure Lua table/metatable creation
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua table allocation + setmetatable)
 --- @param name string Logger name
 --- @param cfg table|nil { level, enabled, outfile, buffer_size, flush_on_level, max_file_size, stack_trace, max_stack_frames }
 --- @return table Logger facade with fatal/error/warn/info/debug/trace methods
@@ -346,7 +346,7 @@ end
 --- Get session ID for correlation
 --- Lazy-generates HH:MM:SS_XXXX format ID on first call, cached for session
 --- @safety SAFE - pure Lua string formatting
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (os.date + math.random + string.format are all standard Lua C API)
 --- @return string Session ID
 function get_session_id()
     return _get_session_id()
@@ -355,7 +355,7 @@ end
 --- Flush all loggers
 --- Iterates all registered loggers and flushes their buffers to disk
 --- @safety SAFE - delegates to Logger:flush_buffer which handles io.open failures
---- @complexity O(n) loggers * O(k) buffered lines | 0 luabind (io.open is standard Lua C API)
+--- @cost O(n) loggers * O(k) buffered lines | 0 luabind (io.open / write / flush are standard Lua libc, not engine bridge)
 function flush_all()
     flush_all_loggers()
 end
@@ -363,7 +363,7 @@ end
 --- Get LEVELS table for external comparison
 --- Returns reference to internal LEVELS constant table
 --- @safety SAFE - pure Lua table reference
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (return module-local)
 --- @return table LEVELS { FATAL=1, ERROR=2, WARN=3, INFO=4, DEBUG=5, TRACE=6 }
 function get_levels()
     return LEVELS
@@ -372,8 +372,8 @@ end
 --- Initialize logging system with game-specific callbacks
 --- Wires getFS():update_path("$logs$") for path, CreateTimeEvent for flush, RegisterScriptCallback for lifecycle
 --- @safety SAFE - all bindings are nil-checked in init(); getFS/update_path deferred to first flush
---- @complexity O(1) | 1 luabind at init (getFS), rest are pure Lua anomaly APIs
---- @see xray/xrGame/fs_registrator_script.cpp(9,289), anomaly/_g.script(339,104), RavenAscendant/mcm_log.script(52)
+--- @cost O(1) at startup | 0 luabind here (closures defer the work); first flush triggers 2 luabind heavy (getFS: FS singleton, update_path: string concat over path tree)
+--- @src xray/xrGame/fs_registrator_script.cpp(9,289), anomaly/_g.script(339,104), RavenAscendant/mcm_log.script(52)
 function on_game_start()
     init({
         get_logs_path = function()

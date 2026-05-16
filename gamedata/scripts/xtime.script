@@ -5,8 +5,8 @@ local _start_time = nil
 --- Get game-seconds since epoch (level start time)
 --- Caches level.get_start_time() (constant per save). Cache reset on on_game_start.
 --- @safety SAFE - guards level.present() before level.get_start_time() (NULL singleton during transitions)
---- @complexity O(1) | 2 luabind (get_game_time + diffSec), first call: 3 luabind (+get_start_time)
---- @see xray/xrGame/level_script.cpp(2001), xray/xrGame/xr_time.cpp(76), Demonized/zz_game_fast_travel_limiter.script(17)
+--- @cost O(1) | 2 luabind (get_game_time medium: xrTime ctor from Level().GetStartGameTime; diffSec trivial: (a-b)/sec2ms), first call adds 1 luabind medium (get_start_time: xrTime construction)
+--- @src xray/xrGame/level_script.cpp(2079) get_start_time, xray/xrGame/xr_time.cpp(76) diffSec, level_script.cpp(2733) get_game_time
 --- @return number Game-seconds since epoch (0 when no level)
 function game_sec()
     if not level.present() then return 0 end
@@ -20,8 +20,8 @@ end
 --- Wrapper over game.get_game_time. Engine CTime exposes only :get(Y,M,D,h,m,s,ms),
 --- :diffSec, :add, :sub, :set*, :dateToString, :timeToString -- there is no :hour() / :min().
 --- @safety SAFE - returns nil when no level
---- @complexity O(1) | 1 luabind (get_game_time)
---- @see xray/xrGame/level_script.cpp(2695), xray/xrGame/xr_time.cpp
+--- @cost O(1) | 1 luabind medium (get_game_time: xrTime ctor wrapping current u64 timestamp)
+--- @src xray/xrGame/level_script.cpp(2733) get_game_time binding, xray/xrGame/xr_time.cpp xrTime
 --- @return userdata|nil CTime or nil
 function game_time()
     if not level.present() then return nil end
@@ -30,7 +30,8 @@ end
 
 --- Get the current in-game hour and minute via CTime:get(). nil, nil when no level.
 --- @safety SAFE - returns nil, nil when no level
---- @complexity O(1) | 2 luabind (get_game_time + :get)
+--- @cost O(1) | 2 luabind (game_time wrapper: 1 luabind medium for xrTime ctor; CTime:get: 1 luabind trivial -- split_time bit math on u64)
+--- @src xray/xrGame/xr_time.cpp(71) xrTime::get -> split_time
 --- @return number|nil h
 --- @return number|nil m
 function hms()

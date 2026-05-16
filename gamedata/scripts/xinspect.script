@@ -22,8 +22,8 @@ OBJECT_TYPE = {
 --- Get object type using game's type check functions
 --- Dispatches through IsStalker/IsMonster/IsWeapon/etc. global type checkers with clsid
 --- @safety SAFE - returns nil for nil obj, type checkers are nil-safe
---- @complexity O(1) | 1-2 luabind (clsid + 1-8 Is* calls)
---- @see anomaly/_g.script(2820), xray/xrGame/script_game_object_script.cpp
+--- @cost O(1) | 1 luabind trivial when cls is nil (clsid: enum return), 0 luabind otherwise; Is* dispatch is pure Lua clsid equality / hash lookup
+--- @src anomaly/_g.script(2820) IsStalker, (2827) IsMonster, (3175) IsItem
 --- @param obj userdata Game object
 --- @param cls number|nil Class ID (optional, will fetch if nil)
 --- @return string Type name: "stalker"|"monster"|"weapon"|"outfit"|"headgear"|"item"|"anomaly"|"invbox"|"object"
@@ -43,9 +43,9 @@ end
 
 --- Format userdata (X-Ray game object) with rich info
 --- Extracts id/name/section/community/alive/rank via pcall; output: @type{id=N, name="x", sec="y", ...}
---- @safety pcall: game objects may be released/invalid, methods crash
---- @complexity O(1) | 5-10 luabind (clsid, id, name, section, community, alive, rank per pcall)
---- @see xray/xrGame/script_game_object_script.cpp, anomaly/_g.script(2820)
+--- @safety pcall: game objects may be released/invalid, methods crash, see doc/library/modding/pcall-safety.md
+--- @cost O(1) | 5-10 luabind mixed weights: id/alive/parent_id/group_id trivial (field/enum reads), name/section/section_name heavy (shared_str alloc on bridge), clsid trivial (enum), character_community medium (anomaly_character resolve)
+--- @src xray/xrGame/script_game_object_script.cpp, anomaly/_g.script(2820)
 --- @param obj userdata Game object
 --- @return string Formatted representation
 function userdata(obj)
@@ -155,6 +155,9 @@ format_value = function(v, depth, ctx)
 end
 
 --- Inspect any value with cycle detection and depth limiting
+--- Recursive walker over tables; SIMPLE_TYPES dispatch for primitives, userdata delegated to userdata(); cycle detection via ctx.seen set, depth cap via ctx.max_depth (default 3)
+--- @safety SAFE - userdata path pcall-guarded internally; format_value tolerates missing metatables and __index
+--- @cost O(n) total values walked | 0 luabind for tables/primitives, per-userdata cost = userdata() cost (5-10 luabind mixed weights)
 --- @param value any Value to inspect
 --- @param opts table|nil Options: { depth = number (default 3) }
 --- @return string Human-readable representation
@@ -164,7 +167,10 @@ function inspect(value, opts)
     return format_value(value, 0, ctx)
 end
 
---- Format table (alias for compatibility)
+--- Format table (table-only alias for inspect with shallower default depth)
+--- Returns tostring(t) for non-table input; otherwise delegates to format_value with depth limit
+--- @safety SAFE - same path as inspect()
+--- @cost O(n) total values walked | 0 luabind (pure Lua; userdata only entered via inspect path)
 --- @param t table Table to format
 --- @param max_depth number|nil Maximum depth (default 2)
 --- @return string Formatted table

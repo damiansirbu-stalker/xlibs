@@ -7,9 +7,9 @@ local squad_markers = {}
 
 --- Remove map marker from squad
 --- Calls level.map_remove_object_spot via pcall; clears stored marker_type from squad_markers table
---- @safety pcall: map_spot crashes during transitions
---- @complexity O(1) | 1 luabind (map_remove_object_spot)
---- @see xray/xrGame/level_script.cpp(403)
+--- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- @cost O(1) | 1 luabind medium (map_remove_object_spot: Level().MapManager().RemoveMapLocation lookup + erase)
+--- @src xray/xrGame/level_script.cpp(456)
 --- @param squad_id number Squad ID
 function unmark_squad(squad_id)
     if not squad_id then return end
@@ -21,9 +21,9 @@ end
 
 --- Add map marker to squad
 --- Removes existing marker if any, then calls level.map_add_object_spot via pcall
---- @safety pcall: map_spot crashes during transitions
---- @complexity O(1) | 1-2 luabind (remove old + add new)
---- @see xray/xrGame/level_script.cpp(378)
+--- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- @cost O(1) | 1-2 luabind heavy (each: CMapLocation construction + MapManager container insert + SetHint shared_str)
+--- @src xray/xrGame/level_script.cpp(431,456)
 --- @param squad_id number Squad ID
 --- @param opts table { label, marker_type }
 --- @return boolean Success (false during transitions)
@@ -51,9 +51,9 @@ end
 
 --- Clear all squad markers
 --- Iterates squad_markers table and removes each via pcall; resets table
---- @safety pcall: map_spot crashes during transitions
---- @complexity O(n) markers | 1 luabind per marker (map_remove_object_spot)
---- @see xray/xrGame/level_script.cpp(403)
+--- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- @cost O(n) markers | 1 luabind medium per marker (map_remove_object_spot)
+--- @src xray/xrGame/level_script.cpp(456)
 function clear_squad_markers()
     for sid, marker_type in pairs(squad_markers) do
         pcall(level.map_remove_object_spot, sid, marker_type)
@@ -63,9 +63,9 @@ end
 
 --- Mark an entity (NPC, long-lived marker - caller owns persistence)
 --- Removes existing marker of same type then adds new one via pcall
---- @safety pcall: map_spot crashes during transitions
---- @complexity O(1) | 2 luabind (remove + add)
---- @see xray/xrGame/level_script.cpp(378)
+--- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- @cost O(1) | 2 luabind heavy (map_remove + map_add: CMapLocation ctor + container ops + SetHint)
+--- @src xray/xrGame/level_script.cpp(431,456)
 --- @param id number Entity ID
 --- @param opts table { marker_type, label }
 --- @return boolean Success (false during transitions)
@@ -81,9 +81,9 @@ end
 
 --- Remove entity marker
 --- Calls level.map_remove_object_spot via pcall with marker_type
---- @safety pcall: map_spot crashes during transitions
---- @complexity O(1) | 1 luabind (map_remove_object_spot)
---- @see xray/xrGame/level_script.cpp(403)
+--- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- @cost O(1) | 1 luabind medium (map_remove_object_spot)
+--- @src xray/xrGame/level_script.cpp(456)
 --- @param id number Entity ID
 --- @param marker_type string|nil Marker type (default: red_location)
 function unmark_entity(id, marker_type)
@@ -94,9 +94,9 @@ end
 
 --- Re-apply markers from saved data table (caller provides persisted data)
 --- Iterates saved markers, delegates to mark_entity per entry (pcall internally)
---- @safety pcall: mark_entity wraps map_add_object_spot via pcall
---- @complexity O(n) markers | 2 luabind per marker (remove + add via mark_entity)
---- @see xray/xrGame/level_script.cpp(378)
+--- @safety pcall: mark_entity wraps map_add_object_spot via pcall, see doc/library/modding/pcall-safety.md
+--- @cost O(n) markers | 2 luabind heavy per marker (remove + add via mark_entity)
+--- @src xray/xrGame/level_script.cpp(431,456)
 --- @param markers table { [id] = { marker_type = "...", label = "..." }, ... }
 --- @return number Count of markers applied
 function hydrate_markers(markers)
@@ -111,8 +111,8 @@ end
 --- Send PDA message (dumb pipe, no sound, no color)
 --- Calls db.actor:give_game_news which is the engine notification API
 --- @safety SAFE - returns false if db.actor unavailable (main menu, loading)
---- @complexity O(1) | 1 luabind (give_game_news)
---- @see xray/xrGame/script_game_object_script3.cpp(208)
+--- @cost O(1) | 1 luabind heavy (give_game_news: GAME_NEWS_DATA struct construction + shared_str copies for caption/news/texture_name + Actor()->AddGameNews container append)
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(106,117) _give_news, xray/xrGame/script_game_object_script3.cpp(208)
 --- @param caption string Sender caption (e.g. "Vasya, Loner")
 --- @param msg string Message text (caller adds color prefix)
 --- @param icon string|nil Icon texture (default: generic)

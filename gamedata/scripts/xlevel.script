@@ -1,7 +1,6 @@
 --- xlevel: Level/map and time queries
 
 local pcall, pairs = pcall, pairs
-local xsmart = xsmart
 
 local gg = nil
 local _vertex_level = {}
@@ -19,11 +18,11 @@ end
 
 --- Get total game hours (days * 24 + hours)
 --- C++ get_time_hours/days have built-in fallback: check g_pGameLevel, fall back to
---- ai().alife().time_manager().game_time() if NULL (level_script.cpp:258-272).
+--- ai().alife().time_manager().game_time() if NULL (level_script.cpp:289-303).
 --- level.present() guard ensures alife() exists (no game session = no alife singleton).
---- @safety guard: level.present() before call (semantic, not crash prevention)
---- @complexity O(1) | 2 luabind (get_time_hours + get_time_days)
---- @see xray/xrGame/level_script.cpp:258-272, anomaly/_g.script
+--- @safety SAFE - level.present() guards no-game-session; engine fallback handles NULL g_pGameLevel
+--- @cost O(1) | 2 luabind trivial (get_time_hours + get_time_days: each calls split_time on a u64 timestamp, bit math)
+--- @src xray/xrGame/level_script.cpp(289), xray/xrGame/level_script.cpp(297)
 --- @return number Total hours since game start (0 when no level)
 function get_game_hours()
     if not level.present() then return 0 end
@@ -33,8 +32,8 @@ end
 --- Get level_id from server entity
 --- Vertex-to-level mapping is immutable (baked in game.graph). Cached after first lookup per gvid.
 --- @safety SAFE - nil guard on se_obj + game_graph (pcall cached in module-level gg)
---- @cost O(1) | 0 luabind cached, 2 luabind trivial on miss (vertex: ptr+offset, level_id: field read)
---- @src xray/game_graph_inline.h
+--- @cost O(1) | 0 luabind cached, 3 luabind trivial on miss (m_game_vertex_id field read on userdata, vertex(): ptr+offset, level_id(): field read)
+--- @src xray/xrGame/game_graph_inline.h, xray/xrGame/game_graph_script.cpp
 --- @param se_obj table Server object with m_game_vertex_id
 --- @return number|nil Level ID (nil during transitions)
 function get_level_id(se_obj)
@@ -51,9 +50,9 @@ end
 
 --- Get actor's current level_id
 --- Resolves actor via alife():actor() then chains game_graph for level_id
---- @safety nil guard on sim, actor, gvid, game_graph (NULL singleton via get_game_graph pcall)
---- @complexity O(1) | 4 luabind (alife + actor + vertex + level_id)
---- @see xray/xrGame/game_graph_script.cpp, anomaly/_g.script
+--- @safety SAFE - nil guards on sim, actor, gvid, game_graph (NULL singleton via get_game_graph pcall)
+--- @cost O(1) | 4 luabind trivial (alife: ptr return, actor: ptr return, vertex: ptr+offset, level_id: field read)
+--- @src xray/xrGame/alife_simulator_script.cpp(35) alife, xray/xrGame/game_graph_inline.h
 --- @return number|nil Level ID (nil during transitions)
 function get_actor_level_id()
     local sim = alife()
@@ -67,6 +66,8 @@ function get_actor_level_id()
     return graph:vertex(gvid):level_id()
 end
 
+-- Translate the current level's raw name; nil when no level
+-- @cost O(log n) | 3 luabind: level.present trivial, level.name heavy (shared_str alloc), translate_string medium (std::map find on STRING_TABLE_MAP)
 local function get_current_level_name()
     if not level.present() then return nil end
     local lname = level.name()
@@ -78,7 +79,7 @@ end
 local _level_names = nil
 
 -- Session-lifetime set of level names (raw + translated); populated lazily on first call
--- @complexity O(n) levels first call | 0 luabind cached, ~100 luabind medium on miss
+-- @cost O(n) levels first call | 0 luabind cached, ~100 luabind medium on miss (51 level_name medium + 51 translate_string medium)
 local function _get_level_names()
     if _level_names then return _level_names end
     _level_names = {}
@@ -100,8 +101,8 @@ end
 --- Get translated level display name from a level_id
 --- Resolves via alife():level_name(id) then game.translate_string for localized display
 --- @safety SAFE - nil guards on alife and resolved name
---- @cost O(1) | 2 luabind medium (alife:level_name + translate_string)
---- @src anomaly/xr_conditions.script(1521), xray/lua_help.script.txt(1544)
+--- @cost O(log n) | 2 luabind medium (alife:level_name: std::map find on game_graph LEVEL_MAP, translate_string: std::map find on STRING_TABLE_MAP)
+--- @src xray/xrGame/alife_simulator_script.cpp(313) level_name, xray/xrGame/string_table.cpp(226) translate
 --- @param level_id number Level ID (from game_graph vertex)
 --- @return string Translated level display name, or nil if unresolvable
 function get_level_name(level_id)
@@ -114,12 +115,8 @@ function get_level_name(level_id)
     return (translated and translated ~= lname) and translated or lname
 end
 
---- Get translated smart terrain display name
---- Delegates to Anomaly's smart_terrain.get_smart_terrain_name which uses a cached
---- smart_names.ltx lookup table (lazy-loaded once, pure Lua hash after first call)
---- @safety SAFE - returns "unknown" for nil
---- Resolve smart's level to a translated display name, nil if unresolvable
--- @complexity O(1) | 3 luabind (vertex + level_id + level_name)
+-- Resolve smart's level to a translated display name, nil if unresolvable
+-- @cost O(log n) | 3 luabind: vertex trivial (ptr+offset), level_id trivial (field), level_name medium (LEVEL_MAP find), translate_string medium (STRING_TABLE_MAP find)
 local function _resolve_smart_level_name(smart)
     if not smart.m_game_vertex_id then return nil end
     local graph = get_game_graph()
@@ -193,9 +190,9 @@ end
 
 --- Check if server object has valid level vertex ID
 --- Offline or transitioning entities may have 0xFFFFFFFF (invalid) as their level vertex
---- @safety SAFE - pure field read, nil-guarded
---- @complexity O(1) | 0 luabind
---- @see doc/library/modding/alife-safety.md(38), anomaly/sim_squad_scripted.script(276)
+--- @safety SAFE - nil-guarded; 1 luabind for m_level_vertex_id userdata field read, otherwise pure Lua
+--- @cost O(1) | 1 luabind trivial (m_level_vertex_id field read on userdata)
+--- @src doc/library/modding/alife-safety.md(38), anomaly/sim_squad_scripted.script(276)
 --- @param se_obj cse_alife_object Server object
 --- @return boolean True if m_level_vertex_id is valid
 function is_valid_lvid(se_obj)
@@ -208,8 +205,8 @@ end
 --- Lazy-built name->id map from SIMBOARD.smarts_by_names; covers every level with at least one smart.
 --- Lua VM restarts on level transition so the cache is naturally fresh per game session.
 --- @safety SAFE - nil guards on alife/SIMBOARD/graph; returns nil if level lookup is unavailable
---- @complexity O(n_smarts) first call (~300-500 smarts in GAMMA), O(1) cached
---- @src anomaly/sim_board.script, xray/game_graph_inline.h
+--- @cost O(n_smarts) first call (~300-500 smarts in GAMMA, each: vertex trivial + level_id trivial + level_name medium), O(1) cached
+--- @src anomaly/sim_board.script, xray/xrGame/game_graph_inline.h, xray/xrGame/alife_simulator_script.cpp(313)
 --- @param name string Raw level name (sim:level_name format)
 --- @return number|nil Level ID, or nil if name unknown or SIMBOARD unavailable
 function get_level_id_by_name(name)
@@ -234,7 +231,7 @@ end
 local _neighbors_cache = {}
 
 -- Walk one BFS frontier hop, marking newly-reached levels in visited
--- @complexity O(k) k=neighbors of lvl | 0 luabind
+-- @cost O(k) k=neighbors of lvl | 0 luabind (pure Lua pairs over level_links sub-table)
 local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
     local links = level_targets and level_targets.level_links and level_targets.level_links[lvl]
     if not links then return end
@@ -247,11 +244,11 @@ local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
 end
 
 -- Expand frontier by one hop; returns the freshly-discovered ids only
--- @complexity O(f * k) f=frontier size, k=avg neighbors | 0 luabind
+-- @cost O(f * k) f=frontier size, k=avg neighbors | 0 luabind (pure Lua pairs)
 local function _expand_one_hop(frontier, visited)
     local next_frontier = {}
-    for lvl in pairs(frontier) do
-        _collect_unvisited_neighbors(lvl, next_frontier, visited)
+    for level_id in pairs(frontier) do
+        _collect_unvisited_neighbors(level_id, next_frontier, visited)
     end
     return next_frontier
 end

@@ -6,7 +6,7 @@ local string, table = string, table
 --- Extract default values from MCM op table
 --- Recursively walks op.gr array collecting {id, def} pairs into flat defaults table
 --- @safety SAFE - pure Lua table traversal, nil-guarded
---- @complexity O(n) options | 0 luabind
+--- @cost O(n) options | 0 luabind (pure Lua recursive ipairs over gr arrays)
 --- @param op table MCM options table with gr array
 --- @param recursive boolean|nil Process nested gr tables (default: true)
 --- @return table defaults {id = def_value, ...}
@@ -33,7 +33,7 @@ end
 --- Create a config getter function
 --- Returns closure that reads ui_mcm.get(path) with fallback to defaults table
 --- @safety SAFE - ui_mcm.get returns nil for missing keys, defaults table is fallback
---- @complexity O(1) per call | 0 luabind (ui_mcm is Lua-to-Lua)
+--- @cost O(1) per call | 0 luabind (ui_mcm is Lua-to-Lua hash table read)
 --- @param mod_id string MCM mod identifier
 --- @param defaults table Default values {key = value}
 --- @param path_builder function|nil Optional function(key) -> mcm_path
@@ -60,7 +60,7 @@ end
 --- Create a settings loader function (Demonized pattern)
 --- Returns closure that iterates defaults, reads ui_mcm.get per key, writes to settings table
 --- @safety SAFE - ui_mcm.get returns nil for missing keys, defaults table is fallback
---- @complexity O(n) defaults per call | 0 luabind (ui_mcm is Lua-to-Lua)
+--- @cost O(n) defaults per call | 0 luabind (ui_mcm is Lua-to-Lua hash table)
 --- @param mod_id string MCM mod identifier
 --- @param defaults table Default values {key = value}
 --- @param path_builder function|nil Optional function(key) -> mcm_path
@@ -76,7 +76,7 @@ end
 --- Create a complete MCM config: pre-seeded table, getter, and loader
 --- Seeds cfg from defaults at creation (no ui_mcm call); loader reads MCM when called
 --- @safety SAFE - creation is pure Lua table copy, loader delegates to create_getter
---- @complexity O(n) defaults at creation, O(n) defaults per load call | 0 luabind at creation
+--- @cost O(n) defaults at creation, O(n) per load() call | 0 luabind (pure Lua throughout)
 --- @param mod_id string MCM mod identifier
 --- @param defaults table Default values {key = value}
 --- @param path_builder function|nil Optional function(key) -> mcm_path
@@ -96,7 +96,7 @@ end
 --- Format defaults as string (for logging)
 --- Sorts keys alphabetically, formats as "key = value" lines with header
 --- @safety SAFE - pure Lua string formatting
---- @complexity O(n log n) keys (sort) | 0 luabind
+--- @cost O(n log n) keys (table.sort) | 0 luabind (pure Lua string.format + table.concat)
 --- @param mod_id string Mod identifier for header
 --- @param defaults table Default values {key = value}
 --- @return string Formatted defaults
@@ -118,7 +118,7 @@ end
 --- Format used settings as string (for logging)
 --- Sorts keys, compares get_config(key) against default, marks divergent values with *
 --- @safety SAFE - pure Lua string formatting, get_config returns nil for missing
---- @complexity O(n log n) keys (sort) + O(1) per get_config call | 0 luabind
+--- @cost O(n log n) keys (sort) + O(1) per get_config call | 0 luabind (pure Lua)
 --- @param mod_id string Mod identifier for header
 --- @param defaults table Default values {key = value}
 --- @param get_config function Getter function(key) -> value

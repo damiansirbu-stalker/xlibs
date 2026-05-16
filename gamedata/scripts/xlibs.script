@@ -2,12 +2,19 @@
 local tonumber = tonumber
 local _VERSION = "1.5.0"
 
---- @return string Version string
+--- Get xlibs package version string
+--- Constant read from module-local _VERSION literal, set at file load
+--- @safety SAFE - returns a constant string literal
+--- @cost O(1) | 0 luabind (return local)
+--- @return string Version string (e.g. "1.5.0")
 function get_version()
     return _VERSION
 end
 
 --- Check if xlibs version is compatible with required minimum (semver: same major, actual >= required)
+--- Parses both required and actual as major.minor.patch via Lua pattern; rejects on major mismatch, then compares minor then patch
+--- @safety SAFE - tonumber returns nil for malformed patches, defaulted to 0; required must match "^%d+%.%d+" or pattern returns nil and tonumber crashes the call (caller responsibility to pass valid semver)
+--- @cost O(1) | 0 luabind (pure Lua string.match + tonumber + integer compares)
 --- @param required string Minimum version ("1.2" or "1.2.2")
 --- @return boolean True if compatible
 function is_compatible(required)

@@ -1,7 +1,6 @@
 --- xchange: Liquibase-style data migrations. Register changesets by id, run once per save.
 
 local type, tostring, os_time = type, tostring, os.time
-local xlog = xlog
 
 local _registry = {}
 local _ids = {}

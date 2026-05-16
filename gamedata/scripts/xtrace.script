@@ -42,7 +42,7 @@ end
 --- Create new trace (empty path, first push sets root)
 --- Increments global trace_counter for unique ID; path builds via push/pop string concatenation
 --- @safety SAFE - pure Lua table + metatable
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua table/string ops)
 --- @return table Trace object with id, path, push(), pop()
 function new()
     trace_counter = trace_counter + 1
@@ -55,7 +55,7 @@ end
 --- Create trace only if condition true, else null trace
 --- Null trace has matching API (push/pop are no-ops); zero overhead when disabled
 --- @safety SAFE - null singleton is pure Lua table
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua table/string ops)
 --- @param condition boolean
 --- @return table Trace or null trace
 function new_if(condition)
@@ -66,7 +66,7 @@ end
 --- Wrap function with trace push/pop
 --- Pushes op_name onto trace path, executes fn(trace), pops on return
 --- @safety SAFE - pure Lua; fn errors propagate (no pcall)
---- @complexity O(1) + fn cost | 0 luabind
+--- @cost O(1) + fn cost | 0 luabind (Lua-only push/pop bracket; fn cost depends on caller)
 --- @param trace table Trace object
 --- @param op_name string Operation name
 --- @param fn function Function to execute, receives trace as arg
@@ -81,7 +81,7 @@ end
 --- Reset counters (testing only)
 --- Zeroes trace_counter and op_counter globals
 --- @safety SAFE - pure Lua
---- @complexity O(1) | 0 luabind
+--- @cost O(1) | 0 luabind (pure Lua table/string ops)
 function reset()
     trace_counter = 0
     op_counter = 0
