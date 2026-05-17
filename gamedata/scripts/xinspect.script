@@ -44,7 +44,7 @@ end
 --- Format userdata (X-Ray game object) with rich info
 --- Extracts id/name/section/community/alive/rank via pcall; output: @type{id=N, name="x", sec="y", ...}
 --- @safety pcall: game objects may be released/invalid, methods crash, see doc/library/modding/pcall-safety.md
---- @cost O(1) | 5-10 luabind mixed weights: id/alive/parent_id/group_id trivial (field/enum reads), name/section/section_name heavy (shared_str alloc on bridge), clsid trivial (enum), character_community medium (anomaly_character resolve)
+--- @cost O(1) | 5-10 luabind mixed: id/alive/parent_id/group_id trivial; name/section heavy (shared_str alloc); clsid trivial; character_community medium (anomaly resolve)
 --- @src xray/xrGame/script_game_object_script.cpp, anomaly/_g.script(2820)
 --- @param obj userdata Game object
 --- @return string Formatted representation

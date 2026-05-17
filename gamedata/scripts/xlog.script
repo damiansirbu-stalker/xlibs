@@ -189,8 +189,9 @@ local function _check_deadband(self, msg, lvl)
     return false
 end
 
--- Format the log line: pcall(string.format) when fmt has % and there are args; otherwise space-join via format_args
--- @cost O(n) args | 0 luabind (pure Lua string.format / table.concat, pcall ~2-3x overhead on format error path)
+--- Format the log line via protected string.format when fmt contains a format spec and args follow; otherwise fall through to format_args
+--- @safety pcall: string.format throws on bad format string with untrusted args; recovers and returns the original fmt on failure
+--- @cost O(n) args | 0 luabind (pure Lua string.format / table.concat, ~2-3x overhead on format error path)
 local function _format_msg(fmt, ...)
     if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then
         local ok, result = pcall(string.format, fmt, ...)

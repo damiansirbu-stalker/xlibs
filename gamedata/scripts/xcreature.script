@@ -329,7 +329,7 @@ end
 --- Get translated name for entity (stalker or mutant)
 --- Stalkers use character_name(); mutants use hash table then ini_sys:r_string_ex fallback
 --- @safety SAFE - returns "unknown" for nil, "stalker"/"mutant" for missing names
---- @cost O(log n) | 2-4 luabind: stalker path = alife_object medium + character_name heavy (translated shared_str); mutant path = alife_object medium + section_name heavy + (hash hit) or + r_string_ex heavy + translate_string medium
+--- @cost O(log n) | 2-4 luabind: stalker: alife_object + character_name heavy; mutant: alife_object + section_name heavy + (hash hit or r_string_ex heavy + translate)
 --- @src anomaly/_g.script(2044), xray/xrGame/script_game_object_script.cpp
 --- @param input number|table Entity ID or server object
 --- @return string Translated name
@@ -532,7 +532,7 @@ end
 local _unscriptable_cache = setmetatable({}, { __mode = "k" })
 
 -- Check unscriptable identity: story_id, companion, named NPC, squad story_id
--- @cost O(1) | 3-5 luabind mixed: id trivial, get_object_story_id 0 (anomaly Lua STORY_PAIRS lookup), IsStalker 1 trivial, has_info medium (known_info linear find), section heavy (shared_str), get_object_squad 0 (anomaly Lua)
+-- @cost O(1) | 3-5 luabind mixed: id trivial, story_id 0 (anomaly STORY_PAIRS lookup), IsStalker trivial, has_info medium (known_info find), section heavy (shared_str), squad 0 (anomaly Lua)
 local function _check_unscriptable(obj)
     if not obj then return true end
     local id = obj:id()

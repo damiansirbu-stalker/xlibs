@@ -190,8 +190,8 @@ end
 
 --- Check if server object has valid level vertex ID
 --- Offline or transitioning entities may have 0xFFFFFFFF (invalid) as their level vertex
---- @safety SAFE - nil-guarded; 1 luabind for m_level_vertex_id userdata field read, otherwise pure Lua
---- @cost O(1) | 1 luabind trivial (m_level_vertex_id field read on userdata)
+--- @safety SAFE - nil-guarded; 1 luabind for the level vertex id userdata field read, otherwise pure Lua
+--- @cost O(1) | 1 luabind trivial (level vertex id field read on userdata)
 --- @src doc/library/modding/alife-safety.md(38), anomaly/sim_squad_scripted.script(276)
 --- @param se_obj cse_alife_object Server object
 --- @return boolean True if m_level_vertex_id is valid

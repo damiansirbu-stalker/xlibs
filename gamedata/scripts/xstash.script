@@ -23,7 +23,7 @@ end
 --- Find stashes matching criteria
 --- Iterates treasure_manager.caches, excludes player-created stashes, filters by distance/level/fill state
 --- @safety SAFE - xobject.se returns nil for invalid, .position field nil-guarded, distance_to_sqr is vector inline math
---- @cost O(n) caches | 1 luabind medium per stash (xobject.se -> alife_object xr_map find) + 1 luabind trivial (distance_to_sqr: vector subtract+dot), 0 luabind for level filter via xlevel.get_level_id cache
+--- @cost O(n) caches | per stash: 1 medium (xobject.se -> alife_object xr_map find) + 1 trivial (distance_to_sqr inline math); level filter cached (0 luabind)
 --- @src anomaly/treasure_manager.script(33), anomaly/_g.script(2044), anomaly/item_backpack.script(27)
 --- @param pos vector Origin position
 --- @param opts table { max_distance, min_distance, max_count, level_id, filled }
