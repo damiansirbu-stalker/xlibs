@@ -208,6 +208,33 @@ function accepts_mutant(smart, player_id)
     return props[player_id] and props[player_id] > 0 or false
 end
 
+--- Check if smart terrain accepts a faction (Tier 1 of target_precondition)
+--- Dispatches by faction type: mutants check all/all_monster/props[faction], stalkers
+--- (including "zombied") check all/all_stalker/props[faction]. Mirrors engine
+--- target_precondition faction gate at smart_terrain.script:1531-1559. Tier 2 (zoning:
+--- lair/territory/base/resource/surge with time-of-day preconditions) is not checked.
+--- Use this for refill / population / mod logic that needs faction acceptance independent
+--- of routing time-of-day gates. Use full target_precondition for routing decisions.
+--- @scope global - smart.props from simulation_objects_props.ltx; is_squad_monster from _g.script
+--- @safety SAFE - pure Lua table reads, nil-guarded
+--- @cost O(1) | 0 luabind (pure Lua field/table reads)
+--- @src anomaly/smart_terrain.script(1531-1559), anomaly/_g.script(2344), anomaly/simulation_objects_props.ltx
+--- @param smart smart_terrain Smart terrain to check
+--- @param faction string Faction community (e.g. "bandit", "monster_predatory_day", "zombied")
+--- @return boolean True if smart accepts this faction's presence
+function accepts_faction(smart, faction)
+    if not smart or not faction then return false end
+    local props = smart.props
+    if not props then return false end
+    if props.all and props.all > 0 then return true end
+    if is_squad_monster[faction] then
+        if props.all_monster and props.all_monster > 0 then return true end
+    else
+        if props.all_stalker and props.all_stalker > 0 then return true end
+    end
+    return props[faction] and props[faction] > 0 or false
+end
+
 --- Get all stalker factions accepted by smart terrain
 --- Builds {[faction]=true} from props keys with value >0; cached per smart.id (props are static INI)
 --- @scope global - smart.props from simulation_objects_props.ltx
