@@ -4,7 +4,7 @@ local pairs, type, next, tostring = pairs, type, next, tostring
 local string_format, table_concat = string.format, table.concat
 local alife, alife_object = alife, alife_object
 local get_object_story_id, IsStalker = get_object_story_id, IsStalker
-local xsmart, xlevel, xmath, xdata = xsmart, xlevel, xmath, xdata
+local xlevel, xmath, xdata = xlevel, xmath, xdata
 
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 local CLSID_SQUAD = clsid.online_offline_group_s
@@ -196,7 +196,7 @@ end
 --- Check if squad currently has a system-assigned role that prevents scripting
 --- Dynamic, re-evaluated every call (roles change as tasks are accepted/dismissed).
 --- @safety SAFE - nil-guarded, O(t) task_info scan for task_giver
---- @cost O(1) commander resolve + O(t) task_info scan (t = active tasks, typically 3-10) | 3 luabind on commander resolve (commander_id trivial + alife_object medium + section_name heavy); task scan pure Lua
+--- @cost O(1) commander resolve + O(t) task_info scan (t = 3-10 typical) | 3 luabind: commander_id trivial + alife_object medium + section_name heavy; task scan pure Lua
 --- @src anomaly/axr_companions.script(25,150), anomaly/axr_task_manager.script task_info
 --- @param squad se_squad Squad server object
 --- @return boolean True if has active role (nil squad returns true for safety)
@@ -372,7 +372,7 @@ end
 --- Dump all SIMBOARD squads as a diagnostic string
 --- Shows raw engine fields: player_id, smart_id (physical location), assigned_target_id (simulation intent)
 --- @safety SAFE - iter_squads handles nil SIMBOARD, read-only field access
---- @cost O(n) squads | per squad: 1 medium (sim:object) + 1 heavy (get_squad_community shared_str) + 1 medium (npc_count) + 0-2 luabind trivial (get_level_id cached, m_game_vertex_id field read on miss)
+--- @cost O(n) squads | per squad: 1 medium (sim:object) + 1 heavy (community shared_str) + 1 medium (npc_count) + 0-2 trivial (lvid cached, game vertex id field read)
 --- @src anomaly/sim_squad_scripted.script(35,39)
 --- @return string Diagnostic dump (e.g. "squads=5 [123:stalker:pid=stalker:lv2:npc3:at=17769:tgt=17780, ...]")
 function dump_squads()
@@ -492,18 +492,6 @@ function get_squad_smart(squad)
     local se = alife_object(smart_id)
     if not se or se:clsid() ~= clsid.smart_terrain then return nil end
     return se
-end
-
---- Check if squad is at a base
---- Resolves smart via get_squad_smart then delegates to xsmart.is_base
---- @safety SAFE - returns false for nil
---- @cost O(log n) | 2 luabind (get_squad_smart: alife_object medium + clsid trivial; is_base pure Lua)
---- @src anomaly/sim_board.script(96), anomaly/simulation_objects.script(117)
---- @param squad se_squad Squad object
---- @return boolean True if at base
-function is_squad_at_base(squad)
-    local smart = get_squad_smart(squad)
-    return smart and xsmart.is_base(smart) or false
 end
 
 --- Acquire: set scripted_target (routes to specific_update), clear __lock (AP does not use it)

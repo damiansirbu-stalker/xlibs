@@ -121,7 +121,7 @@ xsquad.release_squad(squad)
 - `target_actor(squad, rush)` - Script squad to chase actor (engine-native pursuit)
 - `release_squad(squad)` - Release from scripted control, return to simulation
 - `release_squads(opts)` - Bulk release with filter
-- `is_squad_at_base(squad)`, `get_squad_smart(squad)`
+- `get_squad_smart(squad)`
 - `get_squad_by_member(npc_id)` - Get squad containing NPC
 - `get_community_name(squad)` - Translated community name (safe, never nil)
 - `is_permanent_squad(squad)` - Static identity check (story, trader, named_npc, empty), cached
