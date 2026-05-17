@@ -1,8 +1,22 @@
-next
-  xobject:
-    Changed: create_item offline-cross-map fallback routes through alife_create_item with table owner {pos, lvi, gvi, npc_id} instead of calling alife():create directly. Property table t is now forwarded on this branch (t.ammo splits into multiple boxes atomically at spawn, t.cond and t.uses queue via ItemProcessor). Section non-existence is guarded; previously alife():create would Debug.fatal on missing sections. Header documents the ~0.16s ItemProcessor drop window for cond/uses on items whose carrier stays offline (relevant for offline-cross-map loot/trade flows).
+1.5.1
+  Summary: level adjacency, first-match smart lookup, faction acceptance check, commander rank, in-game clock, ttl_counter persistence, token bucket rate, offline cross-map item fallback
+  xlevel:
+    Added: get_level_id_by_name(name). Lazy name-to-level_id map from SIMBOARD.smarts_by_names.
+    Added: get_neighbor_levels(source_id, hops). BFS over A-Life level adjacency; returns a set excluding the source. Cached per (source_id, hops). Powers off-map destination scans.
+  xsmart:
+    Added: find_first_smart(opts). First-match smart lookup with no ranking. Opts mirror find_smart factions / filter / level_id.
+    Added: accepts_faction(smart, faction). True if smart's props admit the faction (stalker or mutant). Mirrors engine target_precondition faction gate.
+  xsquad:
+    Added: get_commander_rank(squad). Commander rank; 0 for empty squads, non-stalkers, or unresolved commanders.
+    Removed: is_squad_at_base(squad). No callers.
+  xtime:
+    Added: hms(). Returns the in-game hour, minute, second; nil when no level is present.
+    Added: game_time(). Returns the engine's CTime userdata; nil when no level is present. Pairs with hms() for in-game wall-clock reads.
   xttltable:
+    Added: ttl_counter :export() / :import(). Round-trips bucket state through save/load. Timestamps are clock-domain-specific (game_sec persists across save/load; os.clock does not).
     Added: token bucket :set_rate(rate). Updates refill rate without rebuilding; preserves in-flight token state.
+  xobject:
+    Changed: create_item offline cross-map fallback routes through alife_create_item with table owner instead of alife():create directly. Property table t is forwarded on this branch (t.ammo splits across boxes atomically at spawn; t.cond and t.uses queue via ItemProcessor with a ~0.16s drop window for offline carriers). Section non-existence is guarded; previously alife():create would Debug.fatal on missing sections.
 
 1.5.0
   xchange:

@@ -1,0 +1,11 @@
+=== VALIDATE (1 mods) ===
+
+--- xlibs ---
+  luacheck... OK
+  selene... OK
+  contract... OK
+  load... OK
+  gitleaks... OK
+
+========================================
+PASS - Grade: S+
