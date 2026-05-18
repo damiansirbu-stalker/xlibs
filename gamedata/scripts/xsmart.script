@@ -10,6 +10,7 @@ local STALKER_FACTIONS = {
     "monolith", "stalker", "csky", "zombied", "greh", "isg", "renegade",
 }
 local _factions_cache = {}
+local _section_faction_cache = {}
 local ANOMALY_RADIUS_SQR = 2500
 
 JOB_TYPE_GENERIC_POINT = 0
@@ -245,15 +246,21 @@ end
 --- Use this to classify a smart's respawn_params.squads pool by what it will spawn.
 --- @scope global - reads ini_sys (system.ltx merged INI); section metadata is static
 --- @safety SAFE - returns nil when section missing or has no faction field
---- @cost O(1) | 1 luabind medium (ini_sys:r_string_ex: section lookup + field read, shared_str return)
+--- @cost O(1) | 0 luabind cached, 1 luabind medium on miss (session-lifetime per-section cache)
 --- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx, anomaly/configs/misc/squad_descr/squad_descr_default_stalkers.ltx
---- @src anomaly/sim_board.script create_squad sets squad.player_id from the section's faction field
+--- @src anomaly/sim_board.script(139)
 --- @param section string Squad section name (e.g. "simulation_dog", "bandit_sim_squad_novice")
 --- @return string|nil Faction the squad will have (e.g. "monster_predatory_day", "bandit"), or nil
 function section_faction(section)
     if not section then return nil end
+    local cached = _section_faction_cache[section]
+    if cached ~= nil then return cached or nil end
     local faction = ini_sys:r_string_ex(section, "faction")
-    if not faction or faction == "" then return nil end
+    if not faction or faction == "" then
+        _section_faction_cache[section] = false
+        return nil
+    end
+    _section_faction_cache[section] = faction
     return faction
 end
 
