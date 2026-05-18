@@ -7,6 +7,7 @@ local _vertex_level = {}
 local _level_id_by_name = nil
 
 local INVALID_LEVEL_VERTEX_ID = xconst.INVALID_LEVEL_VERTEX_ID
+local INVALID_GAME_VERTEX_ID = xconst.INVALID_GAME_VERTEX_ID
 
 --- @safety pcall: game_graph() crashes during level transitions
 local function get_game_graph()
@@ -39,6 +40,7 @@ end
 function get_level_id(se_obj)
     if not se_obj then return nil end
     local gvid = se_obj.m_game_vertex_id
+    if not gvid or gvid >= INVALID_GAME_VERTEX_ID then return nil end
     local cached = _vertex_level[gvid]
     if cached then return cached end
     local graph = get_game_graph()
