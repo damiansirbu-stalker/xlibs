@@ -395,18 +395,22 @@ function dump_squads()
 end
 
 --- Find squad matching criteria within distance range
---- Iterates SIMBOARD.squads, resolves each via alife_object, filters by faction/distance/level
+--- Iterates opts.source (when provided) or SIMBOARD.squads; resolves each via alife_object, filters by faction/distance/level
+--- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
---- @cost O(n) squads | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
+--- @cost O(n) squads in pool | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
 --- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
 ---   exclude_at_smart_id, exclude_permanent, exclude_active_role, exclude_task_target,
----   exclude_scripted, exclude_filter, exclude_ids }
+---   exclude_scripted, exclude_filter, exclude_ids, source }
+---   source: optional { [squad_id] = true, ... } iterable. When present, replaces SIMBOARD.squads as the iteration pool.
+---   Use AlifePlus ap_core_cache.squads_on_level(level_id) to fetch a per-level bucket.
 --- @return table|nil Nearest matching squad
 function find_squad(pos, opts)
     if not pos or not opts or not opts.max_distance then return nil end
-    if not SIMBOARD or not SIMBOARD.squads then return nil end
+    local pool = opts.source or (SIMBOARD and SIMBOARD.squads)
+    if not pool then return nil end
 
     local sim = alife()
     if not sim then return nil end
@@ -417,7 +421,7 @@ function find_squad(pos, opts)
 
     local best_squad, best_dist = nil, max_dist_sqr
 
-    for squad_id in pairs(SIMBOARD.squads) do
+    for squad_id in pairs(pool) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
         local ok, comm = _squad_base_valid(squad, opts)
@@ -434,17 +438,21 @@ end
 
 --- Find multiple squads matching criteria
 --- Same as find_squad but returns up to max_count results via random sampling
+--- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
---- @cost O(n) squads | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
+--- @cost O(n) squads in pool | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
 --- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
 ---   max_count, exclude_at_smart_id, exclude_permanent, exclude_active_role,
----   exclude_task_target, exclude_scripted, exclude_filter, exclude_ids }
+---   exclude_task_target, exclude_scripted, exclude_filter, exclude_ids, source }
+---   source: optional { [squad_id] = true, ... } iterable. When present, replaces SIMBOARD.squads as the iteration pool.
+---   Use AlifePlus ap_core_cache.squads_on_level(level_id) to fetch a per-level bucket.
 --- @return table Array of squad server objects
 function find_squads(pos, opts)
     if not pos or not opts or not opts.max_distance then return {} end
-    if not SIMBOARD or not SIMBOARD.squads then return {} end
+    local pool = opts.source or (SIMBOARD and SIMBOARD.squads)
+    if not pool then return {} end
 
     local sim = alife()
     if not sim then return {} end
@@ -457,7 +465,7 @@ function find_squads(pos, opts)
     local candidates = {}
     local skipped_protected = 0
 
-    for squad_id in pairs(SIMBOARD.squads) do
+    for squad_id in pairs(pool) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
         local ok, comm, skip_reason = _squad_base_valid(squad, opts)

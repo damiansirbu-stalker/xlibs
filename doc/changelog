@@ -6,6 +6,7 @@ next
   xstash:
     Added: opts.source on find_stashes. Replaces treasure_manager.caches as the iteration set when present; state (filled / looted / hidden) still read from treasure_manager.caches per iteration so mutations stay live.
   xsquad:
+    Added: opts.source on find_squad and find_squads. Replaces SIMBOARD.squads as the iteration pool when present; lets consumers inject a per-level bucket and bypass the global walk. Symmetric with xsmart.find_smart and xstash.find_stashes.
     Changed: _squad_base_valid runs the level_id gate first. Wrong-level squads on level-scoped find_squads reject after one cached xlevel.get_level_id lookup (0 luabind warm) instead of paying position, npc_count, player_id reads first.
   xlevel:
     Fixed: get_level_id short-circuits on invalid m_tGraphID (engine sentinel GameGraph::_GRAPH_ID(-1) = 65535). Prevents an AV when callers pass position-less server objects. Required after the xsquad gate reorder, which now reaches get_level_id before the position check.
