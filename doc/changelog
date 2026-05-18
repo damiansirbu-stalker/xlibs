@@ -1,11 +1,21 @@
+next
+  Summary: per-level fast-path scans, squad gate reorder
+  xsmart:
+    Added: opts.source on find_smart and find_first_smart. Replaces SIMBOARD.smarts_by_names as the iteration pool when present; lets consumers inject a per-level bucket and bypass the global walk.
+  xstash:
+    Added: opts.source on find_stashes. Replaces treasure_manager.caches as the iteration set when present; state (filled / looted / hidden) still read from treasure_manager.caches per iteration so mutations stay live.
+  xsquad:
+    Changed: _squad_base_valid runs the level_id gate first. Wrong-level squads on level-scoped find_squads reject after one cached xlevel.get_level_id lookup (0 luabind warm) instead of paying position, npc_count, player_id reads first.
+
 1.5.1
-  Summary: level adjacency, first-match smart lookup, faction acceptance check, commander rank, in-game clock, ttl_counter persistence, token bucket rate, offline cross-map item fallback
+  Summary: level adjacency, first-match smart lookup, faction acceptance check, squad-section faction lookup, commander rank, in-game clock, ttl_counter persistence, token bucket rate, offline cross-map item fallback
   xlevel:
     Added: get_level_id_by_name(name). Lazy name-to-level_id map from SIMBOARD.smarts_by_names.
     Added: get_neighbor_levels(source_id, hops). BFS over A-Life level adjacency; returns a set excluding the source. Cached per (source_id, hops). Powers off-map destination scans.
   xsmart:
     Added: find_first_smart(opts). First-match smart lookup with no ranking. Opts mirror find_smart factions / filter / level_id.
-    Added: accepts_faction(smart, faction). True if smart's props admit the faction (stalker or mutant). Mirrors engine target_precondition faction gate.
+    Added: accepts_faction(smart, faction). True if smart's props admit the faction (stalker or mutant). Mirrors engine target_precondition Tier-1 admission gate. Use for routing-side decisions.
+    Added: section_faction(section). Returns the player_id (faction community) a squad section will produce, reading the section's `faction` INI field from configs/misc/squad_descr/. Same string round-trips with squad.player_id at spawn and xcreature.community at runtime. Use to classify a smart's respawn_params.squads pool by what it spawns -- recipe-content checks for refill / spawn-intervention logic, where Tier-1 admission does not answer the question (props admit factions that recipes cannot produce, see doc/library/modding/smart-terrain-props.md).
   xsquad:
     Added: get_commander_rank(squad). Commander rank; 0 for empty squads, non-stalkers, or unresolved commanders.
     Removed: is_squad_at_base(squad). No callers.
