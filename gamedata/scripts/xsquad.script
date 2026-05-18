@@ -316,14 +316,17 @@ function is_protected(squad, opts)
     return false
 end
 
--- Validate squad for queries: position, NPC count, level, smart exclusion, protection
--- @cost O(1) typical | 1-5 luabind (npc_count, get_level_id, is_protected)
+-- Validate squad for queries: level (cheapest reject on level-scoped scans), position, NPC count, smart exclusion, protection
+-- Level check first: `xlevel.get_level_id` is cached per gvid (xlevel.script:39-49) so wrong-level rejects pay 0 luabind
+-- on warm cache, vs paying position/npc_count/player_id reads (3 luabind) before the level mismatch under the old order.
+-- @cost O(1) typical | 1-5 luabind (npc_count, get_level_id cold, is_protected)
 local function _squad_base_valid(squad, opts)
-    if not squad or not squad.position then return false end
+    if not squad then return false end
+    if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then return false end
+    if not squad.position then return false end
     if squad.npc_count and squad:npc_count() == 0 then return false end
     local faction = squad.player_id
     if not faction then return false end
-    if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then return false end
     if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then return false end
     if is_protected(squad, opts) then return false, nil, "protected" end
     return true, faction
