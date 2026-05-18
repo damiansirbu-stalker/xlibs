@@ -21,16 +21,26 @@ local function is_notable_item(section)
 end
 
 --- Find stashes matching criteria
---- Iterates treasure_manager.caches, excludes player-created stashes, filters by distance/level/fill state
+--- Iterates opts.source (when provided) or treasure_manager.caches; excludes player-created stashes,
+--- filters by distance/level/fill state. State (filled/looted/hidden) is always read from
+--- treasure_manager.caches[stash_id] since it mutates; the source table only contributes the iteration
+--- set (stash_ids to consider).
 --- @safety SAFE - xobject.se returns nil for invalid, .position field nil-guarded, distance_to_sqr is vector inline math
---- @cost O(n) caches | per stash: 1 medium (xobject.se -> alife_object xr_map find) + 1 trivial (distance_to_sqr inline math); level filter cached (0 luabind)
+--- @cost O(n) stashes in pool | per stash: 1 medium (xobject.se -> alife_object xr_map find) + 1 trivial (distance_to_sqr); level filter cached (0 luabind)
 --- @src anomaly/treasure_manager.script(33), anomaly/_g.script(2044), anomaly/item_backpack.script(27)
 --- @param pos vector Origin position
---- @param opts table { max_distance, min_distance, max_count, level_id, filled }
+--- @param opts table { max_distance, min_distance, max_count, level_id, filled, source }
+---   source: optional { [stash_id] = anything } iterable. When present, replaces treasure_manager.caches
+---   as the iteration set; only keys are consumed. Use AlifePlus ap_core_cache.stashes_on_level(level_id)
+---   to fetch a per-level bucket. When the cache is in its build warmup window, that helper returns nil;
+---   the caller should gate on nil and skip the call rather than fall through to the global walk.
 --- @return table Array of stash {id, position, filled}
 function find_stashes(pos, opts)
     if not pos or not opts or not opts.max_distance then return {} end
     if not treasure_manager or not treasure_manager.caches then return {} end
+
+    local pool = opts.source or treasure_manager.caches
+    local caches = treasure_manager.caches
 
     local max_dist_sqr = opts.max_distance * opts.max_distance
     local min_dist_sqr = (opts.min_distance or 0) ^ 2
@@ -41,7 +51,9 @@ function find_stashes(pos, opts)
 
     local candidates = {}
 
-    for stash_id, state in pairs(treasure_manager.caches) do
+    for stash_id in pairs(pool) do
+        local state = caches[stash_id]
+        if state == nil then goto next_stash end
         if player_stashes and player_stashes[stash_id] then goto next_stash end
         local is_filled = type(state) == "string"
         if filter_filled ~= nil and is_filled ~= filter_filled then goto next_stash end
