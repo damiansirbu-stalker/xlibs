@@ -235,6 +235,28 @@ function accepts_faction(smart, faction)
     return props[faction] and props[faction] > 0 or false
 end
 
+--- Get the faction (player_id) a squad section produces
+--- Reads the `faction` field from the squad's INI definition in configs/misc/squad_descr/.
+--- This is the same string that ends up as squad.player_id after SIMBOARD:create_squad,
+--- and the same string xcreature.community returns for a live squad spawned from this section.
+--- Coarse vocabulary: stalker factions ("bandit", "stalker", "dolg", ...) and monster_*
+--- categories ("monster_predatory_day", "monster_special", "monster_zombied_night", ...).
+--- No species-level granularity -- the section's npc_random field holds the species pool.
+--- Use this to classify a smart's respawn_params.squads pool by what it will spawn.
+--- @scope global - reads ini_sys (system.ltx merged INI); section metadata is static
+--- @safety SAFE - returns nil when section missing or has no faction field
+--- @cost O(1) | 1 luabind medium (ini_sys:r_string_ex: section lookup + field read, shared_str return)
+--- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx, anomaly/configs/misc/squad_descr/squad_descr_default_stalkers.ltx
+--- @src anomaly/sim_board.script create_squad sets squad.player_id from the section's faction field
+--- @param section string Squad section name (e.g. "simulation_dog", "bandit_sim_squad_novice")
+--- @return string|nil Faction the squad will have (e.g. "monster_predatory_day", "bandit"), or nil
+function section_faction(section)
+    if not section then return nil end
+    local faction = ini_sys:r_string_ex(section, "faction")
+    if not faction or faction == "" then return nil end
+    return faction
+end
+
 --- Get all stalker factions accepted by smart terrain
 --- Builds {[faction]=true} from props keys with value >0; cached per smart.id (props are static INI)
 --- @scope global - smart.props from simulation_objects_props.ltx
@@ -311,17 +333,22 @@ function get_smart_squads(smart_id)
 end
 
 --- Find nearest smart terrain matching criteria
---- Iterates smarts_by_names; cheapest filters first (exclude_id, factions, level_id), distance_to_sqr last
---- @scope global - iterates SIMBOARD.smarts_by_names across all levels. Per-candidate scope depends on
---- the filter caller provides (e.g. has_animated_stalker_jobs narrows to level scope, has_campfire to online scope, is_base global)
+--- Iterates opts.source (when provided) or SIMBOARD.smarts_by_names; cheapest filters first (exclude_id, factions, level_id), distance_to_sqr last
+--- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.smarts_by_names across all levels.
+--- Per-candidate scope depends on the filter caller provides (e.g. has_animated_stalker_jobs narrows to level scope,
+--- has_campfire to online scope, is_base global)
 --- @safety SAFE - nil-guarded; xlevel.get_level_id uses pcall internally
---- @cost O(n) smarts | per non-filtered smart: 1 luabind trivial (distance_to_sqr inline math); cheaper filters (exclude_id, factions, level_id) gate before distance
+--- @cost O(n) smarts in pool | per non-filtered smart: 1 luabind trivial (distance_to_sqr inline math); cheaper filters (exclude_id, factions, level_id) gate before distance
 --- @src anomaly/sim_board.script(96), anomaly/simulation_objects.script(117)
 --- @param pos vector Position to search from
---- @param opts table { level_id, factions, min_distance, max_distance, exclude_id, filter }
+--- @param opts table { level_id, factions, min_distance, max_distance, exclude_id, filter, source }
+---   source: optional { [k] = smart, ... } iterable. When present, replaces SIMBOARD.smarts_by_names as the iteration pool.
+---   Use AlifePlus ap_core_cache.smarts_on_level(level_id) to fetch a per-level bucket.
 --- @return smart_terrain|nil Nearest matching smart
 function find_smart(pos, opts)
-    if not pos or not opts or not SIMBOARD or not SIMBOARD.smarts_by_names then return nil end
+    if not pos or not opts then return nil end
+    local pool = opts.source or (SIMBOARD and SIMBOARD.smarts_by_names)
+    if not pool then return nil end
 
     local level_id = opts.level_id
     local exclude_id = opts.exclude_id
@@ -337,7 +364,7 @@ function find_smart(pos, opts)
     if opts.max_distance then max_dist_sqr = opts.max_distance * opts.max_distance end
     local best, best_dist = nil, max_dist_sqr
 
-    for _, smart in pairs(SIMBOARD.smarts_by_names) do
+    for _, smart in pairs(pool) do
         if not smart or not smart.position then goto continue end
         if exclude_id and smart.id == exclude_id then goto continue end
         if factions_check and not factions_check(smart, factions) then goto continue end
@@ -367,22 +394,25 @@ end
 --- Find the first smart matching criteria (no distance ranking)
 --- Distance-free variant of find_smart for cases where caller has no meaningful position
 --- (e.g. picking a destination from a different level's coordinate frame). Iterates in
---- SIMBOARD.smarts_by_names hash order; deterministic per session, but no spatial preference.
+--- pool hash order; deterministic per session, but no spatial preference.
 --- Use find_smart when the caller has a comparable position; use this when "any matching" is enough.
---- @scope global - iterates SIMBOARD.smarts_by_names across all levels
+--- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.smarts_by_names across all levels.
 --- @safety SAFE - nil-guarded; xlevel.get_level_id uses pcall internally
---- @cost O(n) smarts worst case (early exit on first match) | 0 luabind on filter-less hit
+--- @cost O(n) smarts in pool, worst case (early exit on first match) | 0 luabind on filter-less hit
 --- @src anomaly/sim_board.script(96)
---- @param opts table { level_id, factions, exclude_id, filter }
+--- @param opts table { level_id, factions, exclude_id, filter, source }
+---   source: optional { [k] = smart, ... } iterable. When present, replaces SIMBOARD.smarts_by_names as the iteration pool.
 --- @return smart_terrain|nil First matching smart, or nil if none
 function find_first_smart(opts)
-    if not opts or not SIMBOARD or not SIMBOARD.smarts_by_names then return nil end
+    if not opts then return nil end
+    local pool = opts.source or (SIMBOARD and SIMBOARD.smarts_by_names)
+    if not pool then return nil end
     local factions = opts.factions
     local factions_check
     if factions then
         if type(factions) == "table" then factions_check = has_factions else factions_check = has_faction end
     end
-    for _, smart in pairs(SIMBOARD.smarts_by_names) do
+    for _, smart in pairs(pool) do
         if _smart_matches(smart, opts.exclude_id, factions, factions_check, opts.level_id, opts.filter) then
             return smart
         end
