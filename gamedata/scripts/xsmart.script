@@ -371,6 +371,30 @@ function get_smart_squads(smart_id)
     return data.squads
 end
 
+--- Check if any squad of given faction is at smart (optionally excluding one id)
+--- Iterates SIMBOARD.smarts[id].squads via get_smart_squads, short-circuits on first match.
+--- Uses squad.player_id field read (1 luabind trivial) not get_squad_community() (1 luabind heavy: string alloc).
+--- @scope global - SIMBOARD.smarts; AP moves truthful via two-hook assign_squad_to_smart in ap_core_broker
+--- @safety SAFE - pure Lua, nil-guarded at every level
+--- @cost O(n) squads at smart, short-circuits | best 0, common 1-2 luabind, worst N luabind (medium alife_object + trivial player_id) per same-faction-absent squad
+--- @src anomaly/sim_board.script(96,258), xray/alife_object_registry_inline.h(36)
+--- @param smart_id number Smart terrain server entity ID
+--- @param faction string Engine player_id / community string
+--- @param exclude_id number|nil Squad id to skip (typically the candidate itself)
+--- @return boolean True when at least one matching squad found
+function has_squad_of_faction(smart_id, faction, exclude_id)
+    if not faction then return false end
+    local squads = get_smart_squads(smart_id)
+    if not squads then return false end
+    for id in pairs(squads) do
+        if id == exclude_id then goto continue end
+        local se = alife_object(id)
+        if se and se.player_id == faction then return true end
+        ::continue::
+    end
+    return false
+end
+
 --- Find nearest smart terrain matching criteria
 --- Iterates opts.source (when provided) or SIMBOARD.smarts_by_names; cheapest filters first (exclude_id, factions, level_id), distance_to_sqr last
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.smarts_by_names across all levels.
