@@ -1,0 +1,174 @@
+--- xsound: looping sound wrap (handle API, Lua volume lerp, lazy actor_on_update)
+
+local _NEXT_HANDLE = 1
+local _active = {}
+local _registered = false
+local _last_tick = 0
+local TICK_MS = 100
+
+local sound_object_t = sound_object
+local pairs, next = pairs, next
+local math_abs = math.abs
+
+--- Verified-safe sound paths. Sourced from vanilla scripts and configs/misc/sound/*.ltx.
+--- Usage: xsound.acquire(xsound.SND.PSY_ANTENNA_L, { volume = 0.7 })
+--- Missing paths play silently (no fatal error like .ppe), but waste a handle slot.
+SND = {
+    -- psy / horror whispers (stereo: pair _L + _R for in-head effect)
+    PSY_ANTENNA_L     = "anomaly\\psy_antenna_voices_1_l",  -- sr_psy_antenna.script:42
+    PSY_ANTENNA_R     = "anomaly\\psy_antenna_voices_1_r",  -- sr_psy_antenna.script:42
+    PSI_STORM         = "anomaly\\psi_storm_01",            -- psi_storm_manager.script:384
+    EMI_BLOWOUT       = "anomaly\\emi_blowout",             -- bind_anomaly_field.script:283
+    EMI_BLOWOUT_FAR   = "anomaly\\emi_blowout_01",          -- bind_anomaly_field.script:284
+    TINNITUS          = "affects\\tinnitus3a",              -- sr_teleport.script:52
+    -- ambient horror
+    EARTHQUAKE        = "ambient\\earthquake",              -- script_sound.ltx
+    ORGANIC_MOAN      = "ambient\\organic_moan1",           -- script_sound.ltx
+    MONOLITH_HUM      = "ambient\\monolith_1",              -- script_sound.ltx
+    WARLAB_NOISE      = "ambient\\warlab_pod_noise",        -- script_sound.ltx
+    NOOS_TUNNEL       = "ambient\\noos_tunnel_1",           -- script_sound.ltx
+    RADAR_1           = "ambient\\radar_1",                 -- script_sound.ltx
+    RADAR_2           = "ambient\\radar_2",                 -- script_sound.ltx
+    LIGHT_HUMMING     = "ambient\\special\\light_humming",  -- bind_dynamic_light.script:70
+}
+
+--- Step current toward target by smoothing per second
+--- @cost O(1) | 0 luabind
+local function _step(current, target, smoothing, dt_sec)
+    local delta = smoothing * dt_sec
+    if math_abs(target - current) <= delta then return target end
+    if current < target then return current + delta end
+    return current - delta
+end
+
+--- Per-frame volume lerp + auto-cleanup on releasing handles reaching 0
+--- @cost O(n_active) | 0 luabind (sound_object.volume is property assign)
+local function _tick()
+    local now = time_global()
+    if now - _last_tick < TICK_MS then return end
+    local dt_sec = (now - _last_tick) / 1000
+    _last_tick = now
+
+    for handle, entry in pairs(_active) do
+        if entry.volume ~= entry.target_volume then
+            entry.volume = _step(entry.volume, entry.target_volume, entry.smoothing, dt_sec)
+            entry.sound.volume = entry.volume
+        end
+        if entry.releasing and entry.volume <= 0.001 then
+            entry.sound:stop()
+            _active[handle] = nil
+        end
+    end
+
+    if next(_active) == nil and _registered then
+        UnregisterScriptCallback("actor_on_update", _tick)
+        _registered = false
+    end
+end
+
+local function _ensure_registered()
+    if _registered then return end
+    _last_tick = time_global()
+    RegisterScriptCallback("actor_on_update", _tick)
+    _registered = true
+end
+
+--- Acquire a sound handle. Plays the sound at volume 0; call set_volume(handle, target) to ramp up.
+--- @safety SAFE - guards db.actor, returns nil if sound_object constructor fails
+--- @cost O(1) | 1 luabind heavy (sound_object ctor + play_at_pos)
+--- @src xray/xrGame/script_sound_script.cpp sound_object bindings
+--- @param snd_path string Sound path (e.g. xsound.SND.PSY_ANTENNA_L), backslashes
+--- @param opts table|nil { looped (default true), s2d (default true), position (vector), smoothing (default 1.0) }
+--- @return number|nil handle
+function acquire(snd_path, opts)
+    if not db.actor then return nil end
+    opts = opts or {}
+    local snd = sound_object_t(snd_path)
+    if not snd then return nil end
+
+    local looped = opts.looped ~= false
+    local s2d    = opts.s2d ~= false
+    local flags  = s2d and sound_object_t.s2d or sound_object_t.s3d
+    if looped then flags = flags + sound_object_t.looped end
+
+    local pos = opts.position or vector():set(0, 0, 0)
+    snd:play_at_pos(db.actor, pos, 0, flags)
+    snd.volume = 0
+
+    local handle = _NEXT_HANDLE
+    _NEXT_HANDLE = _NEXT_HANDLE + 1
+    _active[handle] = {
+        sound         = snd,
+        path          = snd_path,
+        volume        = 0,
+        target_volume = 0,
+        smoothing     = opts.smoothing or 1.0,
+        releasing     = false,
+    }
+    _ensure_registered()
+    return handle
+end
+
+--- Set the target volume. Lerp drives current volume toward target each tick (100ms).
+--- @safety SAFE - rejects unknown or already-releasing handles
+--- @cost O(1) | 0 luabind (state write)
+--- @param handle number Handle from acquire()
+--- @param target number Target volume, clamped to [0, 1]
+--- @param smoothing number|nil Override smoothing for this transition (units/sec)
+--- @return boolean ok
+function set_volume(handle, target, smoothing)
+    local entry = _active[handle]
+    if not entry or entry.releasing then return false end
+    if target < 0 then target = 0 elseif target > 1 then target = 1 end
+    entry.target_volume = target
+    if smoothing then entry.smoothing = smoothing end
+    return true
+end
+
+--- Release the handle. Ramps volume to 0, then stops the sound and frees.
+--- @safety SAFE - no-op on unknown or already-releasing handle
+--- @cost O(1) | 0 luabind (state flag; stop happens on lerp completion)
+--- @param handle number Handle
+--- @return boolean ok
+function release(handle)
+    local entry = _active[handle]
+    if not entry or entry.releasing then return false end
+    entry.releasing     = true
+    entry.target_volume = 0
+    return true
+end
+
+--- Check if a handle is still tracked (not yet stopped by the lerp)
+--- @cost O(1) | 0 luabind
+function is_active(handle)
+    return _active[handle] ~= nil
+end
+
+--- Snapshot of a handle's state (for diagnostics)
+--- @cost O(1) | 0 luabind
+function inspect(handle)
+    local entry = _active[handle]
+    if not entry then return nil end
+    return {
+        path          = entry.path,
+        volume        = entry.volume,
+        target_volume = entry.target_volume,
+        smoothing     = entry.smoothing,
+        releasing     = entry.releasing,
+    }
+end
+
+--- Reset all state on save load. Stops any playing sounds we still hold.
+function on_game_start()
+    for _, entry in pairs(_active) do
+        if entry.sound and entry.sound:playing() then
+            entry.sound:stop()
+        end
+    end
+    _active = {}
+    if _registered then
+        UnregisterScriptCallback("actor_on_update", _tick)
+        _registered = false
+    end
+    _NEXT_HANDLE = 1
+end

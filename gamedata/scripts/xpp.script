@@ -1,0 +1,147 @@
+--- xpp: post-process effector wrap (slot allocator, engine-smoothed factor, handle API)
+
+local _NEXT_SLOT = 4000
+local _active = {}
+
+local level = level
+
+--- Verified-safe .ppe filenames. All 35 entries tested 2026-05-19 in GAMMA install.
+--- Sourced from postprocess.ltx and vanilla scripts; see doc/library/modding/post-process-effectors.md.
+--- Usage: xpp.acquire(xpp.PPE.PSY_ANTENNA, { smoothing = 0.5 })
+--- Engine fatal-errors on missing .ppe (PostprocessAnimator.cpp:80), not catchable via pcall.
+PPE = {
+    -- psi / horror
+    PSI                  = "psi.ppe",
+    PSY_ANTENNA          = "psy_antenna.ppe",
+    PSYCHIC              = "psychic.ppe",
+    CONTROLLER_HIT       = "controller_hit.ppe",
+    POLTERGEIST_SCAN     = "poltergeist_scan.ppe",
+    -- damage washes
+    BLOODY               = "bloody.ppe",
+    DEATH                = "death.ppe",
+    ACTOR_DEATH          = "actor_death.ppe",
+    AMK_SHOOT            = "amk_shoot.ppe",
+    SND_SHOCK            = "snd_shock.ppe",
+    -- anomalies
+    RADIATION            = "radiation.ppe",
+    FLAME                = "flame.ppe",
+    ACIDIC               = "acidic.ppe",
+    ACIDIC_MINE          = "acidic_mine.ppe",
+    THERMAL              = "thermal.ppe",
+    THERMAL_MINE         = "thermal_mine.ppe",
+    STEAM_MINE           = "steam_mine.ppe",
+    GRAVI                = "gravi.ppe",
+    GRAVI_MINE           = "gravi_mine.ppe",
+    ELECTRA              = "electra.ppe",
+    ELECTRA_MINE         = "electra_mine.ppe",
+    MOSQUITO_BALD        = "mosquito_bald.ppe",
+    -- distortion
+    ALCOHOL              = "alcohol.ppe",
+    BLUR                 = "blur.ppe",
+    TOTAL_RECALL         = "total_recall.ppe",
+    DEIMOS               = "deimos.ppe",
+    -- fade / blackout
+    BLACK                = "black.ppe",
+    BLACK_INFINITE       = "black_infinite.ppe",
+    BLINK                = "blink.ppe",
+    BRIGHTEN             = "brighten.ppe",
+    FADE_IN              = "fade_in.ppe",
+    FADE_OUT             = "fade_out.ppe",
+    FADE_IN_OUT          = "fade_in_out.ppe",
+    FADE_TO_BLACK_9_SEC  = "fade_to_black_9_sec.ppe",
+    AGR_U_FADE           = "agr_u_fade.ppe",
+}
+
+--- Acquire a post-process effector slot. Returns handle (slot id) or nil if no actor.
+--- Engine renders the .ppe at default factor (curve max) immediately on add. Call
+--- set_target(handle, value) right after acquire to drive factor to your starting value.
+--- @safety SAFE - guards db.actor before engine call (level.add_pp_effector crashes without actor)
+--- @cost O(1) | 1 luabind heavy (xr_new<CPostprocessAnimator> + Load + AddPPEffector)
+--- @src xray/xrGame/level_script.cpp(987) add_pp_effector
+--- @param ppe_name string Filename relative to gamedata/anims/ (e.g. "psy_antenna.ppe")
+--- @param opts table|nil { cyclic = bool (default true), smoothing = number (default 0.3) }
+--- @return number|nil handle
+function acquire(ppe_name, opts)
+    if not db.actor then return nil end
+    opts = opts or {}
+    local cyclic = opts.cyclic ~= false
+    local slot = _NEXT_SLOT
+    _NEXT_SLOT = _NEXT_SLOT + 1
+    level.add_pp_effector(ppe_name, slot, cyclic)
+    _active[slot] = {
+        ppe = ppe_name,
+        smoothing = opts.smoothing or 0.3,
+        cyclic = cyclic,
+        releasing = false,
+    }
+    return slot
+end
+
+--- Set the target factor. Engine smooths internally at `smoothing` (factor units per second).
+--- The 3-arg form calls SetDesiredFactor in the engine; no Lua tick needed.
+--- @safety SAFE - rejects unknown or already-releasing handles
+--- @cost O(1) | 1 luabind trivial (smart_cast + SetDesiredFactor)
+--- @src xray/xrGame/level_script.cpp(1001) set_pp_effector_factor 3-arg
+--- @param handle number Slot id from acquire()
+--- @param value number Target factor, clamped to [0, 1]
+--- @param smoothing number|nil Override smoothing for this transition
+--- @return boolean ok
+function set_target(handle, value, smoothing)
+    local entry = _active[handle]
+    if not entry or entry.releasing then return false end
+    if value < 0 then value = 0 elseif value > 1 then value = 1 end
+    local rate = smoothing or entry.smoothing
+    level.set_pp_effector_factor(handle, value, rate)
+    return true
+end
+
+--- Release the slot. Ramps factor to 0 via engine smoothing, then removes the effector
+--- on a CreateTimeEvent timer (delay = 1/smoothing + 0.5s buffer).
+--- @safety SAFE - no-op on unknown or already-releasing handle
+--- @cost O(1) | 1 luabind (set_pp_effector_factor) + deferred 1 luabind (remove_pp_effector)
+--- @src xray/xrGame/level_script.cpp(994) remove_pp_effector
+--- @param handle number Slot id
+--- @return boolean ok
+function release(handle)
+    local entry = _active[handle]
+    if not entry or entry.releasing then return false end
+    entry.releasing = true
+    local rate = entry.smoothing
+    level.set_pp_effector_factor(handle, 0, rate)
+    local slot = handle
+    local delay = 1 / rate + 0.5
+    CreateTimeEvent("xpp", "release_" .. slot, delay, function()
+        if _active[slot] then
+            level.remove_pp_effector(slot)
+            _active[slot] = nil
+        end
+        return true
+    end)
+    return true
+end
+
+--- Check if a handle is still tracked (not yet removed by the release timer)
+--- @cost O(1) | 0 luabind
+--- @param handle number Slot id from acquire()
+--- @return boolean True while the handle is registered in _active
+function is_active(handle)
+    return _active[handle] ~= nil
+end
+
+--- Snapshot of a slot's state (for diagnostics)
+--- @cost O(1) | 0 luabind
+--- @param handle number Slot id from acquire()
+--- @return table|nil { ppe, smoothing, cyclic, releasing } or nil if handle unknown
+function inspect(handle)
+    local entry = _active[handle]
+    if not entry then return nil end
+    return { ppe = entry.ppe, smoothing = entry.smoothing, cyclic = entry.cyclic, releasing = entry.releasing }
+end
+
+--- Reset all state on save load. Engine wipes its effectors on level change anyway,
+--- so we just clear our handle table. Pending CreateTimeEvent timers don't survive
+--- the load cycle in Anomaly.
+function on_game_start()
+    _active = {}
+    _NEXT_SLOT = 4000
+end
