@@ -237,27 +237,6 @@ function community(input)
     return alife_character_community(entity)
 end
 
---- Food-chain tier classifications. Species sets per behavioral tier.
---- Tier 0 cowardly: timid, flees danger, swarm-trash. Tier 1 feral: pack/herd, reactive.
---- Tier 2 predator: solitary hunters, ambush. Tier 3 aberrant: psychic, lair-bound.
---- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx, GSC monstry.doc creature groups
-SPECIES_COWARDLY = { flesh = true, zombie = true, tushkano = true, rat = true, karlik = true }
-SPECIES_FERAL = { dog = true, pseudodog = true, boar = true, snork = true, cat = true, gigant = true }
-SPECIES_PREDATOR = { lurker = true, bloodsucker = true, psysucker = true, chimera = true, fracture = true }
-SPECIES_ABERRANT = { controller = true, burer = true, poltergeist = true, psy_dog = true }
-
---- Check if input is a cowardly-tier mutant (flesh, zombie, tushkano, rat, karlik)
---- Resolves species via get_mutant_species, then table lookup. Stalkers and non-mutants return false.
---- @safety SAFE - delegates to get_mutant_species which nil-guards throughout
---- @cost O(1) | 0 luabind cached, 5 luabind on miss (clsid + commander_id + alife_object + cmd:clsid via get_mutant_species)
---- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx
---- @param input squad|cse_alife_object|game_object|number Entity reference
---- @return boolean True if mutant of cowardly tier
-function is_cowardly_species(input)
-    local species = get_mutant_species(input)
-    return species and SPECIES_COWARDLY[species] or false
-end
-
 -- Mutant section prefix -> display name (inv_name often missing for mutants)
 local MUTANT_NAMES = {
     gigant = "Pseudogiant",
