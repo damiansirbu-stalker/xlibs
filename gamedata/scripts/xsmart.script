@@ -1,7 +1,8 @@
 --- xsmart: Smart terrain queries and checks
 
-local pairs, next, type, alife_object, tostring = pairs, next, type, alife_object, tostring
-local pcall, math, table = pcall, math, table
+local pairs, ipairs, next, type, alife_object, tostring = pairs, ipairs, next, type, alife_object, tostring
+local pcall, math, table, tonumber = pcall, math, table, tonumber
+local string_match = string.match
 local xsquad, xlevel = xsquad, xlevel
 
 --- Stalker faction community names used as props keys in simulation_objects_props.ltx
@@ -11,6 +12,7 @@ local STALKER_FACTIONS = {
 }
 local _factions_cache = {}
 local _section_faction_cache = {}
+local _section_npc_max_cache = {}
 local ANOMALY_RADIUS_SQR = 2500
 
 JOB_TYPE_GENERIC_POINT = 0
@@ -264,6 +266,36 @@ function section_faction(section)
     return faction
 end
 
+--- Get the upper bound of a squad section's npc_in_squad field
+--- Parses "X, Y" returning Y (range upper) or "X" returning X. 0 when section missing or
+--- field absent. Pairs with section_faction for inspecting squad_descr sections: this
+--- returns "how many NPCs can spawn at most", section_faction returns "what faction they belong to".
+--- @safety SAFE - returns 0 when section missing, has no npc_in_squad field, or value unparseable
+--- @cost O(1) | 0 luabind cached, 1 luabind heavy on miss (ini_sys:r_string_ex: LTX section lookup + string alloc) + 1-2 pure-Lua regex matches
+--- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx, anomaly/configs/misc/squad_descr/squad_descr_default_stalkers.ltx
+--- @src anomaly/sim_board.script(149) create_squad reads npc_in_squad upper as the population cap
+--- @param section string Squad section name (e.g. "simulation_boar_3_5", "bandit_sim_squad_novice")
+--- @return number Upper bound of npc_in_squad, or 0 when section/field missing
+function get_section_npc_max(section)
+    if not section then return 0 end
+    local cached = _section_npc_max_cache[section]
+    if cached ~= nil then return cached end
+    local raw = ini_sys:r_string_ex(section, "npc_in_squad")
+    if not raw or raw == "" then
+        _section_npc_max_cache[section] = 0
+        return 0
+    end
+    local _, high = string_match(raw, "(%d+)%s*,%s*(%d+)")
+    local result
+    if high then
+        result = tonumber(high) or 0
+    else
+        result = tonumber(string_match(raw, "(%d+)")) or 0
+    end
+    _section_npc_max_cache[section] = result
+    return result
+end
+
 --- Get all stalker factions accepted by smart terrain
 --- Builds {[faction]=true} from props keys with value >0; cached per smart.id (props are static INI)
 --- @scope global - smart.props from simulation_objects_props.ltx
@@ -427,6 +459,50 @@ function find_first_smart(opts)
     return nil
 end
 
+-- Any section in recipe.squads has section_faction equal to faction? Short-circuits on match.
+-- @cost O(Q) sections per recipe (~1-5) | 0 luabind cached per section, else 1 luabind heavy via section_faction
+local function _recipe_has_faction(recipe, faction)
+    if not recipe.squads then return false end
+    for _, section in ipairs(recipe.squads) do
+        if section_faction(section) == faction then return true end
+    end
+    return false
+end
+
+-- Any recipe in smart.respawn_params produces this faction? Short-circuits on first matching recipe.
+-- @cost O(R*Q) recipes * sections | luabind via _recipe_has_faction (cached after first read per section)
+local function _smart_has_faction_recipe(smart, faction)
+    if not smart.respawn_params then return false end
+    for _, recipe in pairs(smart.respawn_params) do
+        if _recipe_has_faction(recipe, faction) then return true end
+    end
+    return false
+end
+
+--- Find all smart terrains on a level whose recipes can spawn the given faction
+--- Walks SIMBOARD.smarts once; filters by xlevel.get_level_id == level_id then by recipe-content
+--- via section_faction match. Returns smart objects directly (caller extracts .id if needed);
+--- smart terrains are not released mid-session so the references stay valid for the session.
+--- @safety SAFE - nil-guarded; returns empty array when SIMBOARD missing or no matches
+--- @cost O(S*R*Q) smarts * recipes * sections (R,Q typically 1-5) | 1 luabind trivial per smart (xlevel.get_level_id cached); section_faction cached per section
+--- @src anomaly/sim_board.script(96) SIMBOARD.smarts, anomaly/smart_terrain.script(1681-1700) respawn_params shape
+--- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx
+--- @param level_id number Engine level ID
+--- @param faction string Faction community ("bandit", "monster_predatory_day", "stalker", ...)
+--- @return table Array of smart_terrain server objects on the level whose recipes produce faction (empty if none)
+function find_smarts_with_recipe(level_id, faction)
+    local out = {}
+    if not level_id or not faction then return out end
+    if not SIMBOARD or not SIMBOARD.smarts then return out end
+    for _, rec in pairs(SIMBOARD.smarts) do
+        local smart = rec.smrt
+        if smart and xlevel.get_level_id(smart) == level_id and _smart_has_faction_recipe(smart, faction) then
+            out[#out + 1] = smart
+        end
+    end
+    return out
+end
+
 --- Check if squad has arrived at smart terrain
 --- Delegates to engine's am_i_reached: same game vertex -> true, different level -> false, distance <= arrive_dist^2
 --- @scope global - engine method on server entity, cross-level safe (returns false for different-level case)
@@ -475,14 +551,15 @@ function get_proximity(squad, smart)
 end
 
 --- Check if smart terrain has capacity for more squads
---- Counts SIMBOARD.smarts[id].squads (sim-routing intent — written by on_reach_target at
---- target-selection, not at physical arrival) + incoming vs max_population; scripted_target
---- movements bypass SIMBOARD bookkeeping (sim_squad_scripted:assign_smart never calls
---- SIMBOARD:assign_squad_to_smart) so this measures sim intent, not physical occupancy
+--- Counts SIMBOARD.smarts[id].squads (squad-at-smart membership) + incoming vs
+--- max_population. Roster is written by vanilla on_reach_target after physical arrival
+--- (sim_squad_scripted.script:319,382,393) and by AlifePlus at _commit_arrival
+--- (ap_core_broker.script). Externally-scripted moves by mods that set scripted_target
+--- without funneling through AlifePlus still bypass SIMBOARD bookkeeping.
 --- @scope global - SIMBOARD.smarts + smart.max_population; works cross-level
 --- @safety SAFE - nil guards, returns true when data unavailable (safe default = allow)
 --- @cost O(k) squads at smart | 0 luabind without faction filter (pure Lua count); 2 luabind heavy per squad with faction filter (alife_object medium + get_squad_community heavy shared_str)
---- @src anomaly/smart_terrain.script(1469-1480) on_reach_target, anomaly/sim_squad_scripted.script(517-540) bypass, anomaly/sim_board.script(226-266) assign_squad_to_smart
+--- @src anomaly/smart_terrain.script(1469-1480) on_reach_target, anomaly/sim_board.script(226-266) assign_squad_to_smart, AlifePlus/ap_core_broker.script _commit_arrival
 --- @param smart smart_terrain Smart terrain to check
 --- @param faction string|nil Faction to count (nil = all factions)
 --- @param incoming number|nil Count of in-transit squads to add (default 0)
