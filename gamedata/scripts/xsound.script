@@ -7,33 +7,40 @@ local _last_tick = 0
 local TICK_MS = 100
 
 local sound_object_t = sound_object
+local time_global = time_global
 local pairs, next = pairs, next
 local math_abs = math.abs
 
 --- Verified-safe sound paths. Sourced from vanilla scripts and configs/misc/sound/*.ltx.
 --- Usage: xsound.acquire(xsound.SND.PSY_ANTENNA_L, { volume = 0.7 })
 --- Missing paths play silently (no fatal error like .ppe), but waste a handle slot.
+--- @src anomaly/sr_psy_antenna.script(42): PSY_ANTENNA_L, PSY_ANTENNA_R
+--- @src anomaly/psi_storm_manager.script(384): PSI_STORM
+--- @src anomaly/bind_anomaly_field.script(283-284): EMI_BLOWOUT, EMI_BLOWOUT_FAR
+--- @src anomaly/sr_teleport.script(52): TINNITUS
+--- @src anomaly/configs/misc/script_sound.ltx: EARTHQUAKE, ORGANIC_MOAN, MONOLITH_HUM, WARLAB_NOISE, NOOS_TUNNEL, RADAR_1, RADAR_2
+--- @src anomaly/bind_dynamic_light.script(70): LIGHT_HUMMING
 SND = {
     -- psy / horror whispers (stereo: pair _L + _R for in-head effect)
-    PSY_ANTENNA_L     = "anomaly\\psy_antenna_voices_1_l",  -- sr_psy_antenna.script:42
-    PSY_ANTENNA_R     = "anomaly\\psy_antenna_voices_1_r",  -- sr_psy_antenna.script:42
-    PSI_STORM         = "anomaly\\psi_storm_01",            -- psi_storm_manager.script:384
-    EMI_BLOWOUT       = "anomaly\\emi_blowout",             -- bind_anomaly_field.script:283
-    EMI_BLOWOUT_FAR   = "anomaly\\emi_blowout_01",          -- bind_anomaly_field.script:284
-    TINNITUS          = "affects\\tinnitus3a",              -- sr_teleport.script:52
+    PSY_ANTENNA_L     = "anomaly\\psy_antenna_voices_1_l",
+    PSY_ANTENNA_R     = "anomaly\\psy_antenna_voices_1_r",
+    PSI_STORM         = "anomaly\\psi_storm_01",
+    EMI_BLOWOUT       = "anomaly\\emi_blowout",
+    EMI_BLOWOUT_FAR   = "anomaly\\emi_blowout_01",
+    TINNITUS          = "affects\\tinnitus3a",
     -- ambient horror
-    EARTHQUAKE        = "ambient\\earthquake",              -- script_sound.ltx
-    ORGANIC_MOAN      = "ambient\\organic_moan1",           -- script_sound.ltx
-    MONOLITH_HUM      = "ambient\\monolith_1",              -- script_sound.ltx
-    WARLAB_NOISE      = "ambient\\warlab_pod_noise",        -- script_sound.ltx
-    NOOS_TUNNEL       = "ambient\\noos_tunnel_1",           -- script_sound.ltx
-    RADAR_1           = "ambient\\radar_1",                 -- script_sound.ltx
-    RADAR_2           = "ambient\\radar_2",                 -- script_sound.ltx
-    LIGHT_HUMMING     = "ambient\\special\\light_humming",  -- bind_dynamic_light.script:70
+    EARTHQUAKE        = "ambient\\earthquake",
+    ORGANIC_MOAN      = "ambient\\organic_moan1",
+    MONOLITH_HUM      = "ambient\\monolith_1",
+    WARLAB_NOISE      = "ambient\\warlab_pod_noise",
+    NOOS_TUNNEL       = "ambient\\noos_tunnel_1",
+    RADAR_1           = "ambient\\radar_1",
+    RADAR_2           = "ambient\\radar_2",
+    LIGHT_HUMMING     = "ambient\\special\\light_humming",
 }
 
---- Step current toward target by smoothing per second
---- @cost O(1) | 0 luabind
+-- Step current toward target by smoothing per second
+-- @cost O(1) | 0 luabind
 local function _step(current, target, smoothing, dt_sec)
     local delta = smoothing * dt_sec
     if math_abs(target - current) <= delta then return target end
@@ -41,8 +48,8 @@ local function _step(current, target, smoothing, dt_sec)
     return current - delta
 end
 
---- Per-frame volume lerp + auto-cleanup on releasing handles reaching 0
---- @cost O(n_active) | 0 luabind (sound_object.volume is property assign)
+-- Per-frame volume lerp + auto-cleanup on releasing handles reaching 0
+-- @cost O(n_active) | 0 luabind (sound_object.volume is property assign)
 local function _tick()
     local now = time_global()
     if now - _last_tick < TICK_MS then return end
@@ -66,6 +73,8 @@ local function _tick()
     end
 end
 
+-- Register the actor_on_update callback on first acquire; idempotent on later calls
+-- @cost O(1) | 1 luabind (RegisterScriptCallback) on cold register, 0 luabind on hot path
 local function _ensure_registered()
     if _registered then return end
     _last_tick = time_global()
@@ -73,7 +82,8 @@ local function _ensure_registered()
     _registered = true
 end
 
---- Acquire a sound handle. Plays the sound at volume 0; call set_volume(handle, target) to ramp up.
+--- Acquire a sound handle for a looping sound. Plays the sound immediately at volume 0 so the handle is live.
+--- Caller ramps the audible volume via set_volume(handle, target); release(handle) lerps back to 0 and frees the slot.
 --- @safety SAFE - guards db.actor, returns nil if sound_object constructor fails
 --- @cost O(1) | 1 luabind heavy (sound_object ctor + play_at_pos)
 --- @src xray/xrGame/script_sound_script.cpp sound_object bindings
@@ -138,14 +148,18 @@ function release(handle)
     return true
 end
 
---- Check if a handle is still tracked (not yet stopped by the lerp)
---- @cost O(1) | 0 luabind
+--- Check if a handle is still tracked. Tracking ends when release()'s lerp finishes.
+--- @cost O(1) | 0 luabind (hash table lookup)
+--- @param handle number Handle from acquire()
+--- @return boolean True while the handle has an entry in _active
 function is_active(handle)
     return _active[handle] ~= nil
 end
 
---- Snapshot of a handle's state (for diagnostics)
---- @cost O(1) | 0 luabind
+--- Snapshot of a handle's state for diagnostics. Pure read, does not affect lerp or scheduling.
+--- @cost O(1) | 0 luabind (hash lookup + table copy of small fields)
+--- @param handle number Handle from acquire()
+--- @return table|nil { path, volume, target_volume, smoothing, releasing }, nil for unknown handle
 function inspect(handle)
     local entry = _active[handle]
     if not entry then return nil end

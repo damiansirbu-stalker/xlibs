@@ -1,7 +1,10 @@
-next
-  Summary: per-level fast-path scans, squad gate reorder, gvid guard, section_faction cache
+1.5.2
+  Summary: per-level fast-path scans, squad gate reorder, gvid guard, section_faction cache, recipe primitives, xpp and xsound modules
   xsmart:
     Added: opts.source on find_smart and find_first_smart. Replaces SIMBOARD.smarts_by_names as the iteration pool when present; lets consumers inject a per-level bucket and bypass the global walk.
+    Added: get_section_npc_max(section). Upper bound of a squad section's npc_in_squad field. Pairs with section_faction for recipe-content inspection. Cached.
+    Added: find_smarts_with_recipe(level_id, faction). Walks SIMBOARD.smarts once, filters by level and by recipe-content match via section_faction. Returns smart server objects directly.
+    Added: has_squad_of_faction(smart_id, faction, exclude_id). True if any squad of the given faction is at the smart; short-circuits on first match. Reads squad.player_id (trivial luabind) instead of get_squad_community (heavy).
     Changed: section_faction reads memoized per section. Repeated lookups for the same squad section return from cache instead of opening the LTX file each call.
   xstash:
     Added: opts.source on find_stashes. Replaces treasure_manager.caches as the iteration set when present; state (filled / looted / hidden) still read from treasure_manager.caches per iteration so mutations stay live.
@@ -10,6 +13,10 @@ next
     Changed: _squad_base_valid runs the level_id gate first. Wrong-level squads on level-scoped find_squads reject after one cached xlevel.get_level_id lookup (0 luabind warm) instead of paying position, npc_count, player_id reads first.
   xlevel:
     Fixed: get_level_id short-circuits on invalid m_tGraphID (engine sentinel GameGraph::_GRAPH_ID(-1) = 65535). Prevents an AV when callers pass position-less server objects. Required after the xsquad gate reorder, which now reaches get_level_id before the position check.
+  xpp:
+    Added: xpp module. Post-process effector wrap with slot allocator, engine-smoothed factor, and handle API. xpp.PPE table holds 35 verified-safe .ppe filenames tested in GAMMA.
+  xsound:
+    Added: xsound module. Looping sound wrap with handle API, Lua-side volume lerp, and lazy actor_on_update tick at 100ms.
 
 1.5.1
   Summary: level adjacency, first-match smart lookup, faction acceptance check, squad-section faction lookup, commander rank, in-game clock, ttl_counter persistence, token bucket rate, offline cross-map item fallback
