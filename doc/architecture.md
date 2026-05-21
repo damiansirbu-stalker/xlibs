@@ -183,6 +183,8 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
 - `get_proximity(squad, smart)` - Distance and arrival metadata
 - `has_capacity(smart, faction, incoming)` - SIMBOARD squads + incoming vs max_population
+- `has_stalker_jobs(smart, type_id)` - smart.stalker_jobs has any (type_id nil) or specific job_type_id (e.g. `JOB_TYPE_TRADER` = 15)
+- `get_npc_for_job(smart, type_id)` - Online game_object of the NPC assigned to a job of the given type_id at this smart, or nil
 - `set_shared_spawn(smart, key, faction, spawn_num)` - Additive spawn injection (adds entry alongside originals, no faction_controlled)
 - `clear_shared_spawn(smart, key)` - Remove shared spawn entry, restore original-only spawning
 - `set_exclusive_spawn(smart, key, faction, spawn_num)` - Exclusive spawn injection (sets faction_controlled, suppresses originals via faction gate)
@@ -199,7 +201,6 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `get_stash_items(stash_id)` - Read-only stash contents as parsed item list
 - `loot_stash(id)` - Loot stash contents (marks looted, returns item list)
 - `fill_stash(id, items, add_marker)` - Fill stash with items
-- `filter_notable_stash_items(items, max)` - Filter to weapons/armor/artefacts
 
 ### xtable.script - Table Utilities
 

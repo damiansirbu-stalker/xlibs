@@ -3,7 +3,7 @@
 local pairs, ipairs, next, type, alife_object, tostring = pairs, ipairs, next, type, alife_object, tostring
 local pcall, math, table, tonumber = pcall, math, table, tonumber
 local string_match = string.match
-local xsquad, xlevel = xsquad, xlevel
+local xobject, xsquad, xlevel = xobject, xsquad, xlevel
 
 --- Stalker faction community names used as props keys in simulation_objects_props.ltx
 local STALKER_FACTIONS = {
@@ -80,6 +80,27 @@ end
 --- @return boolean
 function has_stalker_jobs(smart, type_id)
     return smart ~= nil and _has_jobs_in(smart.stalker_jobs, type_id)
+end
+
+--- Resolve the NPC currently assigned to a job of the given type_id at this smart.
+--- Returns the online game_object if assigned and online, nil otherwise.
+--- @scope online - reads smart.npc_info populated by smart_terrain:update_jobs (smart_terrain.script:376) only when smart is online
+--- @safety SAFE - pure Lua iteration, nil-guarded; xobject.go falls back to nil for offline ids
+--- @cost O(n) n = npc_info entries at smart (typically 1-15) | 1 luabind via xobject.go on match (level.object_by_id)
+--- @src anomaly/smart_terrain.script(801) self.npc_info[id].job
+--- @src anomaly/gulag_general.script(971) job_type_id assignment
+--- @param smart smart_terrain Smart terrain to query
+--- @param type_id number Job type id (e.g. JOB_TYPE_TRADER)
+--- @return game_object|nil
+function get_npc_for_job(smart, type_id)
+    if not smart or not smart.npc_info or not type_id then return nil end
+    for npc_id, info in pairs(smart.npc_info) do
+        local job = info and info.job
+        if job and job.job_type_id == type_id then
+            return xobject.go(npc_id)
+        end
+    end
+    return nil
 end
 
 --- Check if smart has any non-stub stalker job
