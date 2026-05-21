@@ -35,10 +35,10 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  |  xconst   |  |  xdata    |  |  xlibs    |  | xlibs_mcm |       |
 |  | Sentinels |  | Static    |  | Metadata  |  | MCM Page  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+                                                    |
-|  |  xactor   |                                                    |
-|  | Actor Ops |                                                    |
-|  +-----------+                                                    |
+|  +-----------+  +-----------+                                     |
+|  |  xactor   |  |  xtrade   |                                     |
+|  | Actor Ops |  | NPC Trade |                                     |
+|  +-----------+  +-----------+                                     |
 +-------------------------------------------------------------------+
 ```
 
@@ -382,6 +382,17 @@ Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is
 ### xactor.script - Actor Helpers
 
 - `give_info(info_id)` - Give info portion to actor (nil-guarded)
+
+### xtrade.script - NPC Trade
+
+Reimplementation of the vanilla buy/sell mechanics `axr_trade_manager` runs inline, exposed as a callable library. Same ini (`items\trade\gulag_job_trade_buy_sell.ltx [buy_sell]`), same row schema (`keep,min,restock,sell_mult,buy_mult`), same cost formula (`floor(cost * buy_sell[N])`), same engine call sequences. Not derived from the script structure: no `st.trade_items` accumulator, no `xr_gulag` resolution, no callback or ltx hooks.
+
+- `get_buy_sell(sec)` - Read `[buy_sell]` row as 5-element numeric-indexed table, or nil
+- `get_valid_items()` - Cached set of all sections in `[buy_sell]`
+- `get_cost(sec)` - `ini_sys:r_float_ex(sec, "cost") or 30`
+- `sell_item(npc, itm, seller)` - Transfer item to seller, credit npc with `floor(cost * buy_sell[4])`. Returns money or nil.
+- `buy_item(npc, sec, seller)` - Create item on npc, npc pays seller `floor(cost * buy_sell[5])`. Returns money or nil.
+- `trade(npc, seller)` - Full sell+buy cycle (skips best_weapon and slot-equipped on sell; restocks best_weapon ammo to `buy_sell[3]` on buy, capped by npc money). Returns `{ sold = {sec, ...}, bought = {sec, ...} }`.
 
 ### xlibs.script - Package Metadata
 
