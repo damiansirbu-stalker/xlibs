@@ -396,7 +396,7 @@ Reimplementation of the vanilla buy/sell mechanics `axr_trade_manager` runs inli
 - `sell_item(npc, itm, seller)` - Transfer item to seller, credit npc with `floor(cost * buy_sell[4])`. Returns money or nil.
 - `buy_item(npc, sec, seller)` - Create item on npc, npc pays seller `floor(cost * buy_sell[5])`. Returns money or nil.
 - `give_item(npc_id, sec, exclude)` - Create item on npc (online or offline), no payment, subject to `is_eligible`. Returns entity or nil.
-- `drop_item(itm, exclude)` - Release item to void, no payment, subject to `is_eligible`. Returns section or nil.
+- `release_item(itm, exclude)` - Release item to void via `alife_release_id`, no payment, subject to `is_eligible`. Returns section or nil.
 - `trade(npc, seller)` - Full sell+buy cycle (skips best_weapon and slot-equipped on sell; restocks best_weapon ammo to `buy_sell[3]` on buy, capped by npc money). Returns `{ sold = {sec, ...}, bought = {sec, ...} }`.
 
 ### xlibs.script - Package Metadata

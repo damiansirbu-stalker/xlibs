@@ -209,17 +209,17 @@ function give_item(npc_id, sec, exclude)
 end
 
 --- Release itm to void, no money exchanged.
---- Wraps `alife_release_id` with an `is_eligible` gate. Use for stash fill, world drops -- any
---- flow where an item leaves the simulation without compensation, subject to vanilla [buy_sell]
---- membership and the caller's exclude policy. itm must be a game_object (online owner); for
---- offline release callers should use alife_release_id directly with the server id.
+--- Wraps `alife_release_id` with an `is_eligible` gate. Use for stash fill, inventory cull --
+--- any flow where an item leaves the simulation without compensation, subject to vanilla
+--- [buy_sell] membership and the caller's exclude policy. itm must be a game_object (online
+--- owner); for offline release callers should use alife_release_id directly with the server id.
 --- @safety SAFE - returns nil if item's section not eligible
 --- @cost O(1) | 1 alife_release_id + 1 is_eligible
 --- @src xray/xrGame/alife_simulator_script.cpp, anomaly/_g.script alife_release_id
 --- @param itm game_object Item to release (online)
 --- @param exclude table|nil
 --- @return string|nil The released section or nil if not eligible
-function drop_item(itm, exclude)
+function release_item(itm, exclude)
     local sec = itm:section()
     if not is_eligible(sec, exclude) then return nil end
     alife_release_id(itm:id())
