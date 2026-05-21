@@ -37,6 +37,10 @@ Diagnostics:
   xtrace       Trace ID generation for request tracking across modules
   xinspect     Deep table and userdata inspection, engine type identification
 
+Effects:
+  xpp          Post-process effector wrap (slot allocator, engine-smoothed factor, handle API; 35 verified-safe .ppe paths)
+  xsound       Looping sound wrap (handle API, Lua-side volume lerp, lazy actor_on_update tick)
+
 Integration:
   xbus         Pub/sub event bus with pcall-wrapped delivery and diagnostics
   xevent       Runtime function hooking for synthetic callbacks
