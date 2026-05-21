@@ -102,6 +102,51 @@ function get_cost(sec)
     return ini_sys:r_float_ex(sec, "cost") or DEFAULT_COST
 end
 
+--- Vanilla "keep in stock" count for section -- buy_sell[1].
+--- Used by axr_trade_manager at script:111-114 as the surplus threshold (NPCs sell anything
+--- above this) and at script:246-248 as the sell-loop stop (don't sell below this count).
+--- Callers building per-section stock policies (stash loot/fill, deposit/take surplus) should
+--- use this number as the squad target stock for that section.
+--- @safety SAFE - nil for sections not in [buy_sell]
+--- @cost O(1) | 1 ltx read via get_buy_sell
+--- @src anomaly/axr_trade_manager.script(111, 246)
+--- @param sec string Item section name
+--- @return number|nil keep count or nil if section not in [buy_sell]
+function keep_count(sec)
+    local row = get_buy_sell(sec)
+    return row and row[1] or nil
+end
+
+--- Vanilla "restock to" count for section -- buy_sell[3].
+--- Used by axr_trade_manager at script:310, 322 as the buy-loop cap (NPCs buy ammo up to this
+--- count). Callers building "stock up" policies should use this number; for "minimum needed"
+--- use keep_count.
+--- @safety SAFE - nil for sections not in [buy_sell]
+--- @cost O(1) | 1 ltx read via get_buy_sell
+--- @src anomaly/axr_trade_manager.script(310, 322)
+--- @param sec string Item section name
+--- @return number|nil restock count or nil if section not in [buy_sell]
+function restock_count(sec)
+    local row = get_buy_sell(sec)
+    return row and row[3] or nil
+end
+
+--- Test whether section is eligible for AP item flow.
+--- Two conditions: section appears in vanilla [buy_sell] (the engine's tradable-items pool)
+--- AND section is not in the caller's exclude set. The exclude set is policy provided by the
+--- caller (e.g. AP excludes toolkits because GAMMA treats them as core, even though vanilla
+--- [buy_sell] lists them at sell_mult 0.5).
+--- @safety SAFE - nil-guarded exclude
+--- @cost O(1) | 1 ltx line_exist + 1 hash lookup
+--- @param sec string Item section name
+--- @param exclude table|nil { [sec] = true, ... } sections to reject regardless of [buy_sell]
+--- @return boolean true if sec is in [buy_sell] and not in exclude
+function is_eligible(sec, exclude)
+    if exclude and exclude[sec] then return false end
+    local valid = get_valid_items()
+    return valid ~= nil and valid[sec] == true
+end
+
 --- Sell one item from npc to seller at vanilla sell price.
 --- transfer_item to seller (or alife_release_id if no seller), credit npc with
 --- floor(get_cost(sec) * buy_sell[4]) via give_money.
@@ -145,6 +190,40 @@ function buy_item(npc, sec, seller)
     xobject.create_item(sec, npc:id())
     npc:transfer_money(money, seller)
     return money
+end
+
+--- Create item of sec on npc, no money exchanged.
+--- Wraps `xobject.create_item` with an `is_eligible` gate. Use for stash loot, gifts, world
+--- drops -- any flow where an NPC gains an item without payment, subject to vanilla [buy_sell]
+--- membership and the caller's exclude policy. npc_id may refer to an online or offline NPC;
+--- xobject.create_item handles all branches including offline-cross-map.
+--- @safety SAFE - returns nil if section not eligible; xobject.create_item handles offline
+--- @cost O(1) | 1 xobject.create_item + 1 is_eligible
+--- @param npc_id number Recipient NPC id (online or offline)
+--- @param sec string Section name to create
+--- @param exclude table|nil { [sec] = true, ... }
+--- @return any|nil The created entity or nil if not eligible
+function give_item(npc_id, sec, exclude)
+    if not is_eligible(sec, exclude) then return nil end
+    return xobject.create_item(sec, npc_id)
+end
+
+--- Release itm to void, no money exchanged.
+--- Wraps `alife_release_id` with an `is_eligible` gate. Use for stash fill, world drops -- any
+--- flow where an item leaves the simulation without compensation, subject to vanilla [buy_sell]
+--- membership and the caller's exclude policy. itm must be a game_object (online owner); for
+--- offline release callers should use alife_release_id directly with the server id.
+--- @safety SAFE - returns nil if item's section not eligible
+--- @cost O(1) | 1 alife_release_id + 1 is_eligible
+--- @src xray/xrGame/alife_simulator_script.cpp, anomaly/_g.script alife_release_id
+--- @param itm game_object Item to release (online)
+--- @param exclude table|nil
+--- @return string|nil The released section or nil if not eligible
+function drop_item(itm, exclude)
+    local sec = itm:section()
+    if not is_eligible(sec, exclude) then return nil end
+    alife_release_id(itm:id())
+    return sec
 end
 
 -- Buy ammo_sec from seller for npc up to buy_sell[3] copies; stops when npc money falls below per-unit cost.

@@ -390,8 +390,13 @@ Reimplementation of the vanilla buy/sell mechanics `axr_trade_manager` runs inli
 - `get_buy_sell(sec)` - Read `[buy_sell]` row as 5-element numeric-indexed table, or nil
 - `get_valid_items()` - Cached set of all sections in `[buy_sell]`
 - `get_cost(sec)` - `ini_sys:r_float_ex(sec, "cost") or 30`
+- `keep_count(sec)` - `buy_sell[1]` (vanilla "keep in stock" count); nil if section not in `[buy_sell]`
+- `restock_count(sec)` - `buy_sell[3]` (vanilla "restock to" count); nil if section not in `[buy_sell]`
+- `is_eligible(sec, exclude)` - True if sec is in `[buy_sell]` and not in caller's exclude set
 - `sell_item(npc, itm, seller)` - Transfer item to seller, credit npc with `floor(cost * buy_sell[4])`. Returns money or nil.
 - `buy_item(npc, sec, seller)` - Create item on npc, npc pays seller `floor(cost * buy_sell[5])`. Returns money or nil.
+- `give_item(npc_id, sec, exclude)` - Create item on npc (online or offline), no payment, subject to `is_eligible`. Returns entity or nil.
+- `drop_item(itm, exclude)` - Release item to void, no payment, subject to `is_eligible`. Returns section or nil.
 - `trade(npc, seller)` - Full sell+buy cycle (skips best_weapon and slot-equipped on sell; restocks best_weapon ammo to `buy_sell[3]` on buy, capped by npc money). Returns `{ sold = {sec, ...}, bought = {sec, ...} }`.
 
 ### xlibs.script - Package Metadata
