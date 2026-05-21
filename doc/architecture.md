@@ -146,6 +146,7 @@ local box = xobject.get_box_size("ammo_5.45x39_ap")  -cached INI read
 
 - `se(input)` - Get server object from any input type
 - `go(id)` - Get online game object by ID (nil if offline)
+- `iterate_online_inventory(npc_id, callback)` - Iterate NPC inventory iff online; returns npc game_object if iterated, nil if offline / invalid. Name is explicit because the engine exposes no Lua API for offline server-inventory walking. Central wrapper for any flow that inspects NPC inventory.
 - `get_box_size(sec)` - Get ammo box size from system INI (cached)
 - `create_item(section, npc_id, t)` - Create item for any NPC (online/offline, falls back to smart terrain position for invalid lvid). Optional `t` forwarded to alife_create_item ({ammo, cond, uses})
 

@@ -44,6 +44,41 @@ function go(id)
     return level.object_by_id(id)
 end
 
+--- Iterate an NPC's inventory iff the NPC is online; nil-returns otherwise.
+--- The name is explicit on purpose: any caller inspecting NPC inventory must know this is the
+--- online-only path. Offline NPCs cause a nil return (no iteration ran); this is not an error
+--- condition -- it is the engine's hard constraint that Lua does not expose offline inventory.
+--- An assert would crash on a normal case; the nil-return is the assert in spirit -- callers
+--- branch on it explicitly instead of treating offline as failure.
+---
+--- Returns the npc game_object (truthy) when iteration ran. Callers use the return both to
+--- learn "did the walk happen" and to access the game_object for follow-up online ops
+--- (give_money, transfer_item, etc.).
+---
+--- Callback signature matches engine: function(npc_go, item_go). Returning true from the
+--- callback stops iteration early (engine convention, IterateInventory at
+--- script_game_object_inventory_owner.cpp:266-270 -- the loop returns the moment the functor
+--- returns true).
+---
+--- LIMITATION: Lua exposes no equivalent for offline server-inventory iteration. Items on
+--- offline NPCs exist as cse_alife_object server entities with parent_id == npc_id, but no
+--- iteration API is bound. Walking alife() globally and filtering by parent_id is the only
+--- alternative (debug_cmd_list.script:1979 shows the pattern) and its 65,534-entity scan is
+--- too expensive for hot paths. Flows inspecting NPC inventory are online-only by design.
+--- @safety SAFE - returns nil on nil npc_id / callback / offline NPC / invalid ID
+--- @cost O(items) per online NPC | 2 luabind (go + iterate_inventory) + STL walk inside engine
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270)
+--- @param npc_id number NPC entity ID
+--- @param callback function(npc_go, item_go) Invoked per item; return true to stop early
+--- @return game_object|nil The npc game_object when iteration ran; nil if offline or invalid
+function iterate_online_inventory(npc_id, callback)
+    if not npc_id or not callback then return nil end
+    local npc_go = go(npc_id)
+    if not npc_go then return nil end
+    npc_go:iterate_inventory(callback, npc_go)
+    return npc_go
+end
+
 --- Get ammo box size for a given ammo section
 --- INI section/key existence guard prevents r_u32's Debug.fatal on miss; result cached per shared_str section
 --- section_exist does not lowercase input but line_exist/r_u32 (via r_section) do; relies on all-lowercase section convention
