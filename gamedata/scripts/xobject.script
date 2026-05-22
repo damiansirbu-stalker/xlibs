@@ -97,6 +97,30 @@ function get_box_size(sec)
     return v
 end
 
+--- Test whether section is listed in vanilla item_rewards.ltx [set_name].
+--- Reads itms_manager.item_rewards (populated at module load by itms_manager.script:51-64
+--- from items\settings\item_rewards.ltx). Sets shipping in vanilla Anomaly: items_health,
+--- items_bleed, items_rad, items_drink, items_food, items_medical, items_ammo, plus
+--- items_utility, items_money, items_grenade. The engine itself reads this file
+--- (give_item_reward at itms_manager.script:768 walks the same buckets), so addons that ship
+--- an item_rewards.ltx overlay add to the same classification automatically.
+--- Module access on itms_manager triggers auto-load on first call; subsequent calls are pure
+--- hash lookups.
+--- @safety SAFE - nil-guarded sec / set_name / itms_manager / item_rewards / set
+--- @cost O(1) | 0 luabind, 2-3 hash lookups (itms_manager.item_rewards -> set -> sec)
+--- @src anomaly/itms_manager.script(32, 51-64), anomaly/configs/items/settings/item_rewards.ltx
+--- @param sec string Item section name
+--- @param set_name string Reward set name (e.g. "items_health", "items_food", "items_rad")
+--- @return boolean true if sec is listed in [set_name]
+function in_reward_set(sec, set_name)
+    if not sec or not set_name then return false end
+    local mgr = itms_manager
+    if not mgr or not mgr.item_rewards then return false end
+    local set = mgr.item_rewards[set_name]
+    if not set then return false end
+    return set[sec] ~= nil
+end
+
 --- Create item for any NPC (online, offline, any map)
 --- Three branches all route through alife_create_item for uniform property handling:
 ---   (1) online NPC + valid lvid -> game object owner

@@ -1,3 +1,7 @@
+1.6.1
+  xobject:
+    Added: in_reward_set(sec, set_name). Section classifier reading itms_manager.item_rewards (parsed at module load from items\settings\item_rewards.ltx). Returns true if sec is listed under [set_name]. Sets shipping in vanilla Anomaly: items_health, items_bleed, items_rad, items_drink, items_food, items_medical, items_ammo, items_utility, items_money, items_grenade. Consumers gate item flow on vanilla-curated categories without duplicating section lists; addons that overlay item_rewards.ltx are picked up automatically.
+
 1.6.0
   Summary: xtrade module wraps vanilla NPC trade mechanics, trader resolution by character profile name, online inventory iterator centralized, xstash notable filter removed
   xtrade:
