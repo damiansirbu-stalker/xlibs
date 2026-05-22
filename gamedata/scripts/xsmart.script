@@ -84,13 +84,17 @@ end
 
 --- Resolve the NPC currently assigned to a job of the given type_id at this smart.
 --- Returns the online game_object if assigned and online, nil otherwise.
+--- NOTE: this does NOT resolve the trader NPC. JOB_TYPE_TRADER (15) tags the visitor patrol
+--- job slot (`<smart>_beh_trade_<i>` per gulag_general.script:971), not the barman's seated
+--- logic. Probed across 20 vanilla trader smarts: the barman's npc_info[id].job.job_type_id
+--- is nil even when the smart is online. Use get_trader_at_smart for the barman.
 --- @scope online - reads smart.npc_info populated by smart_terrain:update_jobs (smart_terrain.script:376) only when smart is online
 --- @safety SAFE - pure Lua iteration, nil-guarded; xobject.go falls back to nil for offline ids
 --- @cost O(n) n = npc_info entries at smart (typically 1-15) | 1 luabind via xobject.go on match (level.object_by_id)
 --- @src anomaly/smart_terrain.script(801) self.npc_info[id].job
 --- @src anomaly/gulag_general.script(971) job_type_id assignment
 --- @param smart smart_terrain Smart terrain to query
---- @param type_id number Job type id (e.g. JOB_TYPE_TRADER)
+--- @param type_id number Job type id (e.g. JOB_TYPE_CAMPFIRE_POINT, JOB_TYPE_GENERIC_POINT)
 --- @return game_object|nil
 function get_npc_for_job(smart, type_id)
     if not smart or not smart.npc_info or not type_id then return nil end
@@ -98,6 +102,46 @@ function get_npc_for_job(smart, type_id)
         local job = info and info.job
         if job and job.job_type_id == type_id then
             return xobject.go(npc_id)
+        end
+    end
+    return nil
+end
+
+--- Resolve the trader NPC at a smart by character profile name match.
+--- The trader / barman is identified by `alife_object(npc_id):section_name()` containing one
+--- of "trader", "barman", or "barmen". Probed across all 477 SIMBOARD smarts in vanilla
+--- Anomaly: 26 matches at 20 trader smarts, 0 false positives among non-trader NPCs (camper
+--- guards, mechanics, doctors, medics, arena managers, dog doctors).
+---
+--- Use this instead of get_npc_for_job(smart, JOB_TYPE_TRADER). JOB_TYPE_TRADER tags the
+--- visitor patrol slot (gulag_general.script:971), not the barman's seated logic block.
+--- The barman occupies a separately-registered logic block (`logic@<smart>_<faction>_trader_<role>`
+--- or named variants) that gulag_general does not tag with any job_type_id.
+---
+--- Online-only: returns game_object via xobject.go, which falls back to nil for offline
+--- traders. Callers needing trade APIs (transfer_item, give_money, transfer_money) require
+--- the smart to be on the actor's level.
+--- @scope online - returns nil when trader is offline; npc_info itself populated by smart_terrain
+--- @safety SAFE - pcall guards section_name() against engine class variations; nil-guarded
+--- @cost O(n) n = npc_info entries at smart (typically 5-30) | per entry: 1 alife_object +
+---       1 section_name luabind + up to 3 string.find. Worst-case full walk ~150 microseconds.
+--- @src anomaly/smart_terrain.script(801) self.npc_info[id]
+--- @src doc/library/modding/npc-trade.md "Finding the trader NPC"
+--- @param smart smart_terrain Smart terrain to query
+--- @return game_object|nil Online trader NPC, or nil if none online at this smart
+function get_trader_at_smart(smart)
+    if not smart or not smart.npc_info then return nil end
+    for npc_id, _ in pairs(smart.npc_info) do
+        local se = alife_object(npc_id)
+        if se then
+            local ok, profile = pcall(function() return se:section_name() end)
+            if ok and type(profile) == "string"
+                and (profile:find("trader", 1, true)
+                  or profile:find("barman", 1, true)
+                  or profile:find("barmen", 1, true)) then
+                local npc = xobject.go(npc_id)
+                if npc and npc:alive() then return npc end
+            end
         end
     end
     return nil

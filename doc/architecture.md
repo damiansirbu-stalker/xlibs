@@ -185,7 +185,8 @@ local has_room = xsmart.has_capacity(smart, faction)
 - `get_proximity(squad, smart)` - Distance and arrival metadata
 - `has_capacity(smart, faction, incoming)` - SIMBOARD squads + incoming vs max_population
 - `has_stalker_jobs(smart, type_id)` - smart.stalker_jobs has any (type_id nil) or specific job_type_id (e.g. `JOB_TYPE_TRADER` = 15)
-- `get_npc_for_job(smart, type_id)` - Online game_object of the NPC assigned to a job of the given type_id at this smart, or nil
+- `get_npc_for_job(smart, type_id)` - Online game_object of the NPC assigned to a job of the given type_id at this smart, or nil. Does NOT resolve the trader NPC (job_type_id=15 tags the visitor patrol slot, not the barman); use `get_trader_at_smart` for traders.
+- `get_trader_at_smart(smart)` - Online trader NPC at the smart, matched by character profile name containing `trader` / `barman` / `barmen`. Verified across 20 vanilla trader smarts.
 - `set_shared_spawn(smart, key, faction, spawn_num)` - Additive spawn injection (adds entry alongside originals, no faction_controlled)
 - `clear_shared_spawn(smart, key)` - Remove shared spawn entry, restore original-only spawning
 - `set_exclusive_spawn(smart, key, faction, spawn_num)` - Exclusive spawn injection (sets faction_controlled, suppresses originals via faction gate)
@@ -398,7 +399,7 @@ Reimplementation of the vanilla buy/sell mechanics `axr_trade_manager` runs inli
 - `buy_item(npc, sec, seller)` - Create item on npc, npc pays seller `floor(cost * buy_sell[5])`. Returns money or nil.
 - `give_item(npc_id, sec, exclude)` - Create item on npc (online or offline), no payment, subject to `is_eligible`. Returns entity or nil.
 - `release_item(itm, exclude)` - Release item to void via `alife_release_id`, no payment, subject to `is_eligible`. Returns section or nil.
-- `trade(npc, seller)` - Full sell+buy cycle (skips best_weapon and slot-equipped on sell; restocks best_weapon ammo to `buy_sell[3]` on buy, capped by npc money). Returns `{ sold = {sec, ...}, bought = {sec, ...} }`.
+- `trade(npc, seller, opts)` - Full sell+buy cycle. Sell phase walks inventory once, counts every `[buy_sell]` section, and sells eligible non-best-weapon non-equipped items; `opts.max_sell` caps the number of items sold per call (nil = sell all). Buy phase tops up each best_weapon ammo class from the post-sell count to `buy_sell[3]` (no-op if already at or above target; matches vanilla `axr_trade_manager:280-319` intent). Stops when NPC money falls below the next item's cost. Returns `{ sold = {sec, ...}, bought = {sec, ...} }`.
 
 ### xlibs.script - Package Metadata
 
