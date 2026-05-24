@@ -1,6 +1,6 @@
 --- xstash: Stash/treasure operations
 
-local pairs, ipairs, pcall, type, table_concat = pairs, ipairs, pcall, type, table.concat
+local pairs, pcall, type, table_concat = pairs, pcall, type, table.concat
 local xobject, xlevel, xmath = xobject, xlevel, xmath
 
 --- Find stashes matching criteria
