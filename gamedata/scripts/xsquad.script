@@ -488,6 +488,51 @@ function find_squads(pos, opts)
     return result, skipped_protected
 end
 
+--- Short-circuiting boolean: any squad within max_distance matches?
+--- Same filter scaffolding as find_squad (faction, exclusion, level, distance) plus optional
+--- opts.match per-squad predicate. Exits true on first match — no collection, no sampling.
+--- Use when the consumer is boolean (does X exist nearby?) and find_squads' collect-all-then-sample
+--- pattern wastes the walk.
+--- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
+--- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
+--- @cost O(n) squads in pool worst case, short-circuits on first match | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); opts.match cost set by caller
+--- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
+--- @param pos vector Origin position
+--- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
+---   exclude_at_smart_id, exclude_permanent, exclude_active_role, exclude_task_target,
+---   exclude_scripted, exclude_filter, exclude_ids, source, match }
+---   source: optional { [squad_id] = true, ... } iterable. When present, replaces SIMBOARD.squads as the iteration pool.
+---   Use AlifePlus ap_core_cache.squads_on_level(level_id) to fetch a per-level bucket.
+---   match: optional function(squad) -> boolean per-squad predicate evaluated after distance gate.
+--- @return boolean True on first matching squad, false after walking pool
+function has_squad(pos, opts)
+    if not pos or not opts or not opts.max_distance then return false end
+    local pool = opts.source or (SIMBOARD and SIMBOARD.squads)
+    if not pool then return false end
+
+    local sim = alife()
+    if not sim then return false end
+
+    local factions, exclude_squad_id, exclude_ids = opts.factions, opts.exclude_squad_id, opts.exclude_ids
+    local max_dist_sqr = opts.max_distance * opts.max_distance
+    local min_dist_sqr = (opts.min_distance or 0) ^ 2
+    local match = opts.match
+
+    for squad_id in pairs(pool) do
+        if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
+        local squad = sim:object(squad_id)
+        local ok, comm = _squad_base_valid(squad, opts)
+        if not ok or not _matches_faction(comm, factions) then goto continue end
+        local dist_sqr = pos:distance_to_sqr(squad.position)
+        if dist_sqr <= max_dist_sqr and dist_sqr >= min_dist_sqr then
+            if not match or match(squad) then return true end
+        end
+        ::continue::
+    end
+
+    return false
+end
+
 
 --- Get squad's current smart terrain
 --- Reads smart_id or assigned_target_id, resolves via alife_object, rejects non-smart entities via clsid check
