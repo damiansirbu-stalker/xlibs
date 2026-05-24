@@ -1,0 +1,164 @@
+--- xsmart_spawn: Spawn injection on smart terrains. Shared spawn (additive) and exclusive
+--- spawn (suppresses LTX entries via faction_controlled gate). Mirrors smart_terrain.script's
+--- respawn_params field shape so try_respawn picks the entries up natively.
+
+local pairs, tostring = pairs, tostring
+
+--- Faction -> generic simulation squad sections (novice, advanced, veteran). Copy of smart_terrain.script:16-29.
+SQUADS_BY_FACTION = {
+    army = {"army_sim_squad_novice","army_sim_squad_advanced","army_sim_squad_veteran"},
+    bandit = {"bandit_sim_squad_novice","bandit_sim_squad_advanced","bandit_sim_squad_veteran"},
+    csky = {"csky_sim_squad_novice","csky_sim_squad_advanced","csky_sim_squad_veteran"},
+    dolg = {"duty_sim_squad_novice","duty_sim_squad_advanced","duty_sim_squad_veteran"},
+    ecolog = {"ecolog_sim_squad_novice","ecolog_sim_squad_advanced","ecolog_sim_squad_veteran"},
+    freedom = {"freedom_sim_squad_novice","freedom_sim_squad_advanced","freedom_sim_squad_veteran"},
+    killer = {"merc_sim_squad_novice","merc_sim_squad_advanced","merc_sim_squad_veteran"},
+    monolith = {"monolith_sim_squad_novice","monolith_sim_squad_advanced","monolith_sim_squad_veteran"},
+    stalker = {"stalker_sim_squad_novice","stalker_sim_squad_advanced","stalker_sim_squad_veteran"},
+    renegade = {"renegade_sim_squad_novice","renegade_sim_squad_advanced","renegade_sim_squad_veteran"},
+    greh = {"greh_sim_squad_novice","greh_sim_squad_advanced","greh_sim_squad_veteran"},
+    isg = {"isg_sim_squad_novice","isg_sim_squad_advanced","isg_sim_squad_veteran"},
+}
+--- Species -> single-species simulation squad section (species-pure for infest/conquest). See doc/library/xray/api/squad-factions.md.
+SQUADS_BY_SPECIES = {
+    bloodsucker = {"simulation_bloodsucker"}, boar = {"simulation_boar"}, burer = {"simulation_burer"}, cat = {"simulation_cat"},
+    chimera = {"simulation_chimera"}, controller = {"simulation_controller"}, dog = {"simulation_dog"}, flesh = {"simulation_flesh"},
+    fracture = {"simulation_fracture"}, gigant = {"simulation_gigant"}, karlik = {"simulation_karlik"}, lurker = {"simulation_lurker"},
+    poltergeist = {"simulation_poltergeist"}, pseudodog = {"simulation_pseudodog"}, psy_dog = {"simulation_psy_dog"}, psysucker = {"simulation_psysucker"},
+    rat = {"simulation_rat"}, snork = {"simulation_snork"}, tushkano = {"simulation_tushkano"}, zombie = {"simulation_zombie"},
+}
+-- Value-merge: xtable.merge is a set-merge (writes `true` for every key) and would
+-- store boolean `true` into respawn_params[key].squads, crashing vanilla try_respawn
+-- at smart_terrain.script:1677 (v["squads"][1] indexes a boolean).
+local _SQUADS_BY_IDENTITY = {}
+for k, v in pairs(SQUADS_BY_FACTION) do _SQUADS_BY_IDENTITY[k] = v end
+for k, v in pairs(SQUADS_BY_SPECIES) do _SQUADS_BY_IDENTITY[k] = v end
+
+--- Add shared spawn entry to smart terrain respawn_params (additive, originals keep spawning)
+--- No faction_controlled -- engine filter stays in "spawn all" mode, both LTX and injected entries fire
+--- @scope global - mutates server-entity fields directly; respawn evaluates in try_respawn (cse_alife_schedulable tick, runs offline)
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
+--- @src anomaly/smart_terrain.script(1665-1716)
+--- @param smart se_smart_terrain Smart terrain to inject into
+--- @param key string Unique respawn_params key (e.g. "ap_conquest")
+--- @param identity string Stalker faction or mutant species (_SQUADS_BY_IDENTITY lookup)
+--- @param spawn_num number|nil Max squads for this entry (default 1)
+--- @return boolean True if applied
+function set_shared_spawn(smart, key, identity, spawn_num)
+    if not smart or not key then return false end
+    local squads = _SQUADS_BY_IDENTITY[identity]
+    if not squads then return false end
+    smart.respawn_params = smart.respawn_params or {}
+    smart.already_spawned = smart.already_spawned or {}
+    smart.respawn_point = true
+    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
+    smart.respawn_params[key] = { num = condlist, squads = squads }
+    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
+    return true
+end
+
+--- Remove shared spawn entry from smart terrain
+--- @scope global - mutates server-entity respawn_params directly
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @cost O(1) | 0 luabind
+--- @param smart se_smart_terrain Smart terrain to revert
+--- @param key string Respawn_params key to remove
+--- @return boolean True if cleared
+function clear_shared_spawn(smart, key)
+    if not smart or not key then return false end
+    if smart.respawn_params then
+        smart.respawn_params[key] = nil
+    end
+    return true
+end
+
+--- Set exclusive spawn on smart terrain (suppresses original LTX entries via faction filter)
+--- Sets faction_controlled + one entry with .faction; monster factions need periodic re-apply (check_smart_faction ignores monsters; see @src line 1209-1236).
+--- @scope global - mutates server-entity fields directly; faction_controlled gate evaluates in try_respawn
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
+--- @src anomaly/smart_terrain.script(246-267,1209-1236,1665-1672)
+--- @param smart se_smart_terrain Smart terrain to mutate
+--- @param key string Unique respawn_params key (e.g. "ap_infest")
+--- @param identity string Stalker faction or mutant species (_SQUADS_BY_IDENTITY lookup)
+--- @param spawn_num number|nil Max squads for this entry (default 1)
+--- @return boolean True if applied
+function set_exclusive_spawn(smart, key, identity, spawn_num)
+    if not smart or not key then return false end
+    local squads = _SQUADS_BY_IDENTITY[identity]
+    if not squads then return false end
+    smart.faction_controlled = key
+    smart.faction = identity
+    smart.respawn_params = smart.respawn_params or {}
+    smart.already_spawned = smart.already_spawned or {}
+    smart.respawn_point = true
+    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
+    smart.respawn_params[key] = { num = condlist, squads = squads, faction = identity }
+    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
+    return true
+end
+
+--- Clear exclusive spawn from smart terrain, restoring original LTX spawning
+--- Clears faction_controlled (deactivates faction gate), reverts faction to default,
+--- removes the exclusive entry. Original LTX entries resume on next try_respawn.
+--- @scope global - mutates server-entity fields directly
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @cost O(1) | 0 luabind
+--- @src anomaly/smart_terrain.script(246-267,1665-1672)
+--- @param smart se_smart_terrain Smart terrain to revert
+--- @param key string Respawn_params key to remove
+--- @return boolean True if cleared
+function clear_exclusive_spawn(smart, key)
+    if not smart or not key then return false end
+    smart.faction_controlled = nil
+    smart.faction = smart.default_faction
+    if smart.respawn_params then
+        smart.respawn_params[key] = nil
+    end
+    return true
+end
+
+--- Reset all smart terrain spawn counters to zero
+--- Zeros already_spawned[k].num and clears last_respawn_update on all respawn-capable smarts
+--- @scope global - iterates SIMBOARD.smarts and mutates server-entity fields
+--- @safety SAFE - pure Lua field writes on smart terrain objects, nil-guarded
+--- @cost O(n) smarts * O(k) spawn sections | 0 luabind (SIMBOARD.smarts holds direct refs to server entities; field writes via pairs are pure Lua)
+--- @src anomaly/smart_terrain.script(251,886,1625), anomaly/sim_board.script(302)
+--- @return number Count of smarts reset
+function reset_spawns()
+    if not SIMBOARD or not SIMBOARD.smarts then return 0 end
+
+    local count = 0
+    for _, data in pairs(SIMBOARD.smarts) do
+        local smart = data.smrt
+        if not smart then goto continue end
+        if not smart.already_spawned then goto continue end
+        for _, entry in pairs(smart.already_spawned) do
+            entry.num = 0
+        end
+        smart.last_respawn_update = nil
+        count = count + 1
+        ::continue::
+    end
+
+    return count
+end
+
+--- Reset population and re-seed world from simulation preset
+--- Resets spawn counters, clears start_position_filled flag, calls fill_start_position
+--- @scope global - mutates SIMBOARD and triggers fill_start_position
+--- @safety SAFE - delegates to engine's fill_start_position (runs on every new game start)
+--- @cost O(n) smarts for reset + fill_start_position cost | 0 luabind for reset_spawns; fill_start_position is engine-side spawn injection (heavy per smart, mostly server-entity field writes)
+--- @src anomaly/se_actor.script(14), anomaly/sim_board.script(284)
+--- @return boolean True if repopulate ran
+function repopulate()
+    if not SIMBOARD then return false end
+    reset_spawns()
+    SIMBOARD.start_position_filled = false
+    SIMBOARD:fill_start_position()
+    return true
+end
+
+function on_game_start()
+end

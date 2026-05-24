@@ -86,12 +86,12 @@ end
 --- Returns the online game_object if assigned and online, nil otherwise.
 --- NOTE: this does NOT resolve the trader NPC. JOB_TYPE_TRADER (15) tags the visitor patrol
 --- job slot (`<smart>_beh_trade_<i>` per gulag_general.script:971), not the barman's seated
---- logic. Probed across 20 vanilla trader smarts: the barman's npc_info[id].job.job_type_id
---- is nil even when the smart is online. Use get_trader_at_smart for the barman.
+--- logic. Probed across 20 vanilla trader smarts: the barman's job entry's job_type_id is nil
+--- even when the smart is online. Use get_trader_at_smart for the barman.
 --- @scope online - reads smart.npc_info populated by smart_terrain:update_jobs (smart_terrain.script:376) only when smart is online
 --- @safety SAFE - pure Lua iteration, nil-guarded; xobject.go falls back to nil for offline ids
 --- @cost O(n) n = npc_info entries at smart (typically 1-15) | 1 luabind via xobject.go on match (level.object_by_id)
---- @src anomaly/smart_terrain.script(801) self.npc_info[id].job
+--- @src anomaly/smart_terrain.script(801) self.npc_info entries with `job` field
 --- @src anomaly/gulag_general.script(971) job_type_id assignment
 --- @param smart smart_terrain Smart terrain to query
 --- @param type_id number Job type id (e.g. JOB_TYPE_CAMPFIRE_POINT, JOB_TYPE_GENERIC_POINT)
@@ -107,11 +107,17 @@ function get_npc_for_job(smart, type_id)
     return nil
 end
 
+-- Substring test for trader profile names. "barm[ae]n" covers both "barman" and "barmen".
+-- Defined outside get_trader_at_smart so the inner loop stays free of string.find calls.
+local function _is_trader_profile(profile)
+    return profile:match("trader") ~= nil or profile:match("barm[ae]n") ~= nil
+end
+
 --- Resolve the trader NPC at a smart by character profile name match.
---- The trader / barman is identified by `alife_object(npc_id):section_name()` containing one
---- of "trader", "barman", or "barmen". Probed across all 477 SIMBOARD smarts in vanilla
---- Anomaly: 26 matches at 20 trader smarts, 0 false positives among non-trader NPCs (camper
---- guards, mechanics, doctors, medics, arena managers, dog doctors).
+--- The trader / barman is identified by `alife_object(npc_id):section_name()` matching
+--- "trader", "barman", or "barmen" via _is_trader_profile. Probed across all 477 SIMBOARD
+--- smarts in vanilla Anomaly: 26 matches at 20 trader smarts, 0 false positives among
+--- non-trader NPCs (camper guards, mechanics, doctors, medics, arena managers, dog doctors).
 ---
 --- Use this instead of get_npc_for_job(smart, JOB_TYPE_TRADER). JOB_TYPE_TRADER tags the
 --- visitor patrol slot (gulag_general.script:971), not the barman's seated logic block.
@@ -122,10 +128,10 @@ end
 --- traders. Callers needing trade APIs (transfer_item, give_money, transfer_money) require
 --- the smart to be on the actor's level.
 --- @scope online - returns nil when trader is offline; npc_info itself populated by smart_terrain
---- @safety SAFE - pcall guards section_name() against engine class variations; nil-guarded
+--- @safety SAFE - nil-guarded; section_name() is a standard CSE method
 --- @cost O(n) n = npc_info entries at smart (typically 5-30) | per entry: 1 alife_object +
----       1 section_name luabind + up to 3 string.find. Worst-case full walk ~150 microseconds.
---- @src anomaly/smart_terrain.script(801) self.npc_info[id]
+---       1 section_name luabind + 1-2 string.match. Worst-case full walk ~100 microseconds.
+--- @src anomaly/smart_terrain.script(801) self.npc_info entries
 --- @src doc/library/modding/npc-trade.md "Finding the trader NPC"
 --- @param smart smart_terrain Smart terrain to query
 --- @return game_object|nil Online trader NPC, or nil if none online at this smart
@@ -133,16 +139,12 @@ function get_trader_at_smart(smart)
     if not smart or not smart.npc_info then return nil end
     for npc_id, _ in pairs(smart.npc_info) do
         local se = alife_object(npc_id)
-        if se then
-            local ok, profile = pcall(function() return se:section_name() end)
-            if ok and type(profile) == "string"
-                and (profile:find("trader", 1, true)
-                  or profile:find("barman", 1, true)
-                  or profile:find("barmen", 1, true)) then
-                local npc = xobject.go(npc_id)
-                if npc and npc:alive() then return npc end
-            end
-        end
+        if not se then goto continue end
+        local profile = se:section_name()
+        if type(profile) ~= "string" or not _is_trader_profile(profile) then goto continue end
+        local npc = xobject.go(npc_id)
+        if npc and npc:alive() then return npc end
+        ::continue::
     end
     return nil
 end
@@ -460,6 +462,22 @@ function has_squad_of_faction(smart_id, faction, exclude_id)
     return false
 end
 
+--- Assign a squad to a smart's roster, or detach with nil. Wraps SIMBOARD:assign_squad_to_smart.
+--- Used by AP's dispatch/commit pair to keep SIMBOARD.smarts[id].squads aligned with AP-driven
+--- moves so has_capacity / has_squad_of_faction / garrison-floor queries read truth. Pass nil
+--- as smart_id on dispatch (clears source roster before engine specific_update bumps squad.smart_id);
+--- pass the destination id on arrival commit. Fires squad_on_leave_smart on source clear,
+--- squad_on_enter_smart on destination add.
+--- @safety SAFE - delegates to SIMBOARD; nil smart_id is the documented detach form
+--- @cost 1 luabind (SIMBOARD method call) + sim_board.script bookkeeping
+--- @src anomaly/sim_board.script(225-266)
+--- @param squad se_squad Squad server object
+--- @param smart_id number|nil Destination smart id, or nil to detach from current
+function assign_squad_to_smart(squad, smart_id)
+    if not squad or not SIMBOARD then return end
+    SIMBOARD:assign_squad_to_smart(squad, smart_id)
+end
+
 --- Find nearest smart terrain matching criteria
 --- Iterates opts.source (when provided) or SIMBOARD.smarts_by_names; cheapest filters first (exclude_id, factions, level_id), distance_to_sqr last
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.smarts_by_names across all levels.
@@ -702,121 +720,6 @@ function has_jobs_for(smart, squad)
     return true
 end
 
---- Faction -> generic simulation squad sections (novice, advanced, veteran). Copy of smart_terrain.script:16-29.
-local SQUADS_BY_FACTION = {
-    army = {"army_sim_squad_novice","army_sim_squad_advanced","army_sim_squad_veteran"},
-    bandit = {"bandit_sim_squad_novice","bandit_sim_squad_advanced","bandit_sim_squad_veteran"},
-    csky = {"csky_sim_squad_novice","csky_sim_squad_advanced","csky_sim_squad_veteran"},
-    dolg = {"duty_sim_squad_novice","duty_sim_squad_advanced","duty_sim_squad_veteran"},
-    ecolog = {"ecolog_sim_squad_novice","ecolog_sim_squad_advanced","ecolog_sim_squad_veteran"},
-    freedom = {"freedom_sim_squad_novice","freedom_sim_squad_advanced","freedom_sim_squad_veteran"},
-    killer = {"merc_sim_squad_novice","merc_sim_squad_advanced","merc_sim_squad_veteran"},
-    monolith = {"monolith_sim_squad_novice","monolith_sim_squad_advanced","monolith_sim_squad_veteran"},
-    stalker = {"stalker_sim_squad_novice","stalker_sim_squad_advanced","stalker_sim_squad_veteran"},
-    renegade = {"renegade_sim_squad_novice","renegade_sim_squad_advanced","renegade_sim_squad_veteran"},
-    greh = {"greh_sim_squad_novice","greh_sim_squad_advanced","greh_sim_squad_veteran"},
-    isg = {"isg_sim_squad_novice","isg_sim_squad_advanced","isg_sim_squad_veteran"},
-}
---- Species -> single-species simulation squad section (species-pure for infest/conquest). See doc/library/xray/api/squad-factions.md.
-SQUADS_BY_SPECIES = {
-    bloodsucker = {"simulation_bloodsucker"}, boar = {"simulation_boar"}, burer = {"simulation_burer"}, cat = {"simulation_cat"},
-    chimera = {"simulation_chimera"}, controller = {"simulation_controller"}, dog = {"simulation_dog"}, flesh = {"simulation_flesh"},
-    fracture = {"simulation_fracture"}, gigant = {"simulation_gigant"}, karlik = {"simulation_karlik"}, lurker = {"simulation_lurker"},
-    poltergeist = {"simulation_poltergeist"}, pseudodog = {"simulation_pseudodog"}, psy_dog = {"simulation_psy_dog"}, psysucker = {"simulation_psysucker"},
-    rat = {"simulation_rat"}, snork = {"simulation_snork"}, tushkano = {"simulation_tushkano"}, zombie = {"simulation_zombie"},
-}
--- Value-merge: xtable.merge is a set-merge (writes `true` for every key) and would
--- store boolean `true` into respawn_params[key].squads, crashing vanilla try_respawn
--- at smart_terrain.script:1677 (v["squads"][1] indexes a boolean).
-local _SQUADS_BY_IDENTITY = {}
-for k, v in pairs(SQUADS_BY_FACTION) do _SQUADS_BY_IDENTITY[k] = v end
-for k, v in pairs(SQUADS_BY_SPECIES) do _SQUADS_BY_IDENTITY[k] = v end
-
---- Add shared spawn entry to smart terrain respawn_params (additive, originals keep spawning)
---- No faction_controlled -- engine filter stays in "spawn all" mode, both LTX and injected entries fire
---- @scope global - mutates server-entity fields directly; respawn evaluates in try_respawn (cse_alife_schedulable tick, runs offline)
---- @safety SAFE - pure Lua table writes on smart terrain object
---- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
---- @src anomaly/smart_terrain.script(1665-1716)
---- @param smart se_smart_terrain Smart terrain to inject into
---- @param key string Unique respawn_params key (e.g. "ap_conquest")
---- @param identity string Stalker faction or mutant species (_SQUADS_BY_IDENTITY lookup)
---- @param spawn_num number|nil Max squads for this entry (default 1)
---- @return boolean True if applied
-function set_shared_spawn(smart, key, identity, spawn_num)
-    if not smart or not key then return false end
-    local squads = _SQUADS_BY_IDENTITY[identity]
-    if not squads then return false end
-    smart.respawn_params = smart.respawn_params or {}
-    smart.already_spawned = smart.already_spawned or {}
-    smart.respawn_point = true
-    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
-    smart.respawn_params[key] = { num = condlist, squads = squads }
-    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
-    return true
-end
-
---- Remove shared spawn entry from smart terrain
---- @scope global - mutates server-entity respawn_params directly
---- @safety SAFE - pure Lua table writes on smart terrain object
---- @cost O(1) | 0 luabind
---- @param smart se_smart_terrain Smart terrain to revert
---- @param key string Respawn_params key to remove
---- @return boolean True if cleared
-function clear_shared_spawn(smart, key)
-    if not smart or not key then return false end
-    if smart.respawn_params then
-        smart.respawn_params[key] = nil
-    end
-    return true
-end
-
---- Set exclusive spawn on smart terrain (suppresses original LTX entries via faction filter)
---- Sets faction_controlled + one entry with .faction; monster factions need periodic re-apply (check_smart_faction ignores monsters; see @src line 1209-1236).
---- @scope global - mutates server-entity fields directly; faction_controlled gate evaluates in try_respawn
---- @safety SAFE - pure Lua table writes on smart terrain object
---- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
---- @src anomaly/smart_terrain.script(246-267,1209-1236,1665-1672)
---- @param smart se_smart_terrain Smart terrain to mutate
---- @param key string Unique respawn_params key (e.g. "ap_infest")
---- @param identity string Stalker faction or mutant species (_SQUADS_BY_IDENTITY lookup)
---- @param spawn_num number|nil Max squads for this entry (default 1)
---- @return boolean True if applied
-function set_exclusive_spawn(smart, key, identity, spawn_num)
-    if not smart or not key then return false end
-    local squads = _SQUADS_BY_IDENTITY[identity]
-    if not squads then return false end
-    smart.faction_controlled = key
-    smart.faction = identity
-    smart.respawn_params = smart.respawn_params or {}
-    smart.already_spawned = smart.already_spawned or {}
-    smart.respawn_point = true
-    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
-    smart.respawn_params[key] = { num = condlist, squads = squads, faction = identity }
-    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
-    return true
-end
-
---- Clear exclusive spawn from smart terrain, restoring original LTX spawning
---- Clears faction_controlled (deactivates faction gate), reverts faction to default,
---- removes the exclusive entry. Original LTX entries resume on next try_respawn.
---- @scope global - mutates server-entity fields directly
---- @safety SAFE - pure Lua table writes on smart terrain object
---- @cost O(1) | 0 luabind
---- @src anomaly/smart_terrain.script(246-267,1665-1672)
---- @param smart se_smart_terrain Smart terrain to revert
---- @param key string Respawn_params key to remove
---- @return boolean True if cleared
-function clear_exclusive_spawn(smart, key)
-    if not smart or not key then return false end
-    smart.faction_controlled = nil
-    smart.faction = smart.default_faction
-    if smart.respawn_params then
-        smart.respawn_params[key] = nil
-    end
-    return true
-end
-
 --- Diagnostic dump of all smarts with faction and level info
 --- Iterates SIMBOARD.smarts, collects id:name:level:factions per smart for debug logging
 --- @scope global - iterates SIMBOARD.smarts (all levels)
@@ -864,43 +767,3 @@ function smart_iter()
     end
 end
 
---- Reset all smart terrain spawn counters to zero
---- Zeros already_spawned[k].num and clears last_respawn_update on all respawn-capable smarts
---- @scope global - iterates SIMBOARD.smarts and mutates server-entity fields
---- @safety SAFE - pure Lua field writes on smart terrain objects, nil-guarded
---- @cost O(n) smarts * O(k) spawn sections | 0 luabind (SIMBOARD.smarts holds direct refs to server entities; field writes via pairs are pure Lua)
---- @src anomaly/smart_terrain.script(251,886,1625), anomaly/sim_board.script(302)
---- @return number Count of smarts reset
-function reset_spawns()
-    if not SIMBOARD or not SIMBOARD.smarts then return 0 end
-
-    local count = 0
-    for _, data in pairs(SIMBOARD.smarts) do
-        local smart = data.smrt
-        if not smart then goto continue end
-        if not smart.already_spawned then goto continue end
-        for _, entry in pairs(smart.already_spawned) do
-            entry.num = 0
-        end
-        smart.last_respawn_update = nil
-        count = count + 1
-        ::continue::
-    end
-
-    return count
-end
-
---- Reset population and re-seed world from simulation preset
---- Resets spawn counters, clears start_position_filled flag, calls fill_start_position
---- @scope global - mutates SIMBOARD and triggers fill_start_position
---- @safety SAFE - delegates to engine's fill_start_position (runs on every new game start)
---- @cost O(n) smarts for reset + fill_start_position cost | 0 luabind for reset_spawns; fill_start_position is engine-side spawn injection (heavy per smart, mostly server-entity field writes)
---- @src anomaly/se_actor.script(14), anomaly/sim_board.script(284)
---- @return boolean True if repopulate ran
-function repopulate()
-    if not SIMBOARD then return false end
-    reset_spawns()
-    SIMBOARD.start_position_filled = false
-    SIMBOARD:fill_start_position()
-    return true
-end
