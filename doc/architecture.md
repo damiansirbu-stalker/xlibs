@@ -171,20 +171,19 @@ local valid = xlevel.is_valid_lvid(se_obj)
 ```lua
 local smart = xsmart.find_smart(pos, { factions = faction, level_id = level_id, filter = xsmart.is_base })
 local arrived = xsmart.is_arrived(squad, smart)
-local has_room = xsmart.has_capacity(smart, faction)
+local holder = xsmart.get_controlling_faction(smart)
 ```
 
 - `get_actor_smart()` - Nearest smart to actor (engine-maintained, O(1))
 - `is_base(smart)`, `is_lair(smart)`, `is_resource(smart)`, `is_territory(smart)`
-- `has_faction(smart, faction)`, `has_factions(smart, factions)` - Props-based faction check
-- `accepts_mutant(smart, player_id)` - Engine target_precondition gate 1 (props.all OR props.all_monster OR props[player_id])
-- `get_smart_factions(smart)` - All accepted factions from props (cached)
-- `get_smart_faction(smart)` - Owning faction (warfare -> runtime -> props -> "none")
+- `accepts_faction(smart, faction)` - Engine target_precondition Tier 1: props.all OR props.all_stalker/all_monster (via is_squad_monster dispatch) OR props[faction]. Covers both stalker and mutant inputs.
+- `get_declared_factions(smart)` - Enumeration of stalker factions explicitly listed in props (cached). Used to ask "what's literally declared in the LTX".
+- `get_controlling_faction(smart)` - Runtime holder: smart.faction (engine, NPC-derived from jobs + default_faction LTX) first, then smart.owning_faction (warfare, skipping literal "none"), else "none". Real NPC presence outranks warfare metadata. No props fallback -- use accepts_faction / get_declared_factions for the props question.
+- `has_squad_of_faction(smart_id, faction, exclude_id)` - SIMBOARD roster: at least one squad of `faction` currently assigned (excluding optional id).
 - `is_smart_empty(smart)` - No squads assigned
-- `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter). Optimized filter order: cheapest checks first (exclude_id, factions hash, level_id) before the luabind distance_to_sqr call. Uses squared distance throughout (no sqrt). max_distance seeds the best_dist threshold so distant smarts are rejected after one comparison.
+- `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter). `factions` opt takes a string OR a set; matched via `accepts_faction`. Cheapest filters first (exclude_id, factions, level_id) before the luabind distance_to_sqr call.
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
 - `get_proximity(squad, smart)` - Distance and arrival metadata
-- `has_capacity(smart, faction, incoming)` - SIMBOARD squads + incoming vs max_population
 - `has_stalker_jobs(smart, type_id)` - smart.stalker_jobs has any (type_id nil) or specific job_type_id (e.g. `JOB_TYPE_TRADER` = 15)
 - `get_npc_for_job(smart, type_id)` - Online game_object of the NPC assigned to a job of the given type_id at this smart, or nil. Does NOT resolve the trader NPC (job_type_id=15 tags the visitor patrol slot, not the barman); use `get_trader_at_smart` for traders.
 - `get_trader_at_smart(smart)` - Online trader NPC at the smart, matched by character profile name containing `trader` / `barman` / `barmen`. Verified across 20 vanilla trader smarts.

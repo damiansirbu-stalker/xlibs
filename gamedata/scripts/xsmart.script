@@ -342,57 +342,6 @@ function get_actor_smart()
     return alife_object(data.id)
 end
 
---- Check if smart terrain accepts a specific faction
---- Reads props[faction] from simulation_objects_props.ltx; >0 means faction is welcome
---- @scope global - smart.props from simulation_objects_props.ltx
---- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
---- @cost O(1) | 0 luabind (pure Lua field/table reads)
---- @src anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
---- @param smart smart_terrain Smart terrain to check
---- @param faction string Faction community name
---- @return boolean True if faction is welcome
-function has_faction(smart, faction)
-    if not smart or not smart.props or not faction then return false end
-    local val = smart.props[faction]
-    return val and val > 0 or false
-end
-
---- Check if smart terrain accepts any faction from a set
---- Iterates factions table, returns true on first match via has_faction
---- @scope global - smart.props
---- @safety SAFE - pure Lua, nil-guarded
---- @cost O(k) factions | 0 luabind (pure Lua pairs)
---- @src anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
---- @param smart smart_terrain Smart terrain to check
---- @param factions table Faction set {[faction]=true, ...}
---- @return boolean True if any faction is welcome
-function has_factions(smart, factions)
-    if not smart or not factions then return false end
-    for faction in pairs(factions) do
-        if has_faction(smart, faction) then return true end
-    end
-    return false
-end
-
---- Check if smart terrain accepts a mutant faction (mirrors engine target_precondition gate 1)
---- Checks props.all, props.all_monster, then props[player_id]. Same three-way OR the engine uses
---- at smart_terrain.script:1532 to decide if a monster faction can target this smart.
---- @scope global - smart.props from simulation_objects_props.ltx
---- @safety SAFE - pure Lua table reads, nil-guarded
---- @cost O(1) | 0 luabind (pure Lua field/table reads)
---- @src anomaly/smart_terrain.script(1531-1532), anomaly/simulation_objects_props.ltx
---- @param smart smart_terrain Smart terrain to check
---- @param player_id string Monster faction community (e.g. "monster_predatory_night")
---- @return boolean True if smart accepts this mutant faction
-function accepts_mutant(smart, player_id)
-    if not smart or not player_id then return false end
-    local props = smart.props
-    if not props then return false end
-    if props.all and props.all > 0 then return true end
-    if props.all_monster and props.all_monster > 0 then return true end
-    return props[player_id] and props[player_id] > 0 or false
-end
-
 --- Check if smart terrain accepts a faction (Tier 1 of target_precondition)
 --- Dispatches by faction type: mutants check all/all_monster/props[faction], stalkers
 --- (including "zombied") check all/all_stalker/props[faction]. Mirrors engine
@@ -478,15 +427,18 @@ function get_section_npc_max(section)
     return result
 end
 
---- Get all stalker factions accepted by smart terrain
---- Builds {[faction]=true} from props keys with value >0; cached per smart.id (props are static INI)
+--- Get stalker factions declared in smart terrain's props (LTX simulation_objects_props.ltx)
+--- Builds {[faction]=true} from props keys with value >0 (only STALKER_FACTIONS list); cached
+--- per smart.id since props are static INI. Use accepts_faction for the engine Tier 1 routing
+--- question (includes all/all_stalker fallbacks); use this when you need the literal explicit
+--- faction declaration set.
 --- @scope global - smart.props from simulation_objects_props.ltx
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
 --- @cost O(13) factions first call, O(1) cached | 0 luabind (props is a pure Lua table from LTX parse)
 --- @src anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
 --- @param smart smart_terrain Smart terrain to check
 --- @return table Faction set {[faction]=true, ...} or empty table
-function get_smart_factions(smart)
+function get_declared_factions(smart)
     if not smart then return {} end
     local cached = _factions_cache[smart.id]
     if cached then return cached end
@@ -506,19 +458,25 @@ function get_smart_factions(smart)
     return result
 end
 
---- Get smart terrain's owning faction
---- Falls back: warfare owning_faction -> runtime faction -> props-based first faction -> "none"
---- @scope global - smart.owning_faction (warfare runtime) / smart.faction / smart.props; all set at server-entity register, no online dependency
+--- Get smart terrain's controlling faction (runtime holder)
+--- Prefers engine smart.faction (set by check_smart_faction from stalker NPCs at jobs, with
+--- default_faction LTX fallback) -- this is who's actually there. Falls back to warfare
+--- owning_faction only when smart.faction is nil and warfare's value is a real faction
+--- (skips the literal "none" warfare writes for unclaimed smarts at smart_terrain_warfare.script:171).
+--- Returns "none" when neither signal yields a faction. Does NOT consult smart.props -- props
+--- are the static accept-list answering "who can respawn / target here"; use accepts_faction /
+--- get_declared_factions for that question.
+--- @scope global - smart.faction (engine runtime, primary) / smart.owning_faction (warfare runtime, secondary); no online dependency
 --- @safety SAFE - pure Lua field reads (no luabind), nil-guarded
---- @cost O(1) | 0 luabind (pure Lua field/table reads) (get_smart_factions is cached)
---- @src anomaly/smart_terrain.script(1209), anomaly/smart_terrain_warfare.script(167), anomaly/simulation_objects.script(117)
+--- @cost O(1) | 0 luabind (pure Lua field reads)
+--- @src anomaly/smart_terrain.script(1209-1235, 1657-1659), anomaly/smart_terrain_warfare.script(167-171)
 --- @param smart smart_terrain Smart terrain to check
---- @return string Faction community or "none"
-function get_smart_faction(smart)
+--- @return string Controlling faction community, or "none" if unheld
+function get_controlling_faction(smart)
     if not smart then return "none" end
-    if smart.owning_faction then return smart.owning_faction end
     if smart.faction then return smart.faction end
-    return next(get_smart_factions(smart)) or "none"
+    if smart.owning_faction and smart.owning_faction ~= "none" then return smart.owning_faction end
+    return "none"
 end
 
 --- Check if smart terrain is empty (no squads assigned)
@@ -579,7 +537,7 @@ end
 
 --- Assign a squad to a smart's roster, or detach with nil. Wraps SIMBOARD:assign_squad_to_smart.
 --- Used by AP's dispatch/commit pair to keep SIMBOARD.smarts[id].squads aligned with AP-driven
---- moves so has_capacity / has_squad_of_faction / garrison-floor queries read truth. Pass nil
+--- moves so has_squad_of_faction / garrison-floor queries read truth. Pass nil
 --- as smart_id on dispatch (clears source roster before engine specific_update bumps squad.smart_id);
 --- pass the destination id on arrival commit. Fires squad_on_leave_smart on source clear,
 --- squad_on_enter_smart on destination add.
@@ -591,6 +549,15 @@ end
 function assign_squad_to_smart(squad, smart_id)
     if not squad or not SIMBOARD then return end
     SIMBOARD:assign_squad_to_smart(squad, smart_id)
+end
+
+-- Any-of acceptance check used by find_smart / find_first_smart when opts.factions is a set.
+-- @cost O(k) factions | 0 luabind (pure Lua pairs); short-circuits on first accept
+local function _accepts_any_faction(smart, fset)
+    for f in pairs(fset) do
+        if accepts_faction(smart, f) then return true end
+    end
+    return false
 end
 
 --- Find nearest smart terrain matching criteria
@@ -617,7 +584,7 @@ function find_smart(pos, opts)
     local filter = opts.filter
     local factions_check
     if factions then
-        if type(factions) == "table" then factions_check = has_factions else factions_check = has_faction end
+        if type(factions) == "table" then factions_check = _accepts_any_faction else factions_check = accepts_faction end
     end
     local min_dist_sqr = -1
     if opts.min_distance then min_dist_sqr = opts.min_distance * opts.min_distance end
@@ -671,7 +638,7 @@ function find_first_smart(opts)
     local factions = opts.factions
     local factions_check
     if factions then
-        if type(factions) == "table" then factions_check = has_factions else factions_check = has_faction end
+        if type(factions) == "table" then factions_check = _accepts_any_faction else factions_check = accepts_faction end
     end
     for _, smart in pairs(pool) do
         if _smart_matches(smart, opts.exclude_id, factions, factions_check, opts.level_id, opts.filter) then
@@ -701,10 +668,12 @@ local function _smart_has_faction_recipe(smart, faction)
     return false
 end
 
---- Find all smart terrains on a level whose recipes can spawn the given faction
---- Walks SIMBOARD.smarts once; filters by xlevel.get_level_id == level_id then by recipe-content
+--- Find all smart terrains on a level whose recipes spawn the given faction
+--- Walks SIMBOARD.smarts once; filters by xlevel.get_level_id == level_id then by recipe content
 --- via section_faction match. Returns smart objects directly (caller extracts .id if needed);
 --- smart terrains are not released mid-session so the references stay valid for the session.
+--- Answers the spawning-side question "which smarts on this level produce faction X"; distinct
+--- from accepts_faction (engine routing acceptance) and get_controlling_faction (runtime holder).
 --- @safety SAFE - nil-guarded; returns empty array when SIMBOARD missing or no matches
 --- @cost O(S*R*Q) smarts * recipes * sections (R,Q typically 1-5) | 1 luabind trivial per smart (xlevel.get_level_id cached); section_faction cached per section
 --- @src anomaly/sim_board.script(96) SIMBOARD.smarts, anomaly/smart_terrain.script(1681-1700) respawn_params shape
@@ -712,7 +681,7 @@ end
 --- @param level_id number Engine level ID
 --- @param faction string Faction community ("bandit", "monster_predatory_day", "stalker", ...)
 --- @return table Array of smart_terrain server objects on the level whose recipes produce faction (empty if none)
-function find_smarts_with_recipe(level_id, faction)
+function find_smarts_spawning(level_id, faction)
     local out = {}
     if not level_id or not faction then return out end
     if not SIMBOARD or not SIMBOARD.smarts then return out end
@@ -770,42 +739,6 @@ function get_proximity(squad, smart)
         threshold = 25
     end
     return math.sqrt(squad.position:distance_to_sqr(smart.position)), threshold, false, true
-end
-
---- Check if smart terrain has capacity for more squads
---- Counts SIMBOARD.smarts[id].squads (squad-at-smart membership) + incoming vs
---- max_population. Roster is written by vanilla on_reach_target after physical arrival
---- (sim_squad_scripted.script:319,382,393) and by AlifePlus at _commit_arrival
---- (ap_core_broker.script). Externally-scripted moves by mods that set scripted_target
---- without funneling through AlifePlus still bypass SIMBOARD bookkeeping.
---- @scope global - SIMBOARD.smarts + smart.max_population; works cross-level
---- @safety SAFE - nil guards, returns true when data unavailable (safe default = allow)
---- @cost O(k) squads at smart | 0 luabind without faction filter (pure Lua count); 2 luabind heavy per squad with faction filter (alife_object medium + get_squad_community heavy shared_str)
---- @src anomaly/smart_terrain.script(1469-1480) on_reach_target, anomaly/sim_board.script(226-266) assign_squad_to_smart, AlifePlus/ap_core_broker.script _commit_arrival
---- @param smart smart_terrain Smart terrain to check
---- @param faction string|nil Faction to count (nil = all factions)
---- @param incoming number|nil Count of in-transit squads to add (default 0)
---- @return boolean True if has capacity
-function has_capacity(smart, faction, incoming)
-    if not smart or not smart.max_population then return true end
-    if not SIMBOARD or not SIMBOARD.smarts then return true end
-
-    local data = SIMBOARD.smarts[smart.id]
-    if not data or not data.squads then return true end
-
-    local count = 0
-    for id in pairs(data.squads) do
-        if not faction then
-            count = count + 1
-            goto continue
-        end
-        local squad = alife_object(id)
-        if squad and squad.get_squad_community and squad:get_squad_community() == faction then
-            count = count + 1
-        end
-        ::continue::
-    end
-    return (count + (incoming or 0)) < smart.max_population
 end
 
 --- Check if every squad member has an engine-assigned job at the smart
@@ -872,7 +805,7 @@ function dump_smarts(level_id)
         local smart_lv = xlevel.get_level_id(smart)
         if level_id and smart_lv ~= level_id then goto continue end
         local sf = {}
-        for k in pairs(get_smart_factions(smart)) do sf[#sf + 1] = k end
+        for k in pairs(get_declared_factions(smart)) do sf[#sf + 1] = k end
         local found = _role_inventory(smart)
         parts[#parts + 1] = id .. ":" .. (smart:name() or "?")
             .. ":lv" .. tostring(smart_lv or "?")
