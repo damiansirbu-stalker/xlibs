@@ -4,7 +4,7 @@ local pairs, type, next, tostring = pairs, type, next, tostring
 local string_format, table_concat = string.format, table.concat
 local alife, alife_object = alife, alife_object
 local get_object_story_id, IsStalker = get_object_story_id, IsStalker
-local xlevel, xmath, xdata = xlevel, xmath, xdata
+local xlevel, xmath, xdata, xobject, xsmart = xlevel, xmath, xdata, xobject, xsmart
 
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 local CLSID_SQUAD = clsid.online_offline_group_s
@@ -372,26 +372,44 @@ function iter_member_ids(squad)
     end
 end
 
---- Dump all SIMBOARD squads as a diagnostic string
---- Shows raw engine fields: player_id, smart_id (physical location), assigned_target_id (simulation intent)
+-- Resolve squad commander's service role for diagnostic output. Offline commanders return "off".
+-- @cost O(1) | 1 trivial (commander_id) + 1 medium (xobject.go) + cached role; 0 luabind when commander offline (early-out at go nil)
+local function _commander_role(squad)
+    if not squad or not squad.commander_id then return "?" end
+    local cmd_id = squad:commander_id()
+    if not cmd_id then return "?" end
+    local go = xobject.go(cmd_id)
+    if not go then return "off" end
+    return xsmart.get_npc_role(go)
+end
+
+--- Dump SIMBOARD squads as a diagnostic string
+--- Shows raw engine fields plus commander's service role. When level_id is provided, filters to that level.
+--- Offline commanders show role="off"; non-service-NPC commanders show role="none".
 --- @safety SAFE - iter_squads handles nil SIMBOARD, read-only field access
---- @cost O(n) squads | per squad: 1 medium (sim:object) + 1 heavy (community shared_str) + 1 medium (npc_count) + 0-2 trivial (lvid cached, game vertex id field read)
---- @src anomaly/sim_squad_scripted.script(35,39)
---- @return string Diagnostic dump (e.g. "squads=5 [123:stalker:pid=stalker:lv2:npc3:at=17769:tgt=17780, ...]")
-function dump_squads()
+--- @cost O(n) squads | per squad: 1 medium (sim:object) + 1 heavy (community shared_str) + 1 medium (npc_count) + 0-2 trivial (lvid cached, vertex field) + commander_role
+--- @src anomaly/sim_squad_scripted.script(35,39), xlibs/xsmart.script get_npc_role
+--- @param level_id number|nil Restrict to this level when provided
+--- @return string Diagnostic dump
+function dump_squads(level_id)
     local parts = {}
     for squad in iter_squads() do
-        parts[#parts + 1] = string_format("%d:%s:pid=%s:lv%s:npc%d:at=%s:tgt=%s",
+        local sq_lv = xlevel.get_level_id(squad)
+        if level_id and sq_lv ~= level_id then goto continue end
+        parts[#parts + 1] = string_format("%d:%s:pid=%s:lv%s:npc%d:at=%s:tgt=%s:role=%s",
             squad.id,
             squad.get_squad_community and squad:get_squad_community() or "?",
             tostring(squad.player_id or "?"),
-            tostring(xlevel.get_level_id(squad) or "?"),
+            tostring(sq_lv or "?"),
             squad:npc_count(),
             tostring(squad.smart_id or "?"),
-            tostring(squad.assigned_target_id or "?"))
+            tostring(squad.assigned_target_id or "?"),
+            _commander_role(squad))
+        ::continue::
     end
     if #parts == 0 then return "no_simboard" end
-    return string_format("squads=%d [%s]", #parts, table_concat(parts, ", "))
+    return string_format("filter_lv=%s squads=%d [%s]",
+        tostring(level_id or "nil"), #parts, table_concat(parts, ", "))
 end
 
 --- Find squad matching criteria within distance range
