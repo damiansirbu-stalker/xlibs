@@ -480,17 +480,19 @@ function get_controlling_faction(smart)
 end
 
 --- Check if smart terrain is empty (no squads assigned)
---- Reads SIMBOARD.smarts[id].squads; next() is cheapest empty check (no luabind)
+--- Reads SIMBOARD.smarts[smart_id].squads; next() is cheapest empty check (no luabind).
+--- Signature matches the other SIMBOARD-indexing functions (get_smart_squads,
+--- has_squad_of_faction): takes smart_id directly so callers do not pay alife_object lookups.
 --- @scope global - SIMBOARD.smarts populated at server-entity register (sim_board.script init_smart); roster reflects sim intent, not physical occupancy
 --- @safety SAFE - pure Lua, nil-guarded at every level
 --- @cost O(1) | 0 luabind (pure Lua field/table reads)
 --- @src anomaly/sim_board.script(96), xcvb/night_mutants.script(92)
---- @param smart smart_terrain Smart terrain to check
+--- @param smart_id number Smart terrain server entity ID
 --- @return boolean True if empty
-function is_smart_empty(smart)
-    if not smart then return true end
+function is_smart_empty(smart_id)
+    if not smart_id then return true end
     if not SIMBOARD or not SIMBOARD.smarts then return true end
-    local data = SIMBOARD.smarts[smart.id]
+    local data = SIMBOARD.smarts[smart_id]
     if not data or not data.squads then return true end
     return next(data.squads) == nil
 end

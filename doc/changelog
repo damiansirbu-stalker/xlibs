@@ -1,4 +1,8 @@
 next
+  xsmart:
+    Changed: is_smart_empty signature takes smart_id directly instead of smart. Matches the other SIMBOARD-indexing functions (get_smart_squads, has_squad_of_faction). Callers that previously passed smart now pass smart.id.
+
+1.7.0
   Summary: faction-query surface trimmed and renamed to mark intent per question
   xsmart:
     Renamed: get_smart_faction -> get_controlling_faction. Body changed: drops the iteration-order props fallback. Reads smart.faction (engine runtime set by check_smart_faction from NPCs at jobs) first, then smart.owning_faction when warfare set a real faction (skips the literal "none"), else "none". Unheld smarts return "none" so the caller can fall through to a post-arrival check.
