@@ -186,13 +186,24 @@ function is_mechanic_npc(npc)
     return get_npc_role(npc) == "mechanic"
 end
 
--- Walk smart.npc_info, return first online live NPC whose role matches.
--- @cost O(n) n=npc_info entries (typically 5-30) | per entry: 1 medium (xobject.go), 1 trivial (alive), 0-4 luabind (role detect; cached after warmup)
+-- Walk smart.npc_info, return first online live NPC whose role matches. Skips NPCs in
+-- xdata.npc_roles: curated NPCs are covered by the standalone cache (ap_core_cache), this
+-- dynamic walk handles only uncurated / addon NPCs. Matches the skip-curated pattern in
+-- get_smart_relation Phase B.
+-- @cost O(n) n=npc_info entries (typically 5-30) | per entry: 1 trivial (section_name + hash), 1 medium (xobject.go), 1 trivial (alive), 0-4 luabind (role detect; cached after warmup)
 local function _get_role_at_smart(smart, role)
     if not smart or not smart.npc_info then return nil end
     for npc_id, _ in pairs(smart.npc_info) do
-        local npc = xobject.go(npc_id)
-        if npc and npc:alive() and get_npc_role(npc) == role then return npc end
+        local skip = false
+        local se = alife_object(npc_id)
+        if se then
+            local section = se:section_name()
+            skip = section ~= nil and xdata.npc_roles[section] ~= nil
+        end
+        if not skip then
+            local npc = xobject.go(npc_id)
+            if npc and npc:alive() and get_npc_role(npc) == role then return npc end
+        end
     end
     return nil
 end
@@ -477,6 +488,94 @@ function get_controlling_faction(smart)
     if smart.faction then return smart.faction end
     if smart.owning_faction and smart.owning_faction ~= "none" then return smart.owning_faction end
     return "none"
+end
+
+RELATION = { HOSTILE = "hostile", FRIENDLY = "friendly", UNCERTAIN = "uncertain" }
+
+local FRIENDLY_CONFIRM = 3
+
+-- Look up faction override for a section in xdata.npc_roles.
+-- Returns nil unless the entry exists and has an explicit faction field.
+local function _override_faction(section)
+    local entry = xdata.npc_roles[section]
+    return entry and entry.faction
+end
+
+-- Effective faction of a server entity: xdata.npc_roles override by section, else community.
+-- Returns nil for non-stalker entities (IsStalker guard) and for the universal-neutral
+-- "trader" community without an override.
+-- @cost O(1) | up to 3 luabind (clsid trivial + section_name heavy + community heavy)
+local function _se_faction(se)
+    local override = _override_faction(se:section_name())
+    if override then return override end
+    if not IsStalker(nil, se:clsid()) then return nil end
+    local community = se:community()
+    if community and community ~= "trader" then return community end
+    return nil
+end
+
+-- Effective faction of a game object (service-NPC path). Same logic.
+-- @cost O(1) | up to 2 luabind heavy (section + character_community)
+local function _go_faction(go)
+    local override = _override_faction(go:section())
+    if override then return override end
+    local community = character_community(go)
+    if community and community ~= "trader" then return community end
+    return nil
+end
+
+-- Classify one resolved faction string against the query community.
+-- Returns RELATION.HOSTILE / RELATION.FRIENDLY / nil (no signal).
+local function _classify(community, fac)
+    if not fac then return nil end
+    if game_relations.is_factions_enemies(community, fac) then return RELATION.HOSTILE end
+    if game_relations.is_factions_friends(community, fac) then return RELATION.FRIENDLY end
+    return nil
+end
+
+local SERVICE_ROLES = { "trader", "medic", "mechanic" }
+
+--- Classify smart vs community as HOSTILE / FRIENDLY / UNCERTAIN
+--- Two-phase. Phase A: check service NPCs (trader, medic, mechanic) -- they define the
+--- smart's identity for visit gates. First service NPC with a real faction (static-map
+--- override if community is "trader") decides hostile/friendly. Phase B (only if service
+--- did not decide): walk npc_info, skip NPCs in STANDALONE_FACTIONS (already covered by
+--- service path), early-exit on first enemy, return FRIENDLY when FRIENDLY_CONFIRM same-side
+--- NPCs seen. UNCERTAIN when nothing definitive.
+--- @scope global - smart.npc_info (online + actor-level)
+--- @safety SAFE - nil-guarded at every level
+--- @cost service path: up to 3 _get_role_at_smart calls (npc_info walk per role, cached role detection). Dynamic walk: per-NPC 1-2 heavy luabind (section_name + community), early-exits on enemy
+--- @src anomaly/smart_terrain.script(801) npc_info
+--- @param smart smart_terrain
+--- @param community string
+--- @return string RELATION.HOSTILE | RELATION.FRIENDLY | RELATION.UNCERTAIN
+function get_smart_relation(smart, community)
+    if not smart or not smart.npc_info or not community then return RELATION.UNCERTAIN end
+    for i = 1, #SERVICE_ROLES do
+        local npc = _get_role_at_smart(smart, SERVICE_ROLES[i])
+        local rel = npc and _classify(community, _go_faction(npc))
+        if rel then return rel end
+    end
+    local friendly = 0
+    for _, info in pairs(smart.npc_info) do
+        local se = info.se_obj
+        local skip = not se or xdata.npc_roles[se:section_name()]
+        local rel = not skip and _classify(community, _se_faction(se))
+        if rel == RELATION.HOSTILE then return rel end
+        if rel == RELATION.FRIENDLY then
+            friendly = friendly + 1
+            if friendly >= FRIENDLY_CONFIRM then return RELATION.FRIENDLY end
+        end
+    end
+    return RELATION.UNCERTAIN
+end
+
+--- Convenience wrapper. True only when get_smart_relation returns HOSTILE.
+--- @param smart smart_terrain
+--- @param community string
+--- @return boolean
+function is_smart_hostile_to(smart, community)
+    return get_smart_relation(smart, community) == RELATION.HOSTILE
 end
 
 --- Check if smart terrain is empty (no squads assigned)
