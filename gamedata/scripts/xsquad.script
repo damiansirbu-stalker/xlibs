@@ -372,15 +372,21 @@ function iter_member_ids(squad)
     end
 end
 
--- Resolve squad commander's service role for diagnostic output. Offline commanders return "off".
--- @cost O(1) | 1 trivial (commander_id) + 1 medium (xobject.go) + cached role; 0 luabind when commander offline (early-out at go nil)
+-- Resolve squad commander's service role from xdata.npc_roles for diagnostic output.
+-- Offline OK: reads section from CSE, no game_object required.
+-- @cost O(1) | 1 trivial (commander_id) + 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
 local function _commander_role(squad)
     if not squad or not squad.commander_id then return "?" end
     local cmd_id = squad:commander_id()
     if not cmd_id then return "?" end
-    local go = xobject.go(cmd_id)
-    if not go then return "off" end
-    return xsmart.get_npc_role(go)
+    local se = alife_object(cmd_id)
+    if not se then return "?" end
+    local entry = xdata.npc_roles[se:section_name()]
+    if not entry then return "none" end
+    if entry.trader   then return "trader"   end
+    if entry.medic    then return "medic"    end
+    if entry.mechanic then return "mechanic" end
+    return "none"
 end
 
 --- Dump SIMBOARD squads as a diagnostic string
@@ -388,7 +394,7 @@ end
 --- Offline commanders show role="off"; non-service-NPC commanders show role="none".
 --- @safety SAFE - iter_squads handles nil SIMBOARD, read-only field access
 --- @cost O(n) squads | per squad: 1 medium (sim:object) + 1 heavy (community shared_str) + 1 medium (npc_count) + 0-2 trivial (lvid cached, vertex field) + commander_role
---- @src anomaly/sim_squad_scripted.script(35,39), xlibs/xsmart.script get_npc_role
+--- @src anomaly/sim_squad_scripted.script(35,39), xlibs/xdata.script npc_roles
 --- @param level_id number|nil Restrict to this level when provided
 --- @return string Diagnostic dump
 function dump_squads(level_id)

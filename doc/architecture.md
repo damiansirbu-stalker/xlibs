@@ -185,8 +185,7 @@ local holder = xsmart.get_controlling_faction(smart)
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
 - `get_proximity(squad, smart)` - Distance and arrival metadata
 - `has_stalker_jobs(smart, type_id)` - smart.stalker_jobs has any (type_id nil) or specific job_type_id (e.g. `JOB_TYPE_TRADER` = 15)
-- `get_npc_for_job(smart, type_id)` - Online game_object of the NPC assigned to a job of the given type_id at this smart, or nil. Does NOT resolve the trader NPC (job_type_id=15 tags the visitor patrol slot, not the barman); use `get_trader_at_smart` for traders.
-- `get_trader_at_smart(smart)` - Online trader NPC at the smart, matched by character profile name containing `trader` / `barman` / `barmen`. Verified across 20 vanilla trader smarts.
+- `get_npc_for_job(smart, type_id)` - Online game_object of the NPC assigned to a job of the given type_id at this smart, or nil. Does NOT resolve the trader NPC (job_type_id=15 tags the visitor patrol slot, not the barman); use `ap_core_util.get_service_npc_at_smart` for traders.
 - `set_shared_spawn(smart, key, faction, spawn_num)` - Additive spawn injection (adds entry alongside originals, no faction_controlled)
 - `clear_shared_spawn(smart, key)` - Remove shared spawn entry, restore original-only spawning
 - `set_exclusive_spawn(smart, key, faction, spawn_num)` - Exclusive spawn injection (sets faction_controlled, suppresses originals via faction gate)

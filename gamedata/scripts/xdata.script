@@ -5,14 +5,14 @@
 -- Roles: trader, medic, mechanic, guide, guard, bodyguard, leader, quest.
 -- faction: real allegiance, verified from character_desc <community> when possible. For NPCs
 -- whose community is "trader" (universal-neutral) the faction encodes their real allegiance
--- by lore. Pre-populated so _se_faction / _go_faction can short-circuit on hash lookup
+-- by lore. Pre-populated so _se_faction can short-circuit on hash lookup
 -- without paying community() heavy luabind. Missing faction (a few unverified ids) falls
 -- back to community read.
 -- src: grok_no_north_faction_in_south.script, surge_manager_ignore_npc.script
 npc_roles = {
     -- Cordon
-    ["esc_m_trader"]                                     = { trader = true },
-    ["m_trader"]                                         = { trader = true },
+    ["esc_m_trader"]                                     = { trader = true, faction = "stalker" },
+    ["m_trader"]                                         = { trader = true, faction = "stalker" },
     ["esc_2_12_stalker_nimble"]                          = { trader = true, faction = "stalker" },
     ["esc_2_12_stalker_wolf"]                            = { leader = true, faction = "stalker" },
     ["esc_2_12_stalker_fanat"]                           = { quest = true, faction = "stalker" },
@@ -120,7 +120,7 @@ npc_roles = {
     -- Zaton
     ["zat_stancia_mech_merc"]                            = { mechanic = true, faction = "killer" },
     ["zat_stancia_trader_merc"]                          = { trader = true, faction = "killer" },
-    ["zat_a2_stalker_nimble"]                            = { trader = true },
+    ["zat_a2_stalker_nimble"]                            = { trader = true, faction = "stalker" },
     ["zat_b30_owl_stalker_trader"]                       = { trader = true, faction = "stalker" },
     ["zat_tech_mlr"]                                     = { mechanic = true, faction = "stalker" },
     ["zat_b22_stalker_medic"]                            = { medic = true, faction = "stalker" },

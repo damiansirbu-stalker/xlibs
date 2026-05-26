@@ -2,7 +2,7 @@
 
 local pairs, ipairs, next, type, alife_object, tostring = pairs, ipairs, next, type, alife_object, tostring
 local pcall, math, table, tonumber = pcall, math, table, tonumber
-local string_match, table_concat, character_community = string.match, table.concat, character_community
+local string_match, table_concat = string.match, table.concat
 local xobject, xsquad, xlevel = xobject, xsquad, xlevel
 
 --- Stalker faction community names used as props keys in simulation_objects_props.ltx
@@ -87,7 +87,7 @@ end
 --- NOTE: this does NOT resolve the trader NPC. JOB_TYPE_TRADER (15) tags the visitor patrol
 --- job slot (`<smart>_beh_trade_<i>` per gulag_general.script:971), not the barman's seated
 --- logic. Probed across 20 vanilla trader smarts: the barman's job entry's job_type_id is nil
---- even when the smart is online. Use get_trader_at_smart for the barman.
+--- even when the smart is online. Use ap_core_util.get_service_npc_at_smart for the barman.
 --- @scope online - reads smart.npc_info populated by smart_terrain:update_jobs (smart_terrain.script:376) only when smart is online
 --- @safety SAFE - pure Lua iteration, nil-guarded; xobject.go falls back to nil for offline ids
 --- @cost O(n) n = npc_info entries at smart (typically 1-15) | 1 luabind via xobject.go on match (level.object_by_id)
@@ -105,174 +105,6 @@ function get_npc_for_job(smart, type_id)
         end
     end
     return nil
-end
-
---- Lazy per-NPC role cache. Role is immutable in practice (section, community, and bound
---- logic block don't change at runtime for service NPCs), so entries are populated on first
---- query and never invalidated. Dead NPCs leave stale entries; the cached value remains
---- correct and memory cost is bounded by the lifetime NPC count (well under 50KB).
-local _npc_role = {}
-
--- Read logic-block level_spot field, the canonical PDA-icon role designator.
--- @cost O(1) | 0-2 luabind (db.storage pure Lua + line_exist trivial + r_string heavy when present)
-local function _level_spot(npc)
-    local st = db.storage[npc:id()]
-    if not st or not st.ini or not st.section_logic then return nil end
-    if not st.ini:line_exist(st.section_logic, "level_spot") then return nil end
-    return st.ini:r_string(st.section_logic, "level_spot")
-end
-
--- 3-signal role detection: community + section substring + level_spot. Cheapest-first.
--- @cost O(1) | 2-4 luabind heavy (community + section shared_str; level_spot only on substring miss)
-local function _detect_role(npc)
-    local sec = npc:section()
-    if character_community(npc) == "trader" then return "trader" end
-    if sec:find("trader") or sec:find("barm[ae]n") then return "trader" end
-    if sec:find("mechanic") or sec:find("_tech") or sec:find("mech_mlr") or sec:find("mechan") then return "mechanic" end
-    if sec:find("medic") or sec:find("medik") or sec:find("doctor") then return "medic" end
-    local spot = _level_spot(npc)
-    if spot == "trader" or spot == "barman" then return "trader" end
-    if spot == "mechanic" then return "mechanic" end
-    if spot == "medic" then return "medic" end
-    return "none"
-end
-
---- Get the service role of an online NPC, cached for the session
---- Modeled on vanilla utils_obj.is_trader's multi-signal approach (community + section + level_spot),
---- generalized to trader / medic / mechanic. Substring matchers cross-checked against 477 SIMBOARD
---- smarts with 0 false positives among non-target service NPCs.
---- @safety SAFE - nil-guarded; all engine reads are standard game_object methods
---- @cost O(1) | 0 luabind cached, 2-4 luabind heavy on miss (community + section + optional level_spot)
---- @src anomaly/utils_obj.script(74), anomaly/xr_conditions.script(53-79)
---- @param npc game_object Online NPC game_object
---- @return string Role name: "trader" | "medic" | "mechanic" | "none"
-function get_npc_role(npc)
-    if not npc then return "none" end
-    local id = npc:id()
-    local role = _npc_role[id]
-    if role ~= nil then return role end
-    role = _detect_role(npc)
-    _npc_role[id] = role
-    return role
-end
-
---- Test if NPC is a trader (community="trader", section contains trader/barm[ae]n, or level_spot=trader/barman)
---- @safety SAFE - delegates to get_npc_role
---- @cost O(1) | 0 luabind cached, 2-4 luabind heavy on miss
---- @src anomaly/utils_obj.script(74) is_trader 4-signal detector
---- @param npc game_object Online NPC game_object
---- @return boolean
-function is_trader_npc(npc)
-    return get_npc_role(npc) == "trader"
-end
-
---- Test if NPC is a medic (section contains medic/medik/doctor, or level_spot=medic)
---- @safety SAFE - delegates to get_npc_role
---- @cost O(1) | 0 luabind cached, 2-4 luabind heavy on miss
---- @src anomaly/xr_conditions.script(67) check_npc_medic sim_default pattern
---- @param npc game_object Online NPC game_object
---- @return boolean
-function is_medic_npc(npc)
-    return get_npc_role(npc) == "medic"
-end
-
---- Test if NPC is a mechanic (section contains mechanic/_tech/mech_mlr/mechan, or level_spot=mechanic)
---- @safety SAFE - delegates to get_npc_role
---- @cost O(1) | 0 luabind cached, 2-4 luabind heavy on miss
---- @src anomaly/xr_conditions.script(60) check_npc_mechanic sim_default pattern
---- @param npc game_object Online NPC game_object
---- @return boolean
-function is_mechanic_npc(npc)
-    return get_npc_role(npc) == "mechanic"
-end
-
--- Walk smart.npc_info, return first online live NPC whose role matches. Skips NPCs in
--- xdata.npc_roles: curated NPCs are covered by the standalone cache (ap_core_cache), this
--- dynamic walk handles only uncurated / addon NPCs. Matches the skip-curated pattern in
--- get_smart_relation Phase B.
--- @cost O(n) n=npc_info entries (typically 5-30) | per entry: 1 trivial (section_name + hash), 1 medium (xobject.go), 1 trivial (alive), 0-4 luabind (role detect; cached after warmup)
-local function _get_role_at_smart(smart, role)
-    if not smart or not smart.npc_info then return nil end
-    for npc_id, _ in pairs(smart.npc_info) do
-        local skip = false
-        local se = alife_object(npc_id)
-        if se then
-            local section = se:section_name()
-            skip = section ~= nil and xdata.npc_roles[section] ~= nil
-        end
-        if not skip then
-            local npc = xobject.go(npc_id)
-            if npc and npc:alive() and get_npc_role(npc) == role then return npc end
-        end
-    end
-    return nil
-end
-
---- Resolve the trader NPC at a smart by role detection (community / section / level_spot)
---- Walks npc_info, returns first online live NPC with role="trader". Replaces the prior
---- substring-only matcher; now catches story traders like Sidorovich (community="trader")
---- that don't have "trader" in their section name.
---- @safety SAFE - nil-guarded; section_name is a standard CSE method
---- @cost O(n) n=npc_info entries (typically 5-30) | per entry: 1 medium (xobject.go) + 1 trivial (alive) + cached role
---- @src anomaly/smart_terrain.script(801) self.npc_info entries; anomaly/utils_obj.script(74) is_trader
---- @src doc/library/modding/npc-trade.md "Finding the trader NPC"
---- @param smart smart_terrain Smart terrain to query
---- @return game_object|nil Online trader NPC, or nil if none online at this smart
-function get_trader_at_smart(smart)
-    return _get_role_at_smart(smart, "trader")
-end
-
---- Resolve the medic NPC at a smart by role detection (section / level_spot)
---- @safety SAFE - nil-guarded
---- @cost O(n) n=npc_info entries | per entry: 1 medium (xobject.go) + 1 trivial (alive) + cached role
---- @src anomaly/smart_terrain.script(801); anomaly/xr_conditions.script(67) check_npc_medic
---- @param smart smart_terrain Smart terrain to query
---- @return game_object|nil Online medic NPC, or nil if none online at this smart
-function get_medic_at_smart(smart)
-    return _get_role_at_smart(smart, "medic")
-end
-
---- Resolve the mechanic NPC at a smart by role detection (section / level_spot)
---- @safety SAFE - nil-guarded
---- @cost O(n) n=npc_info entries | per entry: 1 medium (xobject.go) + 1 trivial (alive) + cached role
---- @src anomaly/smart_terrain.script(801); anomaly/xr_conditions.script(60) check_npc_mechanic
---- @param smart smart_terrain Smart terrain to query
---- @return game_object|nil Online mechanic NPC, or nil if none online at this smart
-function get_mechanic_at_smart(smart)
-    return _get_role_at_smart(smart, "mechanic")
-end
-
---- Test if any live online NPC at the smart has role="trader"
---- Bridges the cause-scan filter and arrival-time resolver: AP causes can now filter on
---- live-NPC presence instead of structural job_type_id slots, fixing the Sidorovich-class
---- case (trader smart with no beh_trade patrol slot in its smart_logic).
---- @safety SAFE - delegates to _get_role_at_smart
---- @cost O(n) n=npc_info entries | same as get_trader_at_smart
---- @src anomaly/smart_terrain.script(801)
---- @param smart smart_terrain Smart terrain to query
---- @return boolean
-function has_trader_at_smart(smart)
-    return _get_role_at_smart(smart, "trader") ~= nil
-end
-
---- Test if any live online NPC at the smart has role="medic"
---- @safety SAFE - delegates to _get_role_at_smart
---- @cost O(n) n=npc_info entries | same as get_medic_at_smart
---- @src anomaly/smart_terrain.script(801)
---- @param smart smart_terrain Smart terrain to query
---- @return boolean
-function has_medic_at_smart(smart)
-    return _get_role_at_smart(smart, "medic") ~= nil
-end
-
---- Test if any live online NPC at the smart has role="mechanic"
---- @safety SAFE - delegates to _get_role_at_smart
---- @cost O(n) n=npc_info entries | same as get_mechanic_at_smart
---- @src anomaly/smart_terrain.script(801)
---- @param smart smart_terrain Smart terrain to query
---- @return boolean
-function has_mechanic_at_smart(smart)
-    return _get_role_at_smart(smart, "mechanic") ~= nil
 end
 
 --- Check if smart has any non-stub stalker job
@@ -490,10 +322,6 @@ function get_controlling_faction(smart)
     return "none"
 end
 
-RELATION = { HOSTILE = "hostile", FRIENDLY = "friendly", UNCERTAIN = "uncertain" }
-
-local FRIENDLY_CONFIRM = 3
-
 -- Look up faction override for a section in xdata.npc_roles.
 -- Returns nil unless the entry exists and has an explicit faction field.
 local function _override_faction(section)
@@ -514,68 +342,35 @@ local function _se_faction(se)
     return nil
 end
 
--- Effective faction of a game object (service-NPC path). Same logic.
--- @cost O(1) | up to 2 luabind heavy (section + character_community)
-local function _go_faction(go)
-    local override = _override_faction(go:section())
-    if override then return override end
-    local community = character_community(go)
-    if community and community ~= "trader" then return community end
-    return nil
-end
+local HOSTILE_SAMPLE = 3
 
--- Classify one resolved faction string against the query community.
--- Returns RELATION.HOSTILE / RELATION.FRIENDLY / nil (no signal).
-local function _classify(community, fac)
-    if not fac then return nil end
-    if game_relations.is_factions_enemies(community, fac) then return RELATION.HOSTILE end
-    if game_relations.is_factions_friends(community, fac) then return RELATION.FRIENDLY end
-    return nil
-end
-
-local SERVICE_ROLES = { "trader", "medic", "mechanic" }
-
---- Classify smart vs community as HOSTILE / FRIENDLY / UNCERTAIN
---- Two-phase. Phase A: check service NPCs (trader, medic, mechanic) -- they define the
---- smart's identity for visit gates. First service NPC with a real faction (static-map
---- override if community is "trader") decides hostile/friendly. Phase B (only if service
---- did not decide): walk npc_info, skip NPCs in STANDALONE_FACTIONS (already covered by
---- service path), early-exit on first enemy, return FRIENDLY when FRIENDLY_CONFIRM same-side
---- NPCs seen. UNCERTAIN when nothing definitive.
---- @scope global - smart.npc_info (online + actor-level)
+--- Test if a smart is hostile to a given community.
+--- Walks at most HOSTILE_SAMPLE entries of smart.npc_info. Each NPC's effective faction
+--- comes from _se_faction (xdata.npc_roles override > community != "trader"). Returns true
+--- on first enemy found, false otherwise. Sample is bounded for cost; iteration order is
+--- pairs() hash order, so the sample is stochastic across calls.
+--- @scope global - smart.npc_info (online + actor-level only)
 --- @safety SAFE - nil-guarded at every level
---- @cost service path: up to 3 _get_role_at_smart calls (npc_info walk per role, cached role detection). Dynamic walk: per-NPC 1-2 heavy luabind (section_name + community), early-exits on enemy
+--- @cost O(HOSTILE_SAMPLE) | up to 3 luabind per entry (section_name + clsid + community)
 --- @src anomaly/smart_terrain.script(801) npc_info
 --- @param smart smart_terrain
 --- @param community string
---- @return string RELATION.HOSTILE | RELATION.FRIENDLY | RELATION.UNCERTAIN
-function get_smart_relation(smart, community)
-    if not smart or not smart.npc_info or not community then return RELATION.UNCERTAIN end
-    for i = 1, #SERVICE_ROLES do
-        local npc = _get_role_at_smart(smart, SERVICE_ROLES[i])
-        local rel = npc and _classify(community, _go_faction(npc))
-        if rel then return rel end
-    end
-    local friendly = 0
+--- @return boolean true if any sampled NPC's faction is enemy of community
+function is_smart_hostile_to(smart, community)
+    if not smart or not smart.npc_info or not community then return false end
+    local seen = 0
     for _, info in pairs(smart.npc_info) do
         local se = info.se_obj
-        local skip = not se or xdata.npc_roles[se:section_name()]
-        local rel = not skip and _classify(community, _se_faction(se))
-        if rel == RELATION.HOSTILE then return rel end
-        if rel == RELATION.FRIENDLY then
-            friendly = friendly + 1
-            if friendly >= FRIENDLY_CONFIRM then return RELATION.FRIENDLY end
+        if se then
+            local fac = _se_faction(se)
+            if fac and game_relations.is_factions_enemies(community, fac) then
+                return true
+            end
+            seen = seen + 1
+            if seen >= HOSTILE_SAMPLE then break end
         end
     end
-    return RELATION.UNCERTAIN
-end
-
---- Convenience wrapper. True only when get_smart_relation returns HOSTILE.
---- @param smart smart_terrain
---- @param community string
---- @return boolean
-function is_smart_hostile_to(smart, community)
-    return get_smart_relation(smart, community) == RELATION.HOSTILE
+    return false
 end
 
 --- Check if smart terrain is empty (no squads assigned)
@@ -869,17 +664,19 @@ function has_jobs_for(smart, squad)
     return true
 end
 
--- Collect service-role NPC ids at a smart for diagnostic output; break early after all 3 roles.
--- @cost O(n) n=npc_info entries | per entry: 1 medium (xobject.go), 1 trivial (alive), cached role
+-- Collect service-role NPC ids at a smart for diagnostic output. Reads role from
+-- xdata.npc_roles via the NPC's section name on the CSE. Offline-friendly.
+-- @cost O(n) n=npc_info entries | per entry: 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
 local function _role_inventory(smart)
     if not smart or not smart.npc_info then return {} end
     local found, count = {}, 0
     for npc_id, _ in pairs(smart.npc_info) do
-        local npc = xobject.go(npc_id)
-        if not npc then goto continue end
-        if not npc:alive() then goto continue end
-        local role = get_npc_role(npc)
-        if role == "none" or found[role] then goto continue end
+        local se = alife_object(npc_id)
+        if not se then goto continue end
+        local entry = xdata.npc_roles[se:section_name()]
+        if not entry then goto continue end
+        local role = entry.trader and "trader" or entry.medic and "medic" or entry.mechanic and "mechanic"
+        if not role or found[role] then goto continue end
         found[role] = npc_id
         count = count + 1
         if count == 3 then break end
@@ -890,10 +687,10 @@ end
 
 --- Diagnostic dump of smarts with faction, level, and service-role inventory
 --- When level_id is provided, filters to that level only. Per-smart entry appends trader/medic/mechanic
---- NPC ids when present (role detection via get_npc_role, cached per session).
+--- NPC ids when present (role read from xdata.npc_roles via section name).
 --- @scope global - iterates SIMBOARD.smarts; npc_info populated only for online smarts on actor's level
 --- @safety SAFE - pure Lua iteration, nil-guarded
---- @cost O(n) smarts * O(m) npc_info per smart | per smart: 1 heavy (name) + role_inventory walk; cached role lookups make warm O(1) per NPC
+--- @cost O(n) smarts * O(m) npc_info per smart | per smart: 1 heavy (name) + role_inventory walk; xdata.npc_roles is O(1) per NPC
 --- @src anomaly/sim_board.script(96), anomaly/smart_terrain.script(801,1209)
 --- @param level_id number|nil Restrict iteration to this level when provided
 --- @return string Debug summary string
