@@ -329,11 +329,15 @@ local function _override_faction(section)
     return entry and entry.faction
 end
 
--- Effective faction of a server entity: xdata.npc_roles override by section, else community.
--- Returns nil for non-stalker entities (IsStalker guard) and for the universal-neutral
--- "trader" community without an override.
--- @cost O(1) | up to 3 luabind (clsid trivial + section_name heavy + community heavy)
-local function _se_faction(se)
+--- Resolve effective faction of a server entity: xdata.npc_roles override by section, else community.
+--- Returns nil for non-stalker entities (IsStalker guard) and for the universal-neutral "trader" community without an override.
+--- @safety SAFE - nil-guarded; section_name/community heavy bridge calls only when override misses
+--- @cost O(1) | up to 3 luabind (clsid trivial + section_name heavy + community heavy)
+--- @src anomaly/smart_terrain.script
+--- @param se table Server entity
+--- @return string|nil Faction community or nil if unresolvable
+function get_npc_effective_faction(se)
+    if not se then return nil end
     local override = _override_faction(se:section_name())
     if override then return override end
     if not IsStalker(nil, se:clsid()) then return nil end
@@ -344,32 +348,30 @@ end
 
 local HOSTILE_SAMPLE = 3
 
---- Test if a smart is hostile to a given community.
---- Walks at most HOSTILE_SAMPLE entries of smart.npc_info. Each NPC's effective faction
---- comes from _se_faction (xdata.npc_roles override > community != "trader"). Returns true
---- on first enemy found, false otherwise. Sample is bounded for cost; iteration order is
---- pairs() hash order, so the sample is stochastic across calls.
+--- Test if a smart is hostile to a community via npc_info walk (online-only).
+--- Tri-state: true on first enemy in sample; false if at least one faction resolved and none enemy; nil when no data (offline, empty, or all sampled returned nil from get_npc_effective_faction).
 --- @scope global - smart.npc_info (online + actor-level only)
 --- @safety SAFE - nil-guarded at every level
 --- @cost O(HOSTILE_SAMPLE) | up to 3 luabind per entry (section_name + clsid + community)
 --- @src anomaly/smart_terrain.script(801) npc_info
 --- @param smart smart_terrain
 --- @param community string
---- @return boolean true if any sampled NPC's faction is enemy of community
+--- @return boolean|nil true=enemy seen, false=non-enemy sample, nil=no data
 function is_smart_hostile_to(smart, community)
-    if not smart or not smart.npc_info or not community then return false end
-    local seen = 0
+    if not smart or not smart.npc_info or not community then return nil end
+    local resolved = 0
+    local sampled = 0
     for _, info in pairs(smart.npc_info) do
         local se = info.se_obj
-        if se then
-            local fac = _se_faction(se)
-            if fac and game_relations.is_factions_enemies(community, fac) then
-                return true
-            end
-            seen = seen + 1
-            if seen >= HOSTILE_SAMPLE then break end
-        end
+        if not se then goto continue end
+        local fac = get_npc_effective_faction(se)
+        if fac and game_relations.is_factions_enemies(community, fac) then return true end
+        if fac then resolved = resolved + 1 end
+        sampled = sampled + 1
+        if sampled >= HOSTILE_SAMPLE then break end
+        ::continue::
     end
+    if resolved == 0 then return nil end
     return false
 end
 
