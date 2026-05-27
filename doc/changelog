@@ -1,19 +1,16 @@
-next
+1.7.0
+  Summary: faction-query surface trimmed and renamed to mark intent per question, tri-state smart hostility check, curated trader faction overrides
   xsmart:
     Added: is_smart_hostile_to(smart, community). Tri-state hostility check. Samples the first 3 npc_info entries; for each, resolves faction via xdata.npc_roles override then community() fallback. Returns true on first enemy seen, false when at least one faction resolved and none enemy, nil when no signal (offline, empty, or no faction resolved). Online + actor-level smarts only; caller layers a standalone-NPC cache for offline coverage.
-    Changed: is_smart_empty signature takes smart_id directly instead of smart. Matches the other SIMBOARD-indexing functions (get_smart_squads, has_squad_of_faction). Callers that previously passed smart now pass smart.id.
-  xdata:
-    Changed: npc_roles entries carry a faction field on every curated service NPC. Sidorovich-style universal-neutral traders get explicit faction encoding from lore (Petrenko at Dolg, Sakharov at Yantar, Ashot at Yanov, the Freedom leader at Army Warehouses, and the rest). Consumers reading get_npc_effective_faction see the curated override before falling back to engine community().
-
-1.7.0
-  Summary: faction-query surface trimmed and renamed to mark intent per question
-  xsmart:
     Renamed: get_smart_faction -> get_controlling_faction. Body changed: drops the iteration-order props fallback. Reads smart.faction (engine runtime set by check_smart_faction from NPCs at jobs) first, then smart.owning_faction when warfare set a real faction (skips the literal "none"), else "none". Unheld smarts return "none" so the caller can fall through to a post-arrival check.
     Renamed: get_smart_factions -> get_declared_factions. Name states the question (factions explicitly declared in smart.props LTX).
     Renamed: find_smarts_with_recipe -> find_smarts_spawning. Name states the question (smarts that spawn faction X on this level) instead of the implementation.
+    Changed: is_smart_empty signature takes smart_id directly instead of smart. Matches the other SIMBOARD-indexing functions (get_smart_squads, has_squad_of_faction). Callers that previously passed smart now pass smart.id.
     Removed: accepts_mutant. Subset of accepts_faction, which dispatches the mutant branch via is_squad_monster automatically.
     Removed: has_faction, has_factions. find_smart and find_first_smart factions opt now matches via accepts_faction (engine Tier 1 with all / all_stalker / all_monster fallback). Behavior change at find_smart callers: smarts declaring all_stalker or all_monster now satisfy the factions filter.
     Removed: has_capacity. No live callers.
+  xdata:
+    Changed: npc_roles entries carry a faction field on every curated service NPC. Sidorovich-style universal-neutral traders get explicit faction encoding from lore (Petrenko at Dolg, Sakharov at Yantar, Ashot at Yanov, the Freedom leader at Army Warehouses, and the rest). Consumers reading get_npc_effective_faction see the curated override before falling back to engine community().
 
 1.6.1
   xobject:
