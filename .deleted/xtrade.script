@@ -17,17 +17,20 @@
 --- @src anomaly/axr_trade_manager.script
 
 local floor, pairs, tonumber = math.floor, pairs, tonumber
-local str_explode, parse_list, utils_data = str_explode, parse_list, utils_data
+local str_explode, parse_list, utils_data, IsItem = str_explode, parse_list, utils_data, IsItem
 local ini_sys, ini_file, alife_release_id = ini_sys, ini_file, alife_release_id
 
 local INI_PATH = "items\\trade\\gulag_job_trade_buy_sell.ltx"
 local BUY_SELL_SECTION = "buy_sell"
+local KEEP_SECTION = "buy_sell_keep"
 local DEFAULT_COST = 30
+local DEFAULT_SELL_MULT = 0.5
 local SLOT_COUNT = 12
 
 local _ini
 local _ini_loaded = false
 local _valid_cache
+local _keep_cache
 local _row_cache = {}
 local _neg_row_cache = {}
 
@@ -97,6 +100,29 @@ function get_valid_items()
     return _valid_cache
 end
 
+--- Return cached set of sections AlifePlus marks as "useful" via `[buy_sell_keep]`.
+--- Allowlist read once; trade() uses it on sell-skip and buy-include without trusting vanilla's permissive row[3].
+--- @safety SAFE - nil ini or missing section returns empty table
+--- @cost O(n) sections on first call, O(1) cached after
+--- @src anomaly/utils_data.script(collect_section)
+--- @return table { [sec] = true, ... }
+function get_keep_items()
+    if _keep_cache then return _keep_cache end
+    local ini = _get_ini()
+    if not ini then _keep_cache = {} return _keep_cache end
+    _keep_cache = utils_data.collect_section(ini, KEEP_SECTION, true) or {}
+    return _keep_cache
+end
+
+-- Useful predicate used by both sell-skip and buy-include. Ammo path checks bw_ammos; non-ammo checks the allowlist.
+-- @cost O(1) | IsItem hash + 1-2 table lookups
+local function _is_useful(sec, keep_set, bw_ammos)
+    if IsItem("ammo", sec) then
+        return bw_ammos and bw_ammos[sec] == true
+    end
+    return keep_set[sec] == true
+end
+
 --- Read base cost of one item section from `system.ltx`.
 --- Vanilla uses `ini_sys:r_float_ex(sec, "cost") or 30` (default cost 30 RU when the section
 --- omits a cost field). This function preserves that default so caller cost math matches
@@ -155,30 +181,28 @@ function is_eligible(sec, exclude)
     return valid ~= nil and valid[sec] == true
 end
 
---- Sell one item from npc to seller at vanilla sell price.
---- transfer_item to seller (or alife_release_id if no seller -- item dissolves but npc still
---- gets credited; useful for symbolic flow without a trader), then npc:give_money(floor(cost
---- * buy_sell[4])). transfer_item is event-queued (script_game_object_inventory_owner.cpp:619-625
---- emits GE_TRADE_SELL / GE_TRADE_BUY); inventory mutations happen on event processing, after
---- this call returns, so mid-iteration calls inside iterate_inventory are safe.
---- @safety SAFE - returns nil on nil npc/itm or section not in [buy_sell]
+--- Sell one item from npc to seller at floor(cost * mult); mult resolves to row[4] or default_mult fallback.
+--- transfer_item is event-queued (cpp:619-625), so mid-iterate calls are safe; default_mult lets callers sell outside `[buy_sell]`.
+--- @safety SAFE - returns nil on nil npc/itm or no multiplier resolvable
 --- @cost O(1) | 2-3 luabind (transfer_item|alife_release_id + give_money) + 1 get_buy_sell
 --- @src anomaly/axr_trade_manager.script(228-238), xray/xrGame/script_game_object_inventory_owner.cpp(601, 703)
 --- @param npc game_object Seller (item leaves npc inventory, money enters npc)
 --- @param itm game_object Item in npc inventory
 --- @param seller game_object|nil Trader receiving the item (nil releases the item to void)
---- @return number|nil Money credited, or nil if input invalid or section not in [buy_sell]
-function sell_item(npc, itm, seller)
+--- @param default_mult number|nil Sell multiplier when section has no [buy_sell] row
+--- @return number|nil Money credited, or nil if input invalid or no multiplier resolvable
+function sell_item(npc, itm, seller, default_mult)
     if not npc or not itm then return nil end
     local sec = itm:section()
     local row = get_buy_sell(sec)
-    if not row then return nil end
+    local mult = (row and row[4]) or default_mult
+    if not mult then return nil end
     if seller then
         npc:transfer_item(itm, seller)
     else
         alife_release_id(itm:id())
     end
-    local money = floor(get_cost(sec) * row[4])
+    local money = floor(get_cost(sec) * mult)
     npc:give_money(money)
     return money
 end
@@ -246,93 +270,65 @@ function release_item(itm, exclude)
     return sec
 end
 
--- Top-up ammo_sec from existing count to row[3] (vanilla axr_trade_manager.script:308-319 intent).
--- Existing >= row[3] is a no-op; otherwise buys (row[3] - existing) copies, stopping when npc
--- money falls below per-unit cost. Inner buy_item also gates affordability.
--- @complexity O(restock - existing) per call | up to (row[3] - existing) buy_item calls
-local function _restock_ammo(npc, seller, ammo_sec, bought, existing)
-    local row = get_buy_sell(ammo_sec)
+-- Top-up `sec` to row[3] via buy_item, no-op if existing >= target or money runs out.
+-- @cost O(target - existing) | up to (target - existing) buy_item calls
+local function _restock_section(npc, seller, sec, bought, existing)
+    local row = get_buy_sell(sec)
     if not row then return end
     local target = row[3]
     if existing >= target then return end
-    local cost = floor(get_cost(ammo_sec) * row[5])
+    local cost = floor(get_cost(sec) * row[5])
     for _ = existing + 1, target do
         if (npc:money() or 0) < cost then return end
-        if not buy_item(npc, ammo_sec, seller) then return end
-        bought[#bought + 1] = ammo_sec
+        if not buy_item(npc, sec, seller) then return end
+        bought[#bought + 1] = sec
     end
 end
 
--- Buy phase: for each ammo_class section of bw_sec that is in [buy_sell], top-up against
--- the post-sell inventory count (inventory_counts) using _restock_ammo. bw_sec is passed in
--- instead of re-derived because npc:best_weapon() triggers update_best_item_info
--- (object_handler.cpp:130-137, an AI planning update); caller already paid that cost once at
--- trade() entry.
--- @complexity O(ammo_classes * restock) per call | 0 best_weapon luabind (caller pre-computed bw_sec)
-local function _buy_phase(npc, seller, valid, bought, bw_sec, inventory_counts)
-    if not bw_sec then return end
-    local bw_ammos = parse_list(ini_sys, bw_sec, "ammo_class", true)
-    if not bw_ammos then return end
-    for ammo_sec in pairs(bw_ammos) do
-        if valid[ammo_sec] then
-            local existing = inventory_counts and inventory_counts[ammo_sec] or 0
-            _restock_ammo(npc, seller, ammo_sec, bought, existing)
+-- Restock one section if in valid set, optionally skipping ammo sections (pass 2 uses skip_ammo=true).
+-- @cost O(target - existing) | up to (target - existing) buy_item calls
+local function _try_restock(ctx, sec, skip_ammo)
+    if not ctx.valid[sec] then return end
+    if skip_ammo and IsItem("ammo", sec) then return end
+    local existing = ctx.inventory_counts and ctx.inventory_counts[sec] or 0
+    _restock_section(ctx.npc, ctx.seller, sec, ctx.bought, existing)
+end
+
+-- Two passes: best-weapon ammo first (combat priority), then `[buy_sell_keep]` non-ammo allowlist.
+-- @cost O(ammo_classes + keep_set) | up to N _try_restock calls
+local function _buy_phase(ctx)
+    if ctx.bw_ammos then
+        for ammo_sec in pairs(ctx.bw_ammos) do
+            _try_restock(ctx, ammo_sec, false)
         end
     end
+    for sec in pairs(ctx.keep_set) do
+        _try_restock(ctx, sec, true)
+    end
 end
 
---- Run a full sell+buy trade between npc and seller.
----
---- Sell phase: walks npc inventory once; for each section in [buy_sell] counts it into a
---- per-section inventory map, then if it is not npc:best_weapon() and not in any slot 1..SLOT_COUNT
---- and the sell cap has not been reached, sells via sell_item. On successful sell the per-section
---- count is decremented so the post-walk map reflects post-sell state. opts.max_sell caps the
---- number of items sold per call (default: sell every eligible item); the walk still runs to
---- completion past the cap so the inventory map stays accurate for the buy phase.
----
---- Buy phase: for each ammo_class section of npc:best_weapon() that is in [buy_sell], tops up
---- from the post-sell count to buy_sell[3]. Buys exactly (buy_sell[3] - existing) boxes per
---- class, no-op if NPC is already at or above target. Stops when npc:money() falls below the
---- next item's cost. Matches vanilla axr_trade_manager.script:280-319 intent (count inventory
---- first, then top up to restock target) rather than vanilla's broken implementation which
---- iterates one extra time due to a Lua for-loop off-by-one.
----
---- npc:best_weapon() is called exactly once -- the call triggers update_best_item_info (AI
---- planning), so the result is cached and reused by both phases. Equipped slot 1..SLOT_COUNT
---- is scanned once into a {[item_id]=true} set; the inventory walk does O(1) lookup per
---- candidate instead of an inner SLOT_COUNT-iteration scan per candidate.
----
---- iterate_inventory walks the engine's `inventory().m_all` STL list
---- (script_game_object_inventory_owner.cpp:266-270). transfer_item / give_money inside the
---- callback are event-queued; the underlying list mutates after iteration completes, so the
---- iterator stays valid.
----
---- Clean re-implementation of axr_trade_manager.npc_trade_buy_sell behavior; no per-NPC
---- accumulator state, no xr_gulag dependency, no npc_on_item_take queue.
---- @safety SAFE - nil-guarded npc / seller / valid; engine iter is read-only during sell callback
---- @cost O(n inventory) + O(SLOT_COUNT) equipped pre-build + O(m ammo_classes * (row[3] - existing))
----       | best_weapon: 1 call, item_in_slot: SLOT_COUNT calls, rest is hash lookups
+--- Run a full sell+buy trade using vanilla `[buy_sell]` data and the AlifePlus `[buy_sell_keep]` allowlist.
+--- Sells everything except equipped/best_weapon/quest/money/keep; tops up best-weapon ammo and keep items to row[3]; sell capped by max_sell_money RU.
+--- @safety SAFE - nil-guarded npc/seller/valid; engine iter is read-only during sell callback
+--- @cost O(n inventory) + O(SLOT_COUNT) + O(ammo_classes + keep_set) | 1 best_weapon, SLOT_COUNT item_in_slot, rest hash lookups
 --- @src anomaly/axr_trade_manager.script(164-347)
---- @param npc game_object Trading NPC (gains money from sales, spends money on ammo)
---- @param seller game_object Trader at smart (receives sold items, receives money for ammo)
---- @param opts table|nil { max_sell } -- max_sell caps the sell phase at N items per call. Nil =
----             sell every eligible item. Buy phase is not capped (top-up is naturally bounded by
----             row[3] - existing).
+--- @param npc game_object Trading NPC (gains money from sales, spends money on buys)
+--- @param seller game_object Trader at smart (receives sold items, receives money for buys)
+--- @param opts table|nil { max_sell_money } -- cap sell revenue in RU; nil = no cap
 --- @return table { sold = { sec, ... }, bought = { sec, ... } }
 function trade(npc, seller, opts)
     local sold, bought = {}, {}
     local valid = get_valid_items()
     if not valid or not npc or not seller then return { sold = sold, bought = bought } end
 
-    local max_sell = opts and opts.max_sell
+    local max_sell_money = opts and opts.max_sell_money
+    local keep_set = get_keep_items()
 
     local bw = npc:best_weapon()
     local best_weapon_id = bw and bw:id()
     local best_weapon_sec = bw and bw:section()
+    local bw_ammos = best_weapon_sec and parse_list(ini_sys, best_weapon_sec, "ammo_class", true)
 
-    -- Pre-build equipped id list: one slot scan up front, linear scan of <= SLOT_COUNT ids per
-    -- inventory item. Replaces an inner per-candidate loop of SLOT_COUNT luabind item_in_slot
-    -- calls with one upfront slot scan + pure-Lua compares.
     local equipped_ids, equipped_n = {}, 0
     for i = 1, SLOT_COUNT do
         local slot_item = npc:item_in_slot(i)
@@ -342,29 +338,35 @@ function trade(npc, seller, opts)
         end
     end
 
-    -- Inventory counts per [buy_sell] section. Built during the sell walk; decremented on each
-    -- successful sell so the post-walk map reflects post-sell state. Passed to _buy_phase so
-    -- ammo restock tops up to row[3] instead of buying row[3] every visit (vanilla intent at
-    -- axr_trade_manager.script:280-289).
     local inventory_counts = {}
+    local sold_money = 0
 
     xobject.iterate_online_inventory(npc:id(), function(_, itm)
         local sec = itm:section()
-        if not valid[sec] then return end
-        inventory_counts[sec] = (inventory_counts[sec] or 0) + 1
-        if max_sell and #sold >= max_sell then return end
+        if valid[sec] then
+            inventory_counts[sec] = (inventory_counts[sec] or 0) + 1
+        end
+        if max_sell_money and sold_money >= max_sell_money then return end
         local item_id = itm:id()
         if best_weapon_id and item_id == best_weapon_id then return end
         for j = 1, equipped_n do
             if equipped_ids[j] == item_id then return end
         end
-        if sell_item(npc, itm, seller) then
-            sold[#sold + 1] = sec
+        if IsItem("quest", sec) or IsItem("money", sec) then return end
+        if _is_useful(sec, keep_set, bw_ammos) then return end
+        local money = sell_item(npc, itm, seller, DEFAULT_SELL_MULT)
+        if not money then return end
+        sold[#sold + 1] = sec
+        sold_money = sold_money + money
+        if valid[sec] then
             inventory_counts[sec] = inventory_counts[sec] - 1
         end
     end)
 
-    _buy_phase(npc, seller, valid, bought, best_weapon_sec, inventory_counts)
+    _buy_phase({
+        npc = npc, seller = seller, valid = valid, bought = bought,
+        bw_ammos = bw_ammos, inventory_counts = inventory_counts, keep_set = keep_set,
+    })
 
     return { sold = sold, bought = bought }
 end

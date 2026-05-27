@@ -35,10 +35,10 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  |  xconst   |  |  xdata    |  |  xlibs    |  | xlibs_mcm |       |
 |  | Sentinels |  | Static    |  | Metadata  |  | MCM Page  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+                                     |
-|  |  xactor   |  |  xtrade   |                                     |
-|  | Actor Ops |  | NPC Trade |                                     |
-|  +-----------+  +-----------+                                     |
+|  +-----------+                                                     |
+|  |  xactor   |                                                     |
+|  | Actor Ops |                                                     |
+|  +-----------+                                                     |
 +-------------------------------------------------------------------+
 ```
 
@@ -383,22 +383,6 @@ Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is
 ### xactor.script - Actor Helpers
 
 - `give_info(info_id)` - Give info portion to actor (nil-guarded)
-
-### xtrade.script - NPC Trade
-
-Reimplementation of the vanilla buy/sell mechanics `axr_trade_manager` runs inline, exposed as a callable library. Same ini (`items\trade\gulag_job_trade_buy_sell.ltx [buy_sell]`), same row schema (`keep,min,restock,sell_mult,buy_mult`), same cost formula (`floor(cost * buy_sell[N])`), same engine call sequences. Not derived from the script structure: no `st.trade_items` accumulator, no `xr_gulag` resolution, no callback or ltx hooks.
-
-- `get_buy_sell(sec)` - Read `[buy_sell]` row as 5-element numeric-indexed table, or nil
-- `get_valid_items()` - Cached set of all sections in `[buy_sell]`
-- `get_cost(sec)` - `ini_sys:r_float_ex(sec, "cost") or 30`
-- `keep_count(sec)` - `buy_sell[1]` (vanilla "keep in stock" count); nil if section not in `[buy_sell]`
-- `restock_count(sec)` - `buy_sell[3]` (vanilla "restock to" count); nil if section not in `[buy_sell]`
-- `is_eligible(sec, exclude)` - True if sec is in `[buy_sell]` and not in caller's exclude set
-- `sell_item(npc, itm, seller)` - Transfer item to seller, credit npc with `floor(cost * buy_sell[4])`. Returns money or nil.
-- `buy_item(npc, sec, seller)` - Create item on npc, npc pays seller `floor(cost * buy_sell[5])`. Returns money or nil.
-- `give_item(npc_id, sec, exclude)` - Create item on npc (online or offline), no payment, subject to `is_eligible`. Returns entity or nil.
-- `release_item(itm, exclude)` - Release item to void via `alife_release_id`, no payment, subject to `is_eligible`. Returns section or nil.
-- `trade(npc, seller, opts)` - Full sell+buy cycle. Sell phase walks inventory once, counts every `[buy_sell]` section, and sells eligible non-best-weapon non-equipped items; `opts.max_sell` caps the number of items sold per call (nil = sell all). Buy phase tops up each best_weapon ammo class from the post-sell count to `buy_sell[3]` (no-op if already at or above target; matches vanilla `axr_trade_manager:280-319` intent). Stops when NPC money falls below the next item's cost. Returns `{ sold = {sec, ...}, bought = {sec, ...} }`.
 
 ### xlibs.script - Package Metadata
 
