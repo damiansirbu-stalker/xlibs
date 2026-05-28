@@ -1,3 +1,12 @@
+next
+
+1.7.1
+  Summary: xsquad protection catches non-commander task-giver members; xsound one-shot helper for brief notification cues
+  xsquad:
+    Fixed: is_protected catches squads whose non-commander member is the task giver. _is_task_giver gained a pass 2: when no task points at the squad id or commander id, it accumulates task_giver_ids and matches them against squad:squad_members(). task_giver_id is polymorphic per vanilla (anomaly/axr_task_manager.script:723-732, sim_offline_combat.script:300-309): drx dialogs (axr_task_manager.script:792-794) write the squad id; vanilla dialogs.script:680 npc_give_task and iTheon PDA Taskboard (ui_pda_taskboard_tab.script:138) write the specific npc id of the selected member. Before the fix, the npc-id case only matched when the selected NPC happened to be the squad commander. Consumers (AlifeGuard, AlifePlus, AlifeBalance, TestZone) inherit the broader coverage on next call; no caller change required. Pass 1 cost unchanged; pass 2 fires only on pass-1 miss and adds one squad_members iteration with hash-set lookup.
+  xsound:
+    Added: play(snd_path, opts). One-shot 2D sound, no handle, no looping. For brief notification cues; pairs with the existing acquire/release looping API. opts.volume sets initial volume (default 1.0).
+
 1.7.0
   Summary: faction-query surface trimmed and renamed to mark intent per question, tri-state smart hostility check, curated trader faction overrides
   xsmart:
