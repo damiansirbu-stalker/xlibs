@@ -14,16 +14,32 @@ local function _EMPTY_ITER() return nil end
 -- Static cache: story_id, trader, named_npc never change within session (weak keys, GC-safe)
 local _static_cache = setmetatable({}, { __mode = "k" })
 
-local function _is_task_giver(squad_id, cmd_id)
+-- task_giver_id is polymorphic per vanilla convention (anomaly/axr_task_manager.script:723-732):
+-- it may be a squad id (drx dialog path, axr_task_manager:792-794) OR an npc id of any squad
+-- member (vanilla dialogs.script:680 npc_give_task; iTheon PDA Taskboard ui_pda_taskboard_tab:138).
+-- Pass 1 catches the squad_id and commander_id cases. Pass 2 iterates members against the
+-- accumulated giver set so non-commander member givers (PDA Taskboard's common case) also
+-- protect the squad. Without pass 2, ag_population.safe_release destroys the giver npc and
+-- xr_conditions.task_giver_alive fails the task on the next status tick.
+local function _is_task_giver(squad, squad_id, cmd_id)
     if not task_manager then return false end
     local tm = task_manager.get_task_manager()
     if not tm or not tm.task_info then return false end
+    local givers
     for _, tsk in pairs(tm.task_info) do
         if tsk.status == "fail" or tsk.status == "completed" then goto continue end
         local gid = tsk.task_giver_id
         if not gid then goto continue end
         if gid == squad_id or gid == cmd_id then return true end
+        givers = givers or {}
+        givers[gid] = true
         ::continue::
+    end
+    if not givers then return false end
+    if not squad or not squad.squad_members then return false end
+    if squad:npc_count() == 0 then return false end
+    for member in squad:squad_members() do
+        if givers[member.id] then return true end
     end
     return false
 end
@@ -119,7 +135,7 @@ local function _check_active_role(squad, cmd_id, sec)
     end
     if cmd_id == INVALID_ENTITY_ID then return false, nil, nil end
     -- Dynamic: task giver (changes as tasks are accepted/completed, never cached)
-    if _is_task_giver(squad.id, cmd_id) then return true, "task_giver", sec end
+    if _is_task_giver(squad, squad.id, cmd_id) then return true, "task_giver", sec end
     -- Dynamic: companion (can be recruited/dismissed, never cached)
     if axr_companions and axr_companions.companion_squads[squad.id] ~= nil then
         return true, "companion", sec
