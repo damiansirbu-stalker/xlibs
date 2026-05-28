@@ -39,6 +39,23 @@ SND = {
     LIGHT_HUMMING     = "ambient\\special\\light_humming",
 }
 
+--- Play a one-shot sound (no looping, no handle, no lerp).
+--- For short notification cues; use acquire/release for looping sounds with volume control.
+--- @safety SAFE - nil-guarded on db.actor and sound_object_t constructor
+--- @cost O(1) | 1 luabind heavy (sound_object ctor + play)
+--- @src xray/xrGame/script_sound_script.cpp sound_object bindings, anomaly/utils_obj.script(834)
+--- @param snd_path string Sound path (e.g. "affects\\tinnitus3a", xsound.SND.*)
+--- @param opts table|nil { volume (default 1.0) }
+--- @return boolean True if sound was played
+function play(snd_path, opts)
+    if not db.actor then return false end
+    local snd = sound_object_t(snd_path)
+    if not snd then return false end
+    snd:play(db.actor, 0, sound_object_t.s2d)
+    snd.volume = (opts and opts.volume) or 1.0
+    return true
+end
+
 -- Step current toward target by smoothing per second
 -- @cost O(1) | 0 luabind
 local function _step(current, target, smoothing, dt_sec)
