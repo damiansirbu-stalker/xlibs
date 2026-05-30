@@ -150,7 +150,7 @@ local npc = xobject.go(npc_id)  -online game object or nil
 
 Inventory-domain methods (item categorization, slot accessors, item lifecycle, ammo config) live in `xinventory.script` per the boundary: xobject = generic game_object lookup; xinventory = item-as-inventory-thing semantics.
 
-### xinventory.script - Item Categorization, Slot Semantics, Item Lifecycle
+### xinventory.script - Item Categorization, Slot Semantics, Item Lifecycle, Policy Primitives
 
 ```lua
 local opts = xinventory.get_category_opts(npc)  -- canonical opts for get_category
@@ -159,6 +159,17 @@ if xinventory.is_in_category(sec, "medkit") then ... end
 local sections = xinventory.get_category_sections("medkit")  -- inverse: category -> list
 xinventory.transfer_item(seller, item, buyer)
 xinventory.release_item(item)
+
+-- Policy primitives: load LTX policy, count NPC inventory, surface surplus
+local policy = xinventory.load_policy("alifeplus\\ap_trade_policy.ltx",
+    { "ap_trade_policy_rookie", "ap_trade_policy_veteran" }, { profit_max = true })
+local counts = xinventory.classify(npc, opts)  -- { [category] = count } (ammo in rounds)
+xinventory.iterate_surplus(npc, opts, {
+    rules = policy.ap_trade_policy_rookie.rules,
+    counts = counts,
+    on_surplus = function(item, cat, sec, unit) xinventory.release_item(item) end,
+})
+local surplus = xinventory.build_surplus_map(counts, rules)  -- pure { [cat] = surplus }
 ```
 
 Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `IsHeadgear`, `IsArtefact`, `item:section/condition/ammo_get_count`, `npc:item_in_slot`, slot walks, `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `transfer_item`). Mods never call those directly — every call goes through xinventory.
@@ -199,12 +210,30 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - `transfer_item(from_npc, item, to_npc)` - move item between owners.
 - `release_item(item)` - alife_release_id wrapper.
 
+**Policy primitives** (uniform shape across consumers):
+- `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`. `entries` preserves declaration order (BUY / LOOT priority); `rules` is the hash for O(1) per-category lookup; `specials` carries numeric keys named in `specials_set` (`profit_max`, `extras_max`, `fill_max`, ...).
+- `classify(npc, opts)` - per-category count walker for an online NPC. Single iterate; ammo categories in rounds, others in items. Skips untouchable + equipped via `get_category`.
+- `iterate_surplus(npc, opts, ctx)` - surfaces items where `count - unit >= max`. `ctx = { rules, counts, on_surplus }`. Mutates `ctx.counts` in place; `ctx.on_surplus(item, cat, sec, unit)` owns the action (transfer, release, queue). Returning `true` from `on_surplus` stops iteration.
+- `build_surplus_map(counts, rules)` - pure. Derives `{ [category] = surplus_count }` from counts vs rules.
+
+LTX policy file shape (consumer mods own the values):
+
+```ini
+[<section>]
+<category_1> = <min>, <max>
+<category_2> = <min>, <max>
+...
+<special_key> = <number>      ; pulled out per specials_set
+```
+
+Consumers: `AlifePlus/configs/alifeplus/ap_trade_policy.ltx` (per-rank, `profit_max`), `AlifePlus/configs/alifeplus/ap_stash_policy.ltx` (uniform, `extras_max` + `fill_max`), `AlifeBalance/configs/alifebalance/ab_inventory_policy.ltx` (uniform, no specials).
+
 **Slot constants** (from `xrServerEntities/inventory_space.h`):
 - `SLOT_KNIFE=1`, `SLOT_PISTOL=2`, `SLOT_RIFLE=3`, `SLOT_GRENADE=4`, `SLOT_OUTFIT=7`, `SLOT_HELMET=12`, `BACKPACK_SLOT=13`, `LAST_MAIN_SLOT=14`. `m_slots` is sized from `system.ltx [inventory] slot_persistent_<N>` count at `Inventory.cpp:72-86`, not from the `MORE_INVENTORY_SLOTS` enum. Vanilla + GAMMA both ship 14 slots; raising `LAST_MAIN_SLOT` without a matching system.ltx is OOB UB on `ItemFromSlot` (`Inventory.cpp:658`, unbounded).
 
 **Boundary rule**: xobject = generic game_object lookup; xinventory = anything that takes an item or talks about an NPC's items.
 
-**Policy lives in consumer mods**, not in xinventory. Each mod owns its purpose-specific policy table (trade-floor, cull-ceiling, consume-mapping, stash-surplus). xinventory holds predicates and primitives only.
+**Policy values live in consumer mods**; xinventory owns the shape (`load_policy`), the predicates (`get_category` family), and the walker primitives (`classify`, `iterate_surplus`, `build_surplus_map`). Each consumer ships its own LTX file with its own numbers; the mechanics are shared.
 
 ### xlevel.script - Level/Map and Time
 

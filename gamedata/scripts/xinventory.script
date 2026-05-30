@@ -1,7 +1,8 @@
 --- xinventory: NPC inventory categorization, slot semantics, item lifecycle
 
-local pairs, IsItem = pairs, IsItem
+local pairs, IsItem, tonumber = pairs, IsItem, tonumber
 local table_sort, math_floor = table.sort, math.floor
+local string_match, string_sub = string.match, string.sub
 local parse_list, alife_release_id, alife_create_item, alife_object = parse_list, alife_release_id, alife_create_item, alife_object
 local level, ini_sys, ini_file, xlevel = level, ini_sys, ini_file, xlevel
 
@@ -728,4 +729,176 @@ function release_item(item)
     if not item then return false end
     alife_release_id(item:id())
     return true
+end
+
+-- ============================================================================
+-- POLICY PRIMITIVES (load + classify + iterate surplus + surplus map)
+-- ----------------------------------------------------------------------------
+-- Three near-identical orchestrators (trade, stash, inventory-balance) historically
+-- carried their own LTX loader, inventory counting pass, and surplus iterator. These
+-- primitives factor the common kernel into one uniform shape:
+--
+--   POLICY LTX (consumer mods own the values; xinventory owns the shape):
+--     [<section_name>]
+--     <category_1> = <min>, <max>
+--     <category_2> = <min>, <max>
+--     ...
+--     <special_key>  = <number>      ; pulled out per specials_set
+--
+--   Each consumer ships its own LTX file under configs/<mod>/<mod>_<purpose>_policy.ltx;
+--   declaration order in the block carries BUY/LOOT priority; specials_set names numeric
+--   keys (profit_max, extras_max, fill_max, ...) so they bypass the {min, max} parser.
+-- ============================================================================
+
+-- Parse a "min, max" CSV cell. Empty/malformed cells yield nil.
+local function _parse_min_max(value)
+    if not value or value == "" then return nil end
+    local min_str, max_str = string_match(value, "(%S+)%s*,%s*(%S+)")
+    if not min_str then return nil end
+    local min, max = tonumber(min_str), tonumber(max_str)
+    if not min or not max then return nil end
+    return { min = min, max = max }
+end
+
+-- Contribution one item makes to its category count: ammo categories count rounds
+-- (ammo_get_count across stacks), others count 1 item per stack. Internal helper.
+local function _unit(category, item)
+    if category == "ammo_not_equipped"
+        or string_sub(category, 1, 11) == "ammo_slot_2"
+        or string_sub(category, 1, 11) == "ammo_slot_3" then
+        return item:ammo_get_count() or 0
+    end
+    return 1
+end
+
+-- Route one parsed LTX line: numeric specials go to specials[]; {min, max} rows become
+-- an entry (ordered) and a rules[cat] mapping. Empty/malformed keys/values skipped.
+local function _absorb_policy_line(key, value, specials_set, entries, rules, specials)
+    if not key or key == "" then return end
+    if specials_set[key] then
+        specials[key] = tonumber(value) or 0
+        return
+    end
+    local rule = _parse_min_max(value)
+    if not rule then return end
+    entries[#entries + 1] = { category = key, rule = rule }
+    rules[key] = rule
+end
+
+-- Load one policy block (one section). Missing section yields empty block.
+local function _load_policy_block(ini, section, specials_set)
+    local entries, rules, specials = {}, {}, {}
+    if not ini or not ini:section_exist(section) then
+        return { entries = entries, rules = rules, specials = specials }
+    end
+    local line_count = ini:line_count(section)
+    for i = 0, line_count - 1 do
+        local _, key, value = ini:r_line_ex(section, i, "", "")
+        _absorb_policy_line(key, value, specials_set, entries, rules, specials)
+    end
+    return { entries = entries, rules = rules, specials = specials }
+end
+
+--- Load an LTX policy file with uniform {min, max}-per-category shape
+--- Generic loader for the trade / stash / inventory-balance policy shape. Each named
+--- section yields a block { entries, rules, specials }. entries preserves declaration
+--- order (= BUY / LOOT priority); rules is the hash for O(1) per-category lookup;
+--- specials carries numeric keys named in specials_set (profit_max, extras_max, ...).
+--- @safety SAFE - missing file / section / line yields empty block; malformed lines skipped
+--- @cost O(lines) | per line: 1 luabind heavy r_line_ex
+--- @src anomaly/axr_trade_manager precedent (per-section buy_sell rows; this generalizes to per-category)
+--- @param path string LTX path under gamedata/configs (e.g. "alifebalance\\ab_inventory_policy.ltx")
+--- @param sections table Array of section names to load
+--- @param specials_set table|nil Hash {key=true} of keys to extract as specials[key]=number
+--- @return table { [section] = { entries = ordered_list, rules = hash, specials = hash } }
+function load_policy(path, sections, specials_set)
+    local result = {}
+    if not path or not sections then return result end
+    specials_set = specials_set or {}
+    local ini = ini_file(path)
+    for s = 1, #sections do
+        result[sections[s]] = _load_policy_block(ini, sections[s], specials_set)
+    end
+    return result
+end
+
+--- Count NPC inventory items per category (online NPC)
+--- Single iterate over the NPC's inventory; per-item get_category drops untouchable
+--- and equipped automatically (caller never sees them in the counts hash). Ammo
+--- categories count in ROUNDS (sum of ammo_get_count across stacks); other categories
+--- count in ITEMS.
+--- @safety SAFE - nil-guarded npc; offline npc yields empty (iterate_inventory online-only)
+--- @cost O(items) | per item: 1 get_category + opts-keyed hash lookups + 0-1 ammo_get_count
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270) iterate_inventory
+--- @param npc game_object Online NPC
+--- @param opts table|nil From get_category_opts(npc); nil opts treats every ammo as ammo_not_equipped
+--- @return table { [category] = count }
+function classify(npc, opts)
+    local counts = {}
+    if not npc then return counts end
+    iterate_inventory(npc:id(), function(_, item)
+        if not item then return end
+        local cat = get_category(item, opts)
+        if cat == "untouchable" or cat == "equipped" then return end
+        counts[cat] = (counts[cat] or 0) + _unit(cat, item)
+    end)
+    return counts
+end
+
+--- Walk NPC inventory and surface items above their category's policy max
+--- For each non-untouchable non-equipped item: looks up the category rule in ctx.rules;
+--- if a rule exists AND count - unit >= max (release would not violate the floor),
+--- mutates ctx.counts in place (counts[cat] -= unit) and invokes ctx.on_surplus(item,
+--- cat, sec, unit). Returning true from on_surplus stops iteration (engine convention).
+--- The caller's on_surplus owns the action: trade transfers + credits, inventory-balance
+--- releases. No release happens unless on_surplus does it.
+--- @safety SAFE - nil-guarded args; iterate_inventory tolerant of nil items
+--- @cost O(items) | per item: 1 get_category + 1 rules hash lookup + 0-1 ammo_get_count
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270) iterate_inventory
+--- @param npc game_object Online NPC
+--- @param opts table|nil From get_category_opts(npc)
+--- @param ctx table { rules = hash from load_policy(...).rules,
+---                    counts = mutable counts from classify(npc, opts),
+---                    on_surplus = function(item, category, section, unit) }
+--- @return number Count of surplus items ctx.on_surplus was called on
+function iterate_surplus(npc, opts, ctx)
+    if not npc or not ctx or not ctx.rules or not ctx.counts or not ctx.on_surplus then return 0 end
+    local rules, counts, on_surplus = ctx.rules, ctx.counts, ctx.on_surplus
+    local invoked = 0
+    iterate_inventory(npc:id(), function(_, item)
+        if not item then return end
+        local cat = get_category(item, opts)
+        if cat == "untouchable" or cat == "equipped" then return end
+        local rule = rules[cat]
+        if not rule or not rule.max then return end
+        local unit = _unit(cat, item)
+        local count = counts[cat] or 0
+        if count - unit < rule.max then return end
+        counts[cat] = count - unit
+        invoked = invoked + 1
+        return on_surplus(item, cat, item:section(), unit) == true
+    end)
+    return invoked
+end
+
+--- Derive per-category surplus from counts vs rules (pure)
+--- Returns categories where count > rule.max with the surplus amount. Categories
+--- without a rule or with no max are ignored. Used by stash fill to plan per-event
+--- deposits without re-walking inventory.
+--- @safety SAFE - nil-guarded inputs (returns empty)
+--- @cost O(counts) pure Lua, no luabind
+--- @param counts table From classify(npc, opts)
+--- @param rules table From load_policy(...).rules
+--- @return table { [category] = surplus_count } (only entries with surplus > 0)
+function build_surplus_map(counts, rules)
+    local surplus = {}
+    if not counts or not rules then return surplus end
+    for cat, count in pairs(counts) do
+        local rule = rules[cat]
+        local max = rule and rule.max
+        if max and count > max then
+            surplus[cat] = count - max
+        end
+    end
+    return surplus
 end

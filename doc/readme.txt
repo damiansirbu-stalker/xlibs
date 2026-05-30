@@ -14,11 +14,12 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 Features:
 
 Entity and World:
-  xcreature    Creature identification, type checks, fluent server object query iterator
+  xcreature    Creature identification, type checks, fluent server object query iterator, money primitives
   xsquad       Squad search, scripted control, release, chase, iteration
   xsmart       Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
   xlevel       Level/map queries, game time, location names, vertex validation
-  xobject      Server object resolution from any input type, offline item creation
+  xobject      Server object and online game object resolution from any input type
+  xinventory   Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
   xstash       Stash discovery, looting, filling, item filtering
   xdata        Unscriptable NPC/squad tables (traders, mechanics, story characters)
   xconst       X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
