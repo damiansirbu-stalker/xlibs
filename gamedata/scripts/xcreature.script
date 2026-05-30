@@ -340,17 +340,55 @@ function pos(input)
     return nil
 end
 
---- Give money to game_object (actor or NPC)
---- Wraps engine give_money which accepts negative values and clamps balance at 0
---- @safety SAFE - nil-guarded, engine clamps balance at 0
---- @cost O(1) | 1 luabind medium (give_money: ChangeMoney updates m_money field + clamp)
---- @src xray/xrGame/script_game_object_inventory_owner.cpp give_money, anomaly/dialogs.script(1354)
+--- Get current money (rubles) of an inventory owner
+--- Money() always returns u32 across luabind; never nil for a valid CInventoryOwner.
+--- @safety SAFE - nil-guarded obj; Money() VERIFY trips only on non-CInventoryOwner
+--- @cost O(1) | 1 luabind medium (Money: smart_cast<CInventoryOwner*> + m_money field read)
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(674-679), xray/xrGame/InventoryOwner.h(117)
+--- @param obj game_object Inventory owner (actor or NPC)
+--- @return number Current rubles; 0 if obj nil
+function get_money(obj)
+    if not obj then return 0 end
+    return obj:money()
+end
+
+--- Give rubles to an inventory owner (positive credits, negative debits)
+--- Defends against engine u32 underflow on negative amount > balance: pre-clamps the
+--- magnitude so set_money never sees a wrapping subtraction (engine has no clamp at 0;
+--- m_money is u32 and the engine path is set_money(get_money() + money) where money is
+--- signed int promoted to u32 — negative overflow wraps to ~4e9 rubles).
+--- @safety SAFE - pre-clamps negative magnitude to current balance to defend against engine u32 wrap
+--- @cost O(1) | 1-2 luabind medium (Money on negative path + give_money: set_money + GE_MONEY persistence event)
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(703-709), xray/xrGame/InventoryOwner.cpp(635-650)
 --- @param obj game_object Target (actor or NPC)
---- @param amount number Amount (positive = add, negative = subtract)
---- @return boolean Success
+--- @param amount number Positive credits, negative debits
+--- @return boolean true on call, false if obj nil or amount nil/zero
 function give_money(obj, amount)
     if not obj or not amount or amount == 0 then return false end
+    if amount < 0 then
+        local balance = obj:money()
+        if -amount > balance then amount = -balance end
+    end
     obj:give_money(amount)
+    return true
+end
+
+--- Transfer rubles from one inventory owner to another (debit sender + credit recipient)
+--- Defends against engine u32 underflow: TransferMoney at script_game_object_inventory_owner.cpp:693
+--- has a dead `u32 - int < 0` guard (always false, compiler should warn -Wsign-compare /
+--- MSVC C4018), so without this pre-check the engine silently underflows sender's m_money
+--- to ~4e9 rubles when amount > balance. Engine PR pending — see todo-demonized-exes.md n015.
+--- @safety SAFE - pre-checks balance to defend against engine u32 underflow bug
+--- @cost O(1) | 2 luabind medium (Money on sender + TransferMoney: 2x set_money + 2x GE_MONEY persistence event)
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(681-701), xray/xrGame/InventoryOwner.cpp(635-650)
+--- @param from game_object Sender (debit)
+--- @param amount number Positive rubles to move
+--- @param to game_object Recipient (credit)
+--- @return boolean true on transfer, false if nil args, non-positive amount, or insufficient balance
+function transfer_money(from, amount, to)
+    if not from or not to or not amount or amount <= 0 then return false end
+    if from:money() < amount then return false end
+    from:transfer_money(amount, to)
     return true
 end
 

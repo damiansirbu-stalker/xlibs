@@ -19,6 +19,10 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  |  xlevel   |  |  xsmart   |  |  xstash   |  |  xobject  |       |
 |  | Level/Map |  | SmartTrn  |  | Stash Ops |  | SrvEntity |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
+|  +-----------+                                                     |
+|  | xinventory|                                                     |
+|  | Item Cats |                                                     |
+|  +-----------+                                                     |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
 |  |  xtable   |  | xttltable |  |  xslice   |  |   xmath   |       |
 |  | Table Ops |  | TTL Table |  | TimeSlice |  | RNG       |       |
@@ -134,22 +138,73 @@ xsquad.release_squad(squad)
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
 - `dump_squads()` - Diagnostic string of all SIMBOARD squads
 
-### xobject.script - Generic Object Helpers
+### xobject.script - Generic Object Lookup
 
 ```lua
 local se = xobject.se(any_input)  -ID, game object, or server object
 local npc = xobject.go(npc_id)  -online game object or nil
-local item = xobject.create_item("wpn_ak74", npc_id)  -works offline
-local item = xobject.create_item("ammo_5.45x39_ap", npc_id, { ammo = 60 })  -60 rounds
-local box = xobject.get_box_size("ammo_5.45x39_ap")  -cached INI read
 ```
 
 - `se(input)` - Get server object from any input type
 - `go(id)` - Get online game object by ID (nil if offline)
-- `iterate_online_inventory(npc_id, callback)` - Iterate NPC inventory iff online; returns npc game_object if iterated, nil if offline / invalid. Name is explicit because the engine exposes no Lua API for offline server-inventory walking. Central wrapper for any flow that inspects NPC inventory.
-- `get_box_size(sec)` - Get ammo box size from system INI (cached)
-- `in_reward_set(sec, set_name)` - True if sec is listed under [set_name] in items\settings\item_rewards.ltx (reads itms_manager.item_rewards). Sets: items_health, items_bleed, items_rad, items_drink, items_food, items_medical, items_ammo, items_utility, items_money, items_grenade. Vanilla-curated section classifier; the engine itself reads the same buckets via give_item_reward.
-- `create_item(section, npc_id, t)` - Create item for any NPC (online/offline, falls back to smart terrain position for invalid lvid). Optional `t` forwarded to alife_create_item ({ammo, cond, uses})
+
+Inventory-domain methods (item categorization, slot accessors, item lifecycle, ammo config) live in `xinventory.script` per the boundary: xobject = generic game_object lookup; xinventory = item-as-inventory-thing semantics.
+
+### xinventory.script - Item Categorization, Slot Semantics, Item Lifecycle
+
+```lua
+if xinventory.is_medkit(sec) then ... end
+local rifle = xinventory.get_equipped_rifle(npc)
+local opts = xinventory.get_category_opts(npc)  -- canonical opts for get_category
+local category = xinventory.get_category(item, opts)  -- "medkit" | "ammo_slot_3_t1" | ...
+xinventory.transfer_item(seller, item, buyer)
+xinventory.release_item(item)
+```
+
+Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `IsHeadgear`, `IsArtefact`, `item:section/condition/ammo_get_count`, `npc:item_in_slot`, slot walks, `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `transfer_item`). Mods never call those directly — every call goes through xinventory.
+
+**Granular consumable predicates** (hand-maintained section sets — vanilla bundles all under `kind=i_medical`):
+- `is_medkit(sec)`, `is_bandage(sec)`, `is_antirad(sec)`, `is_stim(sec)`, `is_pill(sec)`
+
+**Granular food/drink predicates** (vanilla kind-tag based, addon-friendly):
+- `is_food(sec)` - `kind=i_food` or `kind=i_mutant_cooked`
+- `is_drink(sec)` - `kind=i_drink`
+
+**Coarse type predicates** (wrap vanilla `IsItem` / `IsWeapon` buckets):
+- Sections: `is_ammo`, `is_grenade_ammo`, `is_grenade` (hand grenades: kind=w_explosive + class prefix `G_`, excludes WP_* launchers), `is_device`, `is_money`, `is_quest` (unions `quest_item=1` + `kind=i_quest`), `is_anim`, `is_crafting` (= `tool` (which itself unions `i_tool` + `i_kit`) `| part | upgrade`), `is_blacklisted` (= `xr_corpse_detection.ltx [ignore_sections]`)
+- Items: `is_weapon`, `is_outfit`, `is_helmet`, `is_artefact`
+
+**Item accessors** (`game_object` item in):
+- `get_section(item)`, `get_ammo_count(item)` (returns 0 for non-ammo), `get_condition(item)`, `get_cost(sec)` (vanilla `cost` field; nil if missing)
+
+**NPC slot accessors**:
+- `get_equipped_knife(npc)`, `get_equipped_pistol(npc)`, `get_equipped_rifle(npc)`, `get_equipped_grenade(npc)`, `get_equipped_outfit(npc)`, `get_equipped_helmet(npc)`
+- `get_equipped_ids(npc)` - set of item ids across slots 1..18 (LAST_MAIN_SLOT covers vanilla + modded-exe CUSTOM_SLOT_1..5)
+- `get_category_opts(npc)` - canonical opts builder: `{ equipped_ids, equipped_pistol_sec, equipped_rifle_sec }` for `get_category`
+
+**Weapon config**:
+- `get_ammo_classes(weapon_sec)` - set of ammo sections a weapon accepts (hash form)
+- `get_ammo_sections(weapon_sec)` - ordered array of ammo sections accepted (cached)
+- `get_ammo_tier_map(weapon_sec, n_tiers)` - map `{[ammo_sec]=tier_idx}`; sorts ammo_class by k_ap asc (cost tiebreaker, cost-only fallback if all k_ap=0), splits into N tiers via median. Cached per `(weapon_sec, n_tiers)`. Default `n_tiers=2`.
+- `get_ammo_tier(weapon_sec, ammo_sec, n_tiers)` - convenience lookup
+- `get_box_size(sec)` - rounds per ammo stack (cached)
+- `get_category_sections(category)` - ordered list of sections in a buyable category (medkit / bandage / antirad / stim / pill / grenade), for caller-side random pick via `xmath.sample`
+
+**Resolver**:
+- `get_category(item, opts)` - returns one of: `untouchable` / `equipped` / `medkit` / `bandage` / `antirad` / `stim` / `pill` / `food` / `drink` / `grenade` / `grenade_ammo` / `ammo_slot_2_t1` / `ammo_slot_2_t2` / `ammo_slot_3_t1` / `ammo_slot_3_t2` / `ammo_not_equipped` / `weapon` / `outfit` / `helmet` / `artefact` / `device` / `money` / `crafting` / `other`. All pre-filters built in: untouchables (quest/anim/blacklisted) return `"untouchable"`; equipped items (when `opts.equipped_ids` passed) return `"equipped"`; ammo split uses `opts.equipped_pistol_sec` / `opts.equipped_rifle_sec` with k_ap tier resolution. Consumer dispatch should short-circuit on `"untouchable"` and `"equipped"` before policy lookup.
+
+**Item lifecycle**:
+- `iterate_inventory(npc_id, callback)` - online-only inventory walk (engine has no offline iteration API). Replaces `xobject.iterate_online_inventory`.
+- `create_item(section, npc_id, t)` - spawn item on any NPC (online / offline / cross-map via smart-terrain fallback). Replaces `xobject.create_item`.
+- `transfer_item(from_npc, item, to_npc)` - move item between owners.
+- `release_item(item)` - alife_release_id wrapper.
+
+**Slot constants** (from `xrServerEntities/inventory_space.h`):
+- `SLOT_KNIFE=1`, `SLOT_PISTOL=2`, `SLOT_RIFLE=3`, `SLOT_GRENADE=4`, `SLOT_OUTFIT=7`, `SLOT_HELMET=12`, `LAST_MAIN_SLOT=12`
+
+**Boundary rule**: xobject = generic game_object lookup; xinventory = anything that takes an item or talks about an NPC's items.
+
+**Policy lives in consumer mods**, not in xinventory. Each mod owns its purpose-specific policy table (trade-floor, cull-ceiling, consume-mapping, stash-surplus). xinventory holds predicates and primitives only.
 
 ### xlevel.script - Level/Map and Time
 

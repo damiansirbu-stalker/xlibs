@@ -1,0 +1,838 @@
+--- xinventory: NPC inventory categorization, slot semantics, item lifecycle
+
+local pairs, type = pairs, type
+local IsItem, IsWeapon, IsOutfit, IsHeadgear, IsArtefact = IsItem, IsWeapon, IsOutfit, IsHeadgear, IsArtefact
+local parse_list, alife_release_id, alife_create_item, alife_object = parse_list, alife_release_id, alife_create_item, alife_object
+local level, ini_sys, ini_file, xlevel = level, ini_sys, ini_file, xlevel
+
+-- ============================================================================
+-- ENGINE SLOT CONSTANTS (xrServerEntities/inventory_space.h:7-43)
+-- LAST_MAIN_SLOT=18 covers vanilla 1..13 plus modded-exe MORE_INVENTORY_SLOTS
+-- (CUSTOM_SLOT_1..5 at 14..18; demonized exes ship this per build_config_defines.h:16).
+-- ============================================================================
+
+SLOT_KNIFE     = 1
+SLOT_PISTOL    = 2
+SLOT_RIFLE     = 3
+SLOT_GRENADE   = 4
+SLOT_OUTFIT    = 7
+SLOT_HELMET    = 12
+BACKPACK_SLOT  = 13
+LAST_MAIN_SLOT = 18
+
+-- ============================================================================
+-- GRANULAR CONSUMABLE SECTION SETS (hand-maintained)
+-- Vanilla bundles all of these under kind=i_medical with no further subdivision.
+-- Addons add new sections; extend these sets when GAMMA/Boomsticks/etc. ship.
+-- ============================================================================
+
+local _medkit_set = {
+    medkit         = true, medkit_army    = true, medkit_scientic = true,
+    medkit_ai1     = true, medkit_ai2     = true, medkit_ai3      = true,
+    survival_kit   = true, rebirth        = true,
+}
+
+local _bandage_set = {
+    bandage = true, jgut = true,
+}
+
+local _antirad_set = {
+    antirad             = true, antirad_kalium      = true,
+    antirad_cystamine   = true, drug_radioprotector = true,
+}
+
+local _stim_set = {
+    stimpack          = true, stimpack_army     = true, stimpack_scientic = true,
+    drug_booster      = true, adrenalin         = true,
+}
+
+-- protein excluded: vanilla has kind=i_food, classified by is_food()
+local _pill_set = {
+    caffeine       = true, drug_sleepingpills  = true, antibio_sulfad = true,
+    antibio_chlor  = true, antiemetic          = true, yadylin        = true,
+    analgetic      = true, drug_psy_blockade   = true, drug_anabiotic = true,
+    drug_antidot   = true, drug_coagulant      = true, cocaine        = true,
+    tetanus        = true, morphine            = true, salicidic_acid = true,
+    akvatab        = true, glucose             = true, glucose_s      = true,
+}
+
+-- ============================================================================
+-- BLACKLIST (xr_corpse_detection.ltx [ignore_sections])
+-- Loaded once at first call; vanilla hand-curated section blacklist.
+-- ============================================================================
+
+local _blacklist_set
+local function _ensure_blacklist()
+    if _blacklist_set then return end
+    _blacklist_set = {}
+    local ini = ini_file("ai_tweaks\\xr_corpse_detection.ltx")
+    if not ini or not ini:section_exist("ignore_sections") then return end
+    local n = ini:line_count("ignore_sections")
+    for i = 0, n - 1 do
+        local _, id = ini:r_line_ex("ignore_sections", i, "", "")
+        if id and id ~= "" then _blacklist_set[id] = true end
+    end
+end
+
+-- ============================================================================
+-- KIND CACHE (per-section ini_sys:r_string_ex("kind") lookup, cached)
+-- ============================================================================
+
+local _kind_cache = {}
+local function _get_kind(sec)
+    if not sec then return nil end
+    local cached = _kind_cache[sec]
+    if cached ~= nil then return cached or nil end
+    local kind = ini_sys:r_string_ex(sec, "kind")
+    _kind_cache[sec] = kind or false
+    return kind
+end
+
+local _class_cache = {}
+local function _get_class(sec)
+    if not sec then return nil end
+    local cached = _class_cache[sec]
+    if cached ~= nil then return cached or nil end
+    local cls = ini_sys:r_string_ex(sec, "class")
+    _class_cache[sec] = cls or false
+    return cls
+end
+
+-- ============================================================================
+-- GRANULAR CONSUMABLE PREDICATES
+-- ============================================================================
+
+--- True if sec is in the hand-maintained medkit set (full heal items)
+--- Sections that fully heal HP. Bandages and stims are separate categories.
+--- @safety SAFE - nil-guarded sec; pure hash lookup
+--- @cost O(1) | 0 luabind (pure Lua hash)
+--- @param sec string Item section name
+--- @return boolean
+function is_medkit(sec)
+    return sec ~= nil and _medkit_set[sec] == true
+end
+
+--- True if sec is in the hand-maintained bandage set (bleed-stop items)
+--- Bleeding remedies. Separate from full-heal medkits and stims.
+--- @safety SAFE - nil-guarded sec; pure hash lookup
+--- @cost O(1) | 0 luabind (pure Lua hash)
+--- @param sec string Item section name
+--- @return boolean
+function is_bandage(sec)
+    return sec ~= nil and _bandage_set[sec] == true
+end
+
+--- True if sec is in the hand-maintained antirad set (radiation cures)
+--- Anti-radiation items including drug_radioprotector. Drink-based remedies (vodka) excluded.
+--- @safety SAFE - nil-guarded sec; pure hash lookup
+--- @cost O(1) | 0 luabind (pure Lua hash)
+--- @param sec string Item section name
+--- @return boolean
+function is_antirad(sec)
+    return sec ~= nil and _antirad_set[sec] == true
+end
+
+--- True if sec is in the hand-maintained stim set (combat boost items)
+--- Stims and adrenaline-class boosters that NPCs would self-administer in combat.
+--- @safety SAFE - nil-guarded sec; pure hash lookup
+--- @cost O(1) | 0 luabind (pure Lua hash)
+--- @param sec string Item section name
+--- @return boolean
+function is_stim(sec)
+    return sec ~= nil and _stim_set[sec] == true
+end
+
+--- True if sec is in the hand-maintained pill set (generic drugs)
+--- Antibiotics, anti-emetics, painkillers, sleeping pills, psy-blockers, antidotes.
+--- @safety SAFE - nil-guarded sec; pure hash lookup
+--- @cost O(1) | 0 luabind (pure Lua hash)
+--- @param sec string Item section name
+--- @return boolean
+function is_pill(sec)
+    return sec ~= nil and _pill_set[sec] == true
+end
+
+--- True if sec is food (kind=i_food or kind=i_mutant_cooked)
+--- Vanilla kind-tag based; addons inherit automatically when they tag the same kind.
+--- @safety SAFE - nil-guarded sec; cached kind lookup
+--- @cost O(1) | 0 luabind cached, 1 luabind heavy on miss (r_string_ex: ini parse)
+--- @src anomaly/_g.script(3264-3266)
+--- @param sec string Item section name
+--- @return boolean
+function is_food(sec)
+    local kind = _get_kind(sec)
+    return kind == "i_food" or kind == "i_mutant_cooked"
+end
+
+--- True if sec is a drink (kind=i_drink)
+--- Vanilla kind-tag based; addons inherit automatically.
+--- @safety SAFE - nil-guarded sec; cached kind lookup
+--- @cost O(1) | 0 luabind cached, 1 luabind heavy on miss (r_string_ex: ini parse)
+--- @src anomaly/_g.script(3266)
+--- @param sec string Item section name
+--- @return boolean
+function is_drink(sec)
+    return _get_kind(sec) == "i_drink"
+end
+
+-- ============================================================================
+-- COARSE TYPE PREDICATES (wrap vanilla IsItem buckets)
+-- ============================================================================
+
+--- True if sec is ammo (kind=AMMO or AMMO_S)
+--- @safety SAFE - IsItem nil-tolerant
+--- @cost O(1) | 0 luabind (pure Lua hash on _ITM[ammo])
+--- @src anomaly/_g.script(3241-3242,3175)
+--- @param sec string Item section name
+--- @return boolean
+function is_ammo(sec) return IsItem("ammo", sec) ~= nil end
+
+--- True if sec is grenade ammo (grenade_ammo=1)
+--- @safety SAFE - IsItem nil-tolerant
+--- @cost O(1) | 0 luabind (pure Lua hash on _ITM[grenade_ammo])
+--- @src anomaly/_g.script(3240)
+--- @param sec string Item section name
+--- @return boolean
+function is_grenade_ammo(sec) return IsItem("grenade_ammo", sec) ~= nil end
+
+--- True if item is a weapon by clsid
+--- Wraps IsWeapon(item, item:clsid()). Takes a game_object item, not a section string.
+--- @safety SAFE - IsWeapon nil-tolerant
+--- @cost O(1) | 1 luabind trivial (clsid: enum return)
+--- @src anomaly/_g.script(3063)
+--- @param item game_object Inventory item
+--- @return boolean
+function is_weapon(item)
+    if not item then return false end
+    return IsWeapon(item, item:clsid())
+end
+
+--- True if item is an outfit by clsid (E_STLK or EQU_STLK)
+--- @safety SAFE - IsOutfit nil-tolerant
+--- @cost O(1) | 1 luabind trivial (clsid)
+--- @src anomaly/_g.script(2959), anomaly/_g.script(3249)
+--- @param item game_object Inventory item
+--- @return boolean
+function is_outfit(item)
+    if not item then return false end
+    return IsOutfit(nil, item:clsid())
+end
+
+--- True if item is a helmet by clsid (E_HLMET)
+--- @safety SAFE - IsHeadgear nil-tolerant
+--- @cost O(1) | 1 luabind trivial (clsid)
+--- @src anomaly/_g.script(2966), anomaly/_g.script(3248)
+--- @param item game_object Inventory item
+--- @return boolean
+function is_helmet(item)
+    if not item then return false end
+    return IsHeadgear(nil, item:clsid())
+end
+
+--- True if item is an artefact by clsid (ARTEFACT or SCRPTART)
+--- @safety SAFE - IsArtefact nil-tolerant
+--- @cost O(1) | 1 luabind trivial (clsid)
+--- @src anomaly/_g.script(3141), anomaly/_g.script(3251)
+--- @param item game_object Inventory item
+--- @return boolean
+function is_artefact(item)
+    if not item then return false end
+    return IsArtefact(item, item:clsid())
+end
+
+--- True if sec is a device (script_binding=item_device.bind)
+--- @safety SAFE - IsItem nil-tolerant
+--- @cost O(1) | 0 luabind (pure Lua hash on _ITM[device])
+--- @src anomaly/_g.script(3253)
+--- @param sec string Item section name
+--- @return boolean
+function is_device(sec) return IsItem("device", sec) ~= nil end
+
+--- True if sec is money (money_amount field present)
+--- @safety SAFE - IsItem nil-tolerant
+--- @cost O(1) | 0 luabind (pure Lua hash on _ITM[money])
+--- @src anomaly/_g.script(3260)
+--- @param sec string Item section name
+--- @return boolean
+function is_money(sec) return IsItem("money", sec) ~= nil end
+
+--- True if sec is a quest item (quest_item=1 OR kind=i_quest)
+--- Parse_ITM unions both signals into the same _ITM[quest] bucket at script load.
+--- @safety SAFE - IsItem nil-tolerant
+--- @cost O(1) | 0 luabind (pure Lua hash on _ITM[quest])
+--- @src anomaly/_g.script(3272-3273,3175)
+--- @param sec string Item section name
+--- @return boolean
+function is_quest(sec) return IsItem("quest", sec) ~= nil end
+
+--- True if sec is an animation prop (anim_item=1)
+--- Engine spawns/despawns these during NPC animations; should never appear in real inventory.
+--- @safety SAFE - IsItem nil-tolerant
+--- @cost O(1) | 0 luabind (pure Lua hash on _ITM[anim])
+--- @src anomaly/_g.script(3236)
+--- @param sec string Item section name
+--- @return boolean
+function is_anim(sec) return IsItem("anim", sec) ~= nil end
+
+--- True if sec is GAMMA-protected crafting workflow (tool / part / upgrade)
+--- Compound of vanilla IsItem buckets. The `tool` bucket unions both `kind=i_tool` and
+--- `kind=i_kit` at Parse_ITM (_g.script:3267-3268), so kit sections match via "tool".
+--- Used by stash-loot to skip stashes containing any crafting item.
+--- @safety SAFE - IsItem nil-tolerant
+--- @cost O(1) | 0 luabind (3 hash lookups on _ITM)
+--- @src anomaly/_g.script(3267-3270)
+--- @param sec string Item section name
+--- @return boolean
+function is_crafting(sec)
+    return IsItem("tool", sec) ~= nil
+        or IsItem("part", sec) ~= nil
+        or IsItem("upgrade", sec) ~= nil
+end
+
+--- True if sec is a hand grenade (F1, RGD5, smoke, gd-05)
+--- Vanilla classifier: kind=w_explosive AND class prefix `G_`. Excludes WP_* launcher
+--- weapons (RPG-7, RG-6, M79) which share kind=w_explosive but live in the rifle slot
+--- as actual weapons, not throwables.
+--- @safety SAFE - nil-guarded; cached kind + class lookup
+--- @cost O(1) | 0 luabind cached, 2 luabind heavy on miss (r_string_ex kind + class)
+--- @src anomaly/m_f1.ltx(9,27), anomaly/m_rgd5.ltx, anomaly/w_rpg7.ltx (excluded by class WP_*)
+--- @param sec string Item section name
+--- @return boolean
+function is_grenade(sec)
+    if not sec then return false end
+    if _get_kind(sec) ~= "w_explosive" then return false end
+    local cls = _get_class(sec)
+    return cls and cls:sub(1, 2) == "G_" or false
+end
+
+--- True if sec is blacklisted via xr_corpse_detection.ltx [ignore_sections]
+--- Vanilla-curated broken-section list (~85 entries: anim props, story weapon stubs,
+--- NPC-only items, engine internals). Catches things not covered by quest/anim flags.
+--- @safety SAFE - lazy-load nil-guarded
+--- @cost O(1) | 0 luabind cached, ~85 ini reads on first call
+--- @src anomaly/xr_corpse_detection.ltx(21-104)
+--- @param sec string Item section name
+--- @return boolean
+function is_blacklisted(sec)
+    if not sec then return false end
+    _ensure_blacklist()
+    return _blacklist_set[sec] == true
+end
+
+-- ============================================================================
+-- ITEM ACCESSORS (game_object item in)
+-- ============================================================================
+
+--- Get item section name
+--- Wraps item:section() to keep mods from calling the engine method directly.
+--- @safety SAFE - nil-guarded item
+--- @cost O(1) | 1 luabind heavy (section: shared_str alloc across bridge)
+--- @src xray/xrGame/script_game_object_script.cpp
+--- @param item game_object Inventory item
+--- @return string|nil Section name
+function get_section(item)
+    if not item then return nil end
+    return item:section()
+end
+
+--- Get current ammo count in an ammo stack
+--- Wraps item:ammo_get_count(). Returns rounds in this stack for ammo items; returns 0
+--- for non-ammo items (engine smart_cast<CWeaponAmmo*> fallback at script_game_object3.cpp:1467).
+--- @safety SAFE - nil-guarded item; engine returns 0 (not nil) for non-ammo
+--- @cost O(1) | 1 luabind trivial (ammo_get_count: smart_cast + m_boxCurr u16 field read)
+--- @src xray/xrGame/script_game_object3.cpp(1463-1470)
+--- @param item game_object Ammo item (returns 0 for non-ammo)
+--- @return number|nil Rounds in stack; 0 if item is not ammo; nil only if item itself nil
+function get_ammo_count(item)
+    if not item then return nil end
+    return item:ammo_get_count()
+end
+
+--- Get item condition (0.0 - 1.0)
+--- Wraps item:condition(). Meaningful for weapons / outfits / helmets / degradable items.
+--- @safety SAFE - nil-guarded item
+--- @cost O(1) | 1 luabind trivial (condition: float field read)
+--- @src xray/xrGame/InventoryItem.h
+--- @param item game_object Inventory item
+--- @return number|nil Condition 0.0-1.0
+function get_condition(item)
+    if not item then return nil end
+    return item:condition()
+end
+
+-- ============================================================================
+-- NPC SLOT ACCESSORS
+-- ============================================================================
+
+--- Get item in NPC's knife slot (slot 1)
+--- @safety SAFE - nil-guarded npc; item_in_slot returns nil for empty slot
+--- @cost O(1) | 1 luabind trivial (item_in_slot: CInventory::ItemFromSlot)
+--- @src xray/xrServerEntities/inventory_space.h(7-43), xray/xrGame/Inventory.cpp ItemFromSlot
+--- @param npc game_object
+--- @return game_object|nil Knife item or nil
+function get_equipped_knife(npc)
+    if not npc then return nil end
+    return npc:item_in_slot(SLOT_KNIFE)
+end
+
+--- Get item in NPC's pistol slot (slot 2)
+--- @safety SAFE - nil-guarded npc
+--- @cost O(1) | 1 luabind trivial (item_in_slot)
+--- @src xray/xrServerEntities/inventory_space.h(11)
+--- @param npc game_object
+--- @return game_object|nil Pistol item or nil
+function get_equipped_pistol(npc)
+    if not npc then return nil end
+    return npc:item_in_slot(SLOT_PISTOL)
+end
+
+--- Get item in NPC's rifle slot (slot 3)
+--- @safety SAFE - nil-guarded npc
+--- @cost O(1) | 1 luabind trivial (item_in_slot)
+--- @src xray/xrServerEntities/inventory_space.h(13)
+--- @param npc game_object
+--- @return game_object|nil Rifle item or nil
+function get_equipped_rifle(npc)
+    if not npc then return nil end
+    return npc:item_in_slot(SLOT_RIFLE)
+end
+
+--- Get item in NPC's grenade slot (slot 4)
+--- @safety SAFE - nil-guarded npc
+--- @cost O(1) | 1 luabind trivial (item_in_slot)
+--- @src xray/xrServerEntities/inventory_space.h(15)
+--- @param npc game_object
+--- @return game_object|nil Grenade item or nil
+function get_equipped_grenade(npc)
+    if not npc then return nil end
+    return npc:item_in_slot(SLOT_GRENADE)
+end
+
+--- Get item in NPC's outfit slot (slot 7)
+--- @safety SAFE - nil-guarded npc
+--- @cost O(1) | 1 luabind trivial (item_in_slot)
+--- @src xray/xrServerEntities/inventory_space.h(21)
+--- @param npc game_object
+--- @return game_object|nil Outfit item or nil
+function get_equipped_outfit(npc)
+    if not npc then return nil end
+    return npc:item_in_slot(SLOT_OUTFIT)
+end
+
+--- Get item in NPC's helmet slot (slot 12)
+--- @safety SAFE - nil-guarded npc
+--- @cost O(1) | 1 luabind trivial (item_in_slot)
+--- @src xray/xrServerEntities/inventory_space.h(31)
+--- @param npc game_object
+--- @return game_object|nil Helmet item or nil
+function get_equipped_helmet(npc)
+    if not npc then return nil end
+    return npc:item_in_slot(SLOT_HELMET)
+end
+
+--- Get set of item ids equipped across all main slots (1..12)
+--- Used by inventory walkers to skip equipped items in one O(1) lookup per item.
+--- @safety SAFE - nil-guarded npc; item_in_slot nil-safe per slot
+--- @cost O(1) | 12 luabind trivial (item_in_slot per slot)
+--- @src xray/xrServerEntities/inventory_space.h(7-43)
+--- @param npc game_object
+--- @return table { [item_id] = true, ... }
+function get_equipped_ids(npc)
+    local ids = {}
+    if not npc then return ids end
+    for slot = 1, LAST_MAIN_SLOT do
+        local it = npc:item_in_slot(slot)
+        if it then ids[it:id()] = true end
+    end
+    return ids
+end
+
+--- Build canonical opts table for get_category from an online NPC
+--- Captures equipped state (slot 1..LAST_MAIN_SLOT ids, plus pistol and rifle weapon sections
+--- for per-slot ammo tier resolution). Caller builds once before iterate_inventory and threads
+--- the same opts into every get_category call. Snapshot semantics: equipped state is captured
+--- once; consumer walks complete within a single Lua call so no frame tick mutates between.
+--- @safety SAFE - nil-guarded npc; returns empty opts when npc nil
+--- @cost O(1) | up to 14 luabind trivial (12 item_in_slot via get_equipped_ids + 2 item_in_slot for pistol/rifle) + 2 luabind heavy (section: shared_str alloc)
+--- @src xray/xrServerEntities/inventory_space.h, xray/xrGame/script_game_object_inventory_owner.cpp(1605)
+--- @param npc game_object Online NPC
+--- @return table { equipped_ids, equipped_pistol_sec, equipped_rifle_sec }
+function get_category_opts(npc)
+    if not npc then return { equipped_ids = {} } end
+    local pistol = npc:item_in_slot(SLOT_PISTOL)
+    local rifle  = npc:item_in_slot(SLOT_RIFLE)
+    return {
+        equipped_ids        = get_equipped_ids(npc),
+        equipped_pistol_sec = pistol and pistol:section() or nil,
+        equipped_rifle_sec  = rifle  and rifle:section()  or nil,
+    }
+end
+
+-- ============================================================================
+-- WEAPON CONFIG
+-- ============================================================================
+
+--- Get the set of ammo classes a weapon section accepts
+--- Reads ini_sys:ammo_class for the given weapon section. Works for vanilla weapons,
+--- Boomsticks, GAMMA addons -- ini_sys is the engine-merged config picking up overlays.
+--- @safety SAFE - nil-guarded sec; parse_list returns empty when ammo_class missing
+--- @cost O(1) | 1 luabind heavy (parse_list: ini parse, set form)
+--- @src anomaly/_g.script parse_list
+--- @param weapon_sec string Weapon section name
+--- @return table { [ammo_sec] = true, ... }
+function get_ammo_classes(weapon_sec)
+    if not weapon_sec then return {} end
+    return parse_list(ini_sys, weapon_sec, "ammo_class", true) or {}
+end
+
+local _ammo_sections_cache = {}
+
+--- Get ordered list of ammo sections accepted by a weapon section
+--- Array form of parse_list (preserves declaration order). Cached per weapon section.
+--- @safety SAFE - nil-guarded sec; empty list when ammo_class missing
+--- @cost O(1) cached, 1 luabind heavy on miss (parse_list ini parse, array form)
+--- @src anomaly/_g.script parse_list, vanilla weapon LTX ammo_class field
+--- @param weapon_sec string Weapon section name
+--- @return table Ordered array of ammo section names
+function get_ammo_sections(weapon_sec)
+    if not weapon_sec then return {} end
+    local cached = _ammo_sections_cache[weapon_sec]
+    if cached then return cached end
+    local list = parse_list(ini_sys, weapon_sec, "ammo_class") or {}
+    _ammo_sections_cache[weapon_sec] = list
+    return list
+end
+
+local _ammo_tier_cache = {}
+
+--- Get ammo tier map for a weapon's ammo_class (k_ap-ranked, N tiers)
+--- Sorts accepted ammo sections by k_ap ascending (cost as tiebreaker); splits into N
+--- buckets via floor((i-1) * N / count). Tier 1 = least armor-piercing (basic/FMJ),
+--- tier N = most armor-piercing (AP). Falls back to cost-only sort when all k_ap=0
+--- (rare; some addon ammo may omit k_ap). Cached per (weapon_sec, n_tiers).
+--- @safety SAFE - nil-guarded; empty map on missing ammo_class
+--- @cost O(N log N) sort on miss; O(1) cached; ~3 luabind heavy per section on miss (k_ap + cost reads via r_float_ex)
+--- @src anomaly/weapon_ammo.ltx (k_ap, cost per ammo section)
+--- @param weapon_sec string Weapon section name
+--- @param n_tiers number Number of tiers (default 2)
+--- @return table { [ammo_sec] = tier_idx, ... }
+function get_ammo_tier_map(weapon_sec, n_tiers)
+    n_tiers = n_tiers or 2
+    if not weapon_sec then return {} end
+    local cache_key = weapon_sec .. ":" .. n_tiers
+    local cached = _ammo_tier_cache[cache_key]
+    if cached then return cached end
+
+    local sections = get_ammo_sections(weapon_sec)
+    local count = #sections
+    if count == 0 then
+        _ammo_tier_cache[cache_key] = {}
+        return {}
+    end
+
+    local entries = {}
+    local all_zero_kap = true
+    for i = 1, count do
+        local sec = sections[i]
+        local kap = ini_sys:r_float_ex(sec, "k_ap") or 0
+        if kap > 0 then all_zero_kap = false end
+        entries[i] = { sec = sec, k_ap = kap, cost = ini_sys:r_float_ex(sec, "cost") or 0 }
+    end
+
+    table.sort(entries, function(a, b)
+        if all_zero_kap then return a.cost < b.cost end
+        if a.k_ap == b.k_ap then return a.cost < b.cost end
+        return a.k_ap < b.k_ap
+    end)
+
+    local tier_map = {}
+    for i = 1, count do
+        tier_map[entries[i].sec] = math.floor((i - 1) * n_tiers / count) + 1
+    end
+
+    _ammo_tier_cache[cache_key] = tier_map
+    return tier_map
+end
+
+--- Get tier (1..N) for an ammo section relative to a weapon's ammo_class
+--- Convenience wrapper over get_ammo_tier_map. Returns nil if ammo not in weapon's ammo_class.
+--- @safety SAFE - returns nil for nil args or non-matching ammo
+--- @cost O(1) | 0 luabind cached (via tier map)
+--- @param weapon_sec string Weapon section name
+--- @param ammo_sec string Ammo section name
+--- @param n_tiers number Number of tiers (default 2)
+--- @return number|nil Tier index 1..N, or nil
+function get_ammo_tier(weapon_sec, ammo_sec, n_tiers)
+    if not weapon_sec or not ammo_sec then return nil end
+    return get_ammo_tier_map(weapon_sec, n_tiers)[ammo_sec]
+end
+
+-- Sections per buyable category, derived from the hand-maintained sets above.
+-- Used by trade BUY phase to pick a random section in a category (xmath.sample).
+local function _set_to_list(s)
+    local list = {}
+    for k in pairs(s) do list[#list + 1] = k end
+    return list
+end
+
+local _category_sections_cache
+
+--- Get ordered list of sections for a buyable consumable category
+--- Returns sections in the category's hand-maintained set, for caller to pick from
+--- (typically via xmath.sample for random buy). Returns empty list for non-buyable or
+--- unknown categories. Cached per session (sets are static).
+--- @safety SAFE - returns empty list for nil or unknown category
+--- @cost O(1) cached, O(n) on first call (set-to-list per category)
+--- @src xinventory hand-maintained sets _medkit_set / _bandage_set / etc.
+--- @param category string Category name (medkit / bandage / antirad / stim / pill / grenade)
+--- @return table Ordered list of section names
+function get_category_sections(category)
+    if not category then return {} end
+    if not _category_sections_cache then
+        _category_sections_cache = {
+            medkit  = _set_to_list(_medkit_set),
+            bandage = _set_to_list(_bandage_set),
+            antirad = _set_to_list(_antirad_set),
+            stim    = _set_to_list(_stim_set),
+            pill    = _set_to_list(_pill_set),
+            grenade = { "grenade_f1", "grenade_rgd5", "grenade_gd-05", "grenade_smoke" },
+        }
+    end
+    return _category_sections_cache[category] or {}
+end
+
+--- Get item section's vanilla cost (system.ltx `cost` float field)
+--- Pure primitive: returns nil if section or key missing. Caller chooses the default
+--- by context (vanilla `axr_trade_manager` uses 30 in trade context per :236,303,550;
+--- `xr_corpse_detection` uses 0 in loot-detection context per :157). Cost is a per-section
+--- property; condition-aware pricing is the caller's responsibility.
+--- @safety SAFE - nil-guarded sec; r_float_ex returns nil when section or key missing
+--- @cost O(1) | 1 luabind heavy (r_float_ex: section_exist + line_exist + r_float ini parse)
+--- @src anomaly/_g.script(1525-1529), anomaly/axr_trade_manager.script(236), xray/xrServerEntities/script_ini_file.cpp(93)
+--- @param sec string Item section name
+--- @return number|nil Cost in rubles, or nil if section / key missing
+function get_cost(sec)
+    if not sec then return nil end
+    return ini_sys:r_float_ex(sec, "cost")
+end
+
+local _box_size_cache = {}
+
+--- Get ammo box size (rounds per stack) for an ammo section
+--- Reads ini_sys:box_size; cached per session. section_exist + line_exist guard avoids r_u32 fatal on miss.
+--- @safety SAFE - section_exist + line_exist guard before r_u32 (which fatals via THROW3 otherwise)
+--- @cost O(1) cached, 3 luabind heavy on miss (section_exist, line_exist, r_u32)
+--- @src xray/xrServerEntities/script_ini_file.cpp(36,41,79)
+--- @param sec string Ammo section name
+--- @return number|nil Box size or nil if section/key missing
+function get_box_size(sec)
+    if not sec then return nil end
+    local v = _box_size_cache[sec]
+    if v then return v end
+    if not ini_sys:section_exist(sec) or not ini_sys:line_exist(sec, "box_size") then return nil end
+    v = ini_sys:r_u32(sec, "box_size")
+    if v then _box_size_cache[sec] = v end
+    return v
+end
+
+-- ============================================================================
+-- CATEGORY RESOLVER
+-- ============================================================================
+
+--- Resolve which xinventory category an item belongs to
+--- All pre-filters built in: untouchables (quest / anim / blacklisted) return "untouchable";
+--- equipped items (opts.equipped_ids match) return "equipped"; ammo split uses per-slot
+--- weapon sections (opts.equipped_pistol_sec / opts.equipped_rifle_sec) with k_ap-based
+--- tier resolution -> ammo_slot_2_tN / ammo_slot_3_tN / ammo_not_equipped.
+--- Consumer dispatch should short-circuit on "untouchable" and "equipped" before policy lookup.
+--- @safety SAFE - nil-guarded item; opts entirely optional
+--- @cost O(1) | up to ~14 hash lookups + 2 luabind heavy (section, clsid) worst case
+--- @param item game_object Inventory item to categorize
+--- @param opts table|nil { equipped_ids, equipped_pistol_sec, equipped_rifle_sec }
+--- @return string Category (untouchable, equipped, medkit, bandage, antirad, stim, pill,
+---                food, drink, grenade, grenade_ammo, ammo_slot_2_t1, ammo_slot_2_t2,
+---                ammo_slot_3_t1, ammo_slot_3_t2, ammo_not_equipped, weapon, outfit,
+---                helmet, artefact, device, money, crafting, other)
+function get_category(item, opts)
+    if not item then return "other" end
+    local sec = item:section()
+    if not sec then return "other" end
+
+    -- Untouchables: quest / anim / blacklisted (always filtered, never tunable)
+    if is_quest(sec) or is_anim(sec) or is_blacklisted(sec) then return "untouchable" end
+
+    -- Equipped: opt-in via opts.equipped_ids
+    if opts and opts.equipped_ids and opts.equipped_ids[item:id()] then return "equipped" end
+
+    -- Granular consumables (hand-maintained sets)
+    if _medkit_set[sec]  then return "medkit"  end
+    if _bandage_set[sec] then return "bandage" end
+    if _antirad_set[sec] then return "antirad" end
+    if _stim_set[sec]    then return "stim"    end
+    if _pill_set[sec]    then return "pill"    end
+
+    -- Kind-tagged consumables
+    local kind = _get_kind(sec)
+    if kind == "i_food" or kind == "i_mutant_cooked" then return "food"  end
+    if kind == "i_drink"                              then return "drink" end
+
+    -- Hand grenades (kind=w_explosive + class prefix G_, excludes WP_* launchers)
+    if is_grenade(sec) then return "grenade" end
+
+    -- Grenade launcher ammo (grenade_ammo=1 flag — vog-25, og-7b, m209)
+    if IsItem("grenade_ammo", sec) then return "grenade_ammo" end
+
+    -- Ammo split per equipped slot, with k_ap tier resolution
+    if IsItem("ammo", sec) then
+        if opts and opts.equipped_pistol_sec then
+            local tier = get_ammo_tier(opts.equipped_pistol_sec, sec)
+            if tier then return "ammo_slot_2_t" .. tier end
+        end
+        if opts and opts.equipped_rifle_sec then
+            local tier = get_ammo_tier(opts.equipped_rifle_sec, sec)
+            if tier then return "ammo_slot_3_t" .. tier end
+        end
+        return "ammo_not_equipped"
+    end
+
+    -- Coarse class predicates (item-based)
+    local cls = item:clsid()
+    if IsWeapon(item, cls)    then return "weapon"   end
+    if IsOutfit(nil, cls)     then return "outfit"   end
+    if IsHeadgear(nil, cls)   then return "helmet"   end
+    if IsArtefact(item, cls)  then return "artefact" end
+
+    -- Misc section-based
+    if is_device(sec)   then return "device"   end
+    if is_money(sec)    then return "money"    end
+    if is_crafting(sec) then return "crafting" end
+
+    return "other"
+end
+
+--- Resolve category from a section name alone (no item object)
+--- For callers without a live item — stash sections, item_rewards lists, save migration.
+--- Cannot resolve "weapon" (no Parse_ITM bucket for weapons; needs clsid on a live item).
+--- Cannot resolve "equipped" (item-id dependent). Ammo always returns "ammo_not_equipped".
+--- @safety SAFE - nil-guarded sec
+--- @cost O(1) | up to ~10 hash lookups (Parse_ITM buckets + section sets)
+--- @param sec string Item section name
+--- @return string Category (same set as get_category, except "weapon" / "equipped" unreachable)
+function get_section_category(sec)
+    if not sec then return "other" end
+
+    if is_quest(sec) or is_anim(sec) or is_blacklisted(sec) then return "untouchable" end
+
+    if _medkit_set[sec]  then return "medkit"  end
+    if _bandage_set[sec] then return "bandage" end
+    if _antirad_set[sec] then return "antirad" end
+    if _stim_set[sec]    then return "stim"    end
+    if _pill_set[sec]    then return "pill"    end
+
+    local kind = _get_kind(sec)
+    if kind == "i_food" or kind == "i_mutant_cooked" then return "food"  end
+    if kind == "i_drink"                              then return "drink" end
+
+    if is_grenade(sec)                  then return "grenade"           end
+    if IsItem("grenade_ammo", sec)      then return "grenade_ammo"      end
+    if IsItem("ammo",         sec)      then return "ammo_not_equipped" end
+
+    if IsItem("artefact", sec) then return "artefact" end
+    if IsItem("outfit",   sec) then return "outfit"   end
+    if IsItem("helmet",   sec) then return "helmet"   end
+
+    if is_device(sec)   then return "device"   end
+    if is_money(sec)    then return "money"    end
+    if is_crafting(sec) then return "crafting" end
+
+    return "other"
+end
+
+-- ============================================================================
+-- ITEM LIFECYCLE (moved from xobject per item-domain boundary)
+-- ============================================================================
+
+--- Iterate an NPC's inventory iff the NPC is online; nil-returns otherwise
+--- Engine exposes no Lua API for offline server-inventory walks; this wrapper makes the
+--- online-only constraint explicit. Callback signature: function(npc_go, item_go).
+--- Returning true from callback stops iteration (engine convention).
+--- @safety SAFE - returns nil on nil npc_id / callback / offline NPC
+--- @cost O(items) | 2 luabind (level.object_by_id trivial + iterate_inventory) + STL walk
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270)
+--- @param npc_id number NPC entity ID
+--- @param callback function(npc_go, item_go) Invoked per item; return true to stop early
+--- @return game_object|nil The npc game_object when iteration ran; nil if offline / invalid
+function iterate_inventory(npc_id, callback)
+    if not npc_id or not callback then return nil end
+    if not level.present() then return nil end
+    local npc_go = level.object_by_id(npc_id)
+    if not npc_go then return nil end
+    npc_go:iterate_inventory(callback, npc_go)
+    return npc_go
+end
+
+--- Create an item on any NPC (online, offline, any map)
+--- Three branches all route through alife_create_item for uniform property handling:
+---   (1) online NPC + valid lvid -> game_object owner
+---   (2) offline NPC + valid lvid -> server-entity owner
+---   (3) offline NPC + invalid lvid -> table owner with smart-terrain fallback
+--- @safety SAFE - all branches nil-guarded; smart fallback validates lvid
+--- @cost O(log n) | 2-4 luabind (alife_object medium + alife_create_item heavy)
+--- @src anomaly/_g.script(2129), anomaly/itms_manager.script(1254)
+--- @src xray/xrGame/alife_simulator_script.cpp(175,232)
+--- @param section string Item section to create
+--- @param npc_id number NPC ID (online or offline)
+--- @param t table|nil { ammo, cond, uses, cond_r, cond_ct, cond_cr } forwarded to itms_manager
+--- @return cse_alife_object|table|nil Created entity or table of ammo entities, or nil
+function create_item(section, npc_id, t)
+    if not section or not npc_id then return nil end
+
+    if level.present() then
+        local npc = level.object_by_id(npc_id)
+        if npc then return alife_create_item(section, npc, t) end
+    end
+
+    local se_npc = alife_object(npc_id)
+    if not se_npc then return nil end
+
+    if xlevel.is_valid_lvid(se_npc) then
+        return alife_create_item(section, se_npc, t)
+    end
+
+    local smart_id = se_npc.m_smart_terrain_id
+    if not smart_id then return nil end
+    local smart = alife_object(smart_id)
+    if not smart or not xlevel.is_valid_lvid(smart) then return nil end
+
+    return alife_create_item(section, {
+        smart.position, smart.m_level_vertex_id, smart.m_game_vertex_id, npc_id
+    }, t)
+end
+
+--- Transfer an item from one NPC to another
+--- Wraps from_npc:transfer_item(item, to_npc). Event-queued in engine, safe mid-iterate.
+--- @safety SAFE - returns nil on nil args
+--- @cost O(1) | 1 luabind (transfer_item: event queue enqueue)
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(601)
+--- @param from_npc game_object Source owner
+--- @param item game_object Item to move
+--- @param to_npc game_object Destination owner
+--- @return boolean Success
+function transfer_item(from_npc, item, to_npc)
+    if not from_npc or not item or not to_npc then return false end
+    from_npc:transfer_item(item, to_npc)
+    return true
+end
+
+--- Release an item from the simulation (alife_release_id)
+--- Wraps alife_release_id(item:id()). Event-queued, safe mid-iterate.
+--- @safety SAFE - nil-guarded item
+--- @cost O(1) | 1 luabind (alife_release_id: event queue enqueue)
+--- @src anomaly/_g.script alife_release_id, xray/xrGame/alife_simulator_script.cpp
+--- @param item game_object Item to release
+--- @return boolean Success
+function release_item(item)
+    if not item then return false end
+    alife_release_id(item:id())
+    return true
+end
