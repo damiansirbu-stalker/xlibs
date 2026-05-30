@@ -48,10 +48,11 @@ SND = {
 --- @param opts table|nil { volume (default 1.0) }
 --- @return boolean True if sound was played
 function play(snd_path, opts)
-    if not db.actor then return false end
+    local actor = db.actor
+    if not actor then return false end
     local snd = sound_object_t(snd_path)
     if not snd then return false end
-    snd:play(db.actor, 0, sound_object_t.s2d)
+    snd:play(actor, 0, sound_object_t.s2d)
     snd.volume = (opts and opts.volume) or 1.0
     return true
 end

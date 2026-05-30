@@ -153,33 +153,28 @@ Inventory-domain methods (item categorization, slot accessors, item lifecycle, a
 ### xinventory.script - Item Categorization, Slot Semantics, Item Lifecycle
 
 ```lua
-if xinventory.is_medkit(sec) then ... end
-local rifle = xinventory.get_equipped_rifle(npc)
 local opts = xinventory.get_category_opts(npc)  -- canonical opts for get_category
 local category = xinventory.get_category(item, opts)  -- "medkit" | "ammo_slot_3_t1" | ...
+if xinventory.is_in_category(sec, "medkit") then ... end
+local sections = xinventory.get_category_sections("medkit")  -- inverse: category -> list
 xinventory.transfer_item(seller, item, buyer)
 xinventory.release_item(item)
 ```
 
 Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `IsHeadgear`, `IsArtefact`, `item:section/condition/ammo_get_count`, `npc:item_in_slot`, slot walks, `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `transfer_item`). Mods never call those directly — every call goes through xinventory.
 
-**Granular consumable predicates** (hand-maintained section sets — vanilla bundles all under `kind=i_medical`):
-- `is_medkit(sec)`, `is_bandage(sec)`, `is_antirad(sec)`, `is_stim(sec)`, `is_pill(sec)`
-
-**Granular food/drink predicates** (vanilla kind-tag based, addon-friendly):
-- `is_food(sec)` - `kind=i_food` or `kind=i_mutant_cooked`
-- `is_drink(sec)` - `kind=i_drink`
-
-**Coarse type predicates** (wrap vanilla `IsItem` / `IsWeapon` buckets):
-- Sections: `is_ammo`, `is_grenade_ammo`, `is_grenade` (hand grenades: kind=w_explosive + class prefix `G_`, excludes WP_* launchers), `is_device`, `is_money`, `is_quest` (unions `quest_item=1` + `kind=i_quest`), `is_anim`, `is_crafting` (= `tool` (which itself unions `i_tool` + `i_kit`) `| part | upgrade`), `is_blacklisted` (= `xr_corpse_detection.ltx [ignore_sections]`)
-- Items: `is_weapon`, `is_outfit`, `is_helmet`, `is_artefact`
+**Category model** (symmetric forward + reverse maps):
+- `get_section_category(sec)` - sec → category name. Untouchables (quest / anim / blacklisted) gate first. Hand grenades by `kind=w_explosive` + class prefix `G_`. Weapons by class prefix `WP_`. Other categories via Parse_ITM `_ITM[bucket]` lookups (outfit / helmet / artefact / device / money / grenade_ammo / ammo). Medical 5 (medkit / bandage / antirad / stim / pill) via hand-maintained sets — vanilla bundles all under `kind=i_medical` with no field to subdivide.
+- `get_category(item, opts)` - item → category name, adds per-NPC overrides on top of `get_section_category`: equipped check via `opts.equipped_ids`; ammo tier resolution to `ammo_slot_2_tN` / `ammo_slot_3_tN` per equipped pistol / rifle tier_map.
+- `is_in_category(sec, category)` - section-based predicate (wraps `get_section_category`). Per-NPC categories (`equipped`, `ammo_slot_*`) always return false on this path — use `get_category` for those.
+- `get_category_sections(category)` - reverse: category → list of sections. Builders per category dispatch to hand-maintained sets (medical 5), `_ITM[bucket]` walks (Parse_ITM-derived), kind filter over `_ITM["eatable"]` (food / drink), or `ini_sys:section_for_each` predicate walks (weapon by class prefix, grenade by kind+class). Lazy per-category build, weak-keyed cache, addon-aware automatically for `_ITM` and ini-walk sources.
 
 **Item accessors** (`game_object` item in):
 - `get_section(item)`, `get_ammo_count(item)` (returns 0 for non-ammo), `get_condition(item)`, `get_cost(sec)` (vanilla `cost` field; nil if missing)
 
 **NPC slot accessors**:
 - `get_equipped_knife(npc)`, `get_equipped_pistol(npc)`, `get_equipped_rifle(npc)`, `get_equipped_grenade(npc)`, `get_equipped_outfit(npc)`, `get_equipped_helmet(npc)`
-- `get_equipped_ids(npc)` - set of item ids across slots 1..18 (LAST_MAIN_SLOT covers vanilla + modded-exe CUSTOM_SLOT_1..5)
+- `get_equipped_ids(npc)` - set of item ids across slots 1..LAST_MAIN_SLOT
 - `get_category_opts(npc)` - canonical opts builder: `{ equipped_ids, equipped_pistol_sec, equipped_rifle_sec }` for `get_category`
 
 **Weapon config**:
@@ -188,10 +183,14 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - `get_ammo_tier_map(weapon_sec, n_tiers)` - map `{[ammo_sec]=tier_idx}`; sorts ammo_class by k_ap asc (cost tiebreaker, cost-only fallback if all k_ap=0), splits into N tiers via median. Cached per `(weapon_sec, n_tiers)`. Default `n_tiers=2`.
 - `get_ammo_tier(weapon_sec, ammo_sec, n_tiers)` - convenience lookup
 - `get_box_size(sec)` - rounds per ammo stack (cached)
-- `get_category_sections(category)` - ordered list of sections in a buyable category (medkit / bandage / antirad / stim / pill / grenade), for caller-side random pick via `xmath.sample`
 
-**Resolver**:
-- `get_category(item, opts)` - returns one of: `untouchable` / `equipped` / `medkit` / `bandage` / `antirad` / `stim` / `pill` / `food` / `drink` / `grenade` / `grenade_ammo` / `ammo_slot_2_t1` / `ammo_slot_2_t2` / `ammo_slot_3_t1` / `ammo_slot_3_t2` / `ammo_not_equipped` / `weapon` / `outfit` / `helmet` / `artefact` / `device` / `money` / `crafting` / `other`. All pre-filters built in: untouchables (quest/anim/blacklisted) return `"untouchable"`; equipped items (when `opts.equipped_ids` passed) return `"equipped"`; ammo split uses `opts.equipped_pistol_sec` / `opts.equipped_rifle_sec` with k_ap tier resolution. Consumer dispatch should short-circuit on `"untouchable"` and `"equipped"` before policy lookup.
+**Category set returned by `get_category`** (24 values):
+- Sentinels: `untouchable` (quest / anim / blacklisted, always filtered), `equipped` (per-NPC via `opts.equipped_ids`), `other` (fallthrough)
+- Consumables: `medkit`, `bandage`, `antirad`, `stim`, `pill`, `food`, `drink`
+- Throwables: `grenade`, `grenade_ammo`
+- Ammo: `ammo_slot_2_t1` / `ammo_slot_2_t2` (pistol tiers), `ammo_slot_3_t1` / `ammo_slot_3_t2` (rifle tiers), `ammo_not_equipped` (ammo not in any equipped weapon's ammo_class)
+- Gear: `weapon`, `outfit`, `helmet`, `artefact`, `device`, `money`, `crafting`
+- Consumer dispatch should short-circuit on `untouchable` and `equipped` before any policy lookup.
 
 **Item lifecycle**:
 - `iterate_inventory(npc_id, callback)` - online-only inventory walk (engine has no offline iteration API). Replaces `xobject.iterate_online_inventory`.
@@ -200,7 +199,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - `release_item(item)` - alife_release_id wrapper.
 
 **Slot constants** (from `xrServerEntities/inventory_space.h`):
-- `SLOT_KNIFE=1`, `SLOT_PISTOL=2`, `SLOT_RIFLE=3`, `SLOT_GRENADE=4`, `SLOT_OUTFIT=7`, `SLOT_HELMET=12`, `LAST_MAIN_SLOT=12`
+- `SLOT_KNIFE=1`, `SLOT_PISTOL=2`, `SLOT_RIFLE=3`, `SLOT_GRENADE=4`, `SLOT_OUTFIT=7`, `SLOT_HELMET=12`, `BACKPACK_SLOT=13`, `LAST_MAIN_SLOT=14`. `m_slots` is sized from `system.ltx [inventory] slot_persistent_<N>` count at `Inventory.cpp:72-86`, not from the `MORE_INVENTORY_SLOTS` enum. Vanilla + GAMMA both ship 14 slots; raising `LAST_MAIN_SLOT` without a matching system.ltx is OOB UB on `ItemFromSlot` (`Inventory.cpp:658`, unbounded).
 
 **Boundary rule**: xobject = generic game_object lookup; xinventory = anything that takes an item or talks about an NPC's items.
 
