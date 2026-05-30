@@ -60,6 +60,14 @@ local _pill_set = {
     akvatab        = true, glucose             = true, glucose_s      = true,
 }
 
+-- Hand-curated. Criterion: kind=w_explosive AND class prefix G_ (excludes WP_* launchers like RPG-7).
+-- Vanilla Anomaly has no _ITM["grenade"] bucket; iterating ini_sys to discover them breaches the
+-- 4ms ceiling on cold call. Add sections here when a new hand-grenade addon ships.
+local _grenade_set = {
+    grenade_f1     = true, grenade_rgd5   = true,
+    ["grenade_gd-05"] = true, grenade_smoke  = true,
+}
+
 -- ============================================================================
 -- BLACKLIST (xr_corpse_detection.ltx [ignore_sections])
 -- Loaded once at first call; vanilla hand-curated section blacklist.
@@ -416,19 +424,6 @@ local function _eatable_filtered_by_kind(target_kinds)
     return list
 end
 
--- Walk all sections in system.ltx via the demonized exe binding (build_config_defines.h:20
--- INI_FILE_EXTENDED_EXPORTS; vanilla Parse_ITM relies on this at _g.script:3230). Filter by
--- predicate. Heavy first call (~thousands of sections), cached after.
--- @complexity O(n) sections in ini_sys, 1 luabind per section (predicate body)
-local function _ini_walk_by_predicate(predicate)
-    local list = {}
-    ini_sys:section_for_each(function(sec)
-        if predicate(sec) then list[#list + 1] = sec end
-        return false
-    end)
-    return list
-end
-
 -- Dispatch table: category name → builder closure. Builders run once per category on first
 -- call to get_category_sections; result cached in _category_sections_cache.
 local _SECTION_BUILDERS = {
@@ -437,6 +432,7 @@ local _SECTION_BUILDERS = {
     antirad = function() return _hand_set_to_list(_antirad_set) end,
     stim    = function() return _hand_set_to_list(_stim_set)    end,
     pill    = function() return _hand_set_to_list(_pill_set)    end,
+    grenade = function() return _hand_set_to_list(_grenade_set) end,
 
     outfit            = function() return _itm_bucket_to_list("outfit")       end,
     helmet            = function() return _itm_bucket_to_list("helmet")       end,
@@ -450,21 +446,6 @@ local _SECTION_BUILDERS = {
 
     food  = function() return _eatable_filtered_by_kind({ i_food = true, i_mutant_cooked = true }) end,
     drink = function() return _eatable_filtered_by_kind({ i_drink = true }) end,
-
-    weapon = function()
-        return _ini_walk_by_predicate(function(sec)
-            local cls = _get_class(sec)
-            return cls and cls:sub(1, 3) == "WP_" or false
-        end)
-    end,
-
-    grenade = function()
-        return _ini_walk_by_predicate(function(sec)
-            if _get_kind(sec) ~= "w_explosive" then return false end
-            local cls = _get_class(sec)
-            return cls and cls:sub(1, 2) == "G_" or false
-        end)
-    end,
 }
 
 local _category_sections_cache = setmetatable({}, { __mode = "k" })
@@ -472,14 +453,14 @@ local _category_sections_cache = setmetatable({}, { __mode = "k" })
 --- Get list of sections that belong to a category
 --- Symmetric inverse of get_section_category. Covers every category that can be the result
 --- of get_section_category plus the sentinel "ammo_not_equipped". Per-NPC categories
---- (equipped, ammo_slot_*) and "untouchable" / "other" return empty (not enumerable as a
---- single section set). Each category's list is built once per session via its builder and
---- cached; addons that ship new sections matching a Parse_ITM bucket or kind / class
---- predicate are picked up automatically on first call.
+--- (equipped, ammo_slot_*) and "untouchable" / "other" / "weapon" return empty (not
+--- enumerable as a single section set). Each category's list is built once per session via
+--- its builder and cached; addons that ship new sections matching a Parse_ITM bucket or
+--- hand-set predicate are picked up automatically on first call.
 --- @safety SAFE - returns empty list for nil, unknown, or per-NPC / sentinel categories
 --- @cost O(1) cached; first-call cost varies per category: hand-sets ~10 ops, _ITM bucket
----       walks ~50-200 ops, ini_sys walks (weapon, grenade) ~5-20 ms one-time
---- @src anomaly/_g.script(3173,3230) _ITM + Parse_ITM, xray/xrServerEntities/script_ini_file_script.cpp(35-47,185) section_for_each
+---       walks ~50-200 ops. No ini_sys walks.
+--- @src anomaly/_g.script(3173,3230) _ITM + Parse_ITM
 --- @param category string Category name (same set as get_section_category result)
 --- @return table List of section names, order unspecified (caller sorts if order matters)
 function get_category_sections(category)
@@ -492,19 +473,26 @@ function get_category_sections(category)
     return list
 end
 
+local _cost_cache = {}
+
 --- Get item section's vanilla cost (system.ltx `cost` float field)
 --- Pure primitive: returns nil if section or key missing. Caller chooses the default
 --- by context (vanilla `axr_trade_manager` uses 30 in trade context per :236,303,550;
 --- `xr_corpse_detection` uses 0 in loot-detection context per :157). Cost is a per-section
---- property; condition-aware pricing is the caller's responsibility.
+--- property; condition-aware pricing is the caller's responsibility. Cached per session;
+--- `false` sentinel records the nil case so subsequent calls short-circuit without re-querying.
 --- @safety SAFE - nil-guarded sec; r_float_ex returns nil when section or key missing
---- @cost O(1) | 1 luabind heavy (r_float_ex: section_exist + line_exist + r_float ini parse)
+--- @cost O(1) cached, 1 luabind heavy on miss (r_float_ex: section_exist + line_exist + r_float ini parse)
 --- @src anomaly/_g.script(1525-1529), anomaly/axr_trade_manager.script(236), xray/xrServerEntities/script_ini_file.cpp(93)
 --- @param sec string Item section name
 --- @return number|nil Cost in rubles, or nil if section / key missing
 function get_cost(sec)
     if not sec then return nil end
-    return ini_sys:r_float_ex(sec, "cost")
+    local cached = _cost_cache[sec]
+    if cached ~= nil then return cached or nil end
+    local v = ini_sys:r_float_ex(sec, "cost")
+    _cost_cache[sec] = v or false
+    return v
 end
 
 local _box_size_cache = {}
@@ -534,9 +522,9 @@ end
 --- Untouchables (quest / anim / blacklisted) gate first. Ammo always returns
 --- "ammo_not_equipped"; per-NPC tier resolution lives in get_category. Weapon detected by
 --- class prefix "WP_" (no Parse_ITM bucket exists for weapons; vanilla weapon_classes is
---- clsid-only). Hand grenades detected via kind=w_explosive + class prefix "G_".
+--- clsid-only). Hand grenades detected via _grenade_set hand-curated lookup.
 --- @safety SAFE - nil-guarded sec
---- @cost O(1) | up to ~13 hash lookups + 2 luabind heavy on cache miss (kind, class via cached _get_kind / _get_class)
+--- @cost O(1) | up to ~14 hash lookups + 1 luabind heavy on cache miss (kind, class via cached _get_kind / _get_class)
 --- @see get_category (adds per-NPC opts for equipped + ammo tier)
 --- @see is_in_category (predicate wrapper)
 --- @param sec string Item section name
@@ -550,24 +538,21 @@ function get_section_category(sec)
     if _blacklist_set[sec] then return "untouchable" end
 
     -- Granular consumables (hand-maintained sets)
-    if _medkit_set[sec]  then return "medkit"  end
-    if _bandage_set[sec] then return "bandage" end
-    if _antirad_set[sec] then return "antirad" end
-    if _stim_set[sec]    then return "stim"    end
-    if _pill_set[sec]    then return "pill"    end
+    if _medkit_set[sec]   then return "medkit"  end
+    if _bandage_set[sec]  then return "bandage" end
+    if _antirad_set[sec]  then return "antirad" end
+    if _stim_set[sec]     then return "stim"    end
+    if _pill_set[sec]     then return "pill"    end
+    if _grenade_set[sec]  then return "grenade" end
 
     -- Kind-tagged consumables
     local kind = _get_kind(sec)
     if kind == "i_food" or kind == "i_mutant_cooked" then return "food"  end
     if kind == "i_drink"                              then return "drink" end
 
-    -- Hand grenades (kind=w_explosive + class prefix G_, excludes WP_* launchers)
-    if kind == "w_explosive" then
-        local cls = _get_class(sec)
-        if cls and cls:sub(1, 2) == "G_" then return "grenade" end
-    end
-
-    -- Parse_ITM bucket lookups
+    -- Parse_ITM bucket lookups. Order = priority: in practice sections live in only one
+    -- Parse_ITM bucket (exclusive assignment in Parse_ITM_value at _g.script:3195), but mod
+    -- overlays could populate multiple. First match wins.
     if IsItem("grenade_ammo", sec) then return "grenade_ammo"      end
     if IsItem("ammo",         sec) then return "ammo_not_equipped" end
     if IsItem("artefact",     sec) then return "artefact" end
@@ -582,6 +567,30 @@ function get_section_category(sec)
     if cls and cls:sub(1, 3) == "WP_" then return "weapon" end
 
     return "other"
+end
+
+--- Resolve a per-NPC ammo category from a section + opts (no item required)
+--- Used by item-less callers (stash loot scan) that need to ask "does this ammo section match
+--- ammo_slot_X_tY for this member's equipped weapons?". Pure section-string-based ammo tier
+--- resolution; mirrors the ammo branch in get_category. Returns nil if section isn't ammo.
+--- @safety SAFE - nil-guarded sec; opts optional (nil opts -> "ammo_not_equipped")
+--- @cost O(1) | 1 IsItem hash lookup + up to 2 cached get_ammo_tier_map lookups
+--- @src anomaly/_g.script IsItem + parse_list, xinventory.get_ammo_tier_map
+--- @param sec string Ammo section name
+--- @param opts table|nil { equipped_pistol_sec, equipped_rifle_sec }
+--- @return string|nil "ammo_slot_2_tN" / "ammo_slot_3_tN" / "ammo_not_equipped" / nil (not ammo)
+function resolve_ammo_category(sec, opts)
+    if not sec or not IsItem("ammo", sec) then return nil end
+    if not opts then return "ammo_not_equipped" end
+    if opts.equipped_pistol_sec then
+        local tier = get_ammo_tier(opts.equipped_pistol_sec, sec)
+        if tier then return "ammo_slot_2_t" .. tier end
+    end
+    if opts.equipped_rifle_sec then
+        local tier = get_ammo_tier(opts.equipped_rifle_sec, sec)
+        if tier then return "ammo_slot_3_t" .. tier end
+    end
+    return "ammo_not_equipped"
 end
 
 --- Resolve category for a live item with per-NPC opts (equipped + ammo tier overrides)
@@ -609,15 +618,9 @@ function get_category(item, opts)
     if opts and opts.equipped_ids and opts.equipped_ids[item:id()] then return "equipped" end
 
     -- Ammo tier resolution per equipped weapon slot
-    if base == "ammo_not_equipped" and opts then
-        if opts.equipped_pistol_sec then
-            local tier = get_ammo_tier(opts.equipped_pistol_sec, sec)
-            if tier then return "ammo_slot_2_t" .. tier end
-        end
-        if opts.equipped_rifle_sec then
-            local tier = get_ammo_tier(opts.equipped_rifle_sec, sec)
-            if tier then return "ammo_slot_3_t" .. tier end
-        end
+    if base == "ammo_not_equipped" then
+        local resolved = resolve_ammo_category(sec, opts)
+        if resolved then return resolved end
     end
 
     return base
