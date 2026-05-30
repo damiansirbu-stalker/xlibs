@@ -5,6 +5,7 @@ local table_sort, math_floor = table.sort, math.floor
 local string_match, string_sub = string.match, string.sub
 local parse_list, alife_release_id, alife_create_item, alife_object = parse_list, alife_release_id, alife_create_item, alife_object
 local level, ini_sys, ini_file, xlevel = level, ini_sys, ini_file, xlevel
+local get_object_story_id, se_load_var = get_object_story_id, se_load_var
 
 -- ============================================================================
 -- ENGINE SLOT CONSTANTS (xrServerEntities/inventory_space.h:7-43)
@@ -250,14 +251,15 @@ end
 
 --- Build canonical opts table for get_category from an online NPC
 --- Captures equipped state (slot 1..LAST_MAIN_SLOT ids, plus pistol and rifle weapon sections
---- for per-slot ammo tier resolution). Caller builds once before iterate_inventory and threads
---- the same opts into every get_category call. Snapshot semantics: equipped state is captured
---- once; consumer walks complete within a single Lua call so no frame tick mutates between.
+--- for per-slot ammo tier resolution) and the npc id (for the companion-gifted check in
+--- get_category). Caller builds once before iterate_inventory and threads the same opts into
+--- every get_category call. Snapshot semantics: equipped state is captured once; consumer
+--- walks complete within a single Lua call so no frame tick mutates between.
 --- @safety SAFE - nil-guarded npc; returns empty opts when npc nil
---- @cost O(1) | up to 16 luabind trivial (14 item_in_slot via get_equipped_ids + 2 item_in_slot for pistol/rifle) + 2 luabind heavy (section: shared_str alloc)
+--- @cost O(1) | up to 17 luabind trivial (14 item_in_slot via get_equipped_ids + 2 item_in_slot for pistol/rifle + 1 id) + 2 luabind heavy (section: shared_str alloc)
 --- @src xray/xrServerEntities/inventory_space.h, xray/xrGame/script_game_object_inventory_owner.cpp(1605)
 --- @param npc game_object Online NPC
---- @return table { equipped_ids, equipped_pistol_sec, equipped_rifle_sec }
+--- @return table { equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }
 function get_category_opts(npc)
     if not npc then return { equipped_ids = {} } end
     local pistol = npc:item_in_slot(SLOT_PISTOL)
@@ -266,6 +268,7 @@ function get_category_opts(npc)
         equipped_ids        = get_equipped_ids(npc),
         equipped_pistol_sec = pistol and pistol:section() or nil,
         equipped_rifle_sec  = rifle  and rifle:section()  or nil,
+        npc_id              = npc:id(),
     }
 end
 
@@ -595,15 +598,25 @@ function resolve_ammo_category(sec, opts)
 end
 
 --- Resolve category for a live item with per-NPC opts (equipped + ammo tier overrides)
---- Untouchables gate first via get_section_category. Equipped check uses opts.equipped_ids
---- (item id). Ammo resolves to ammo_slot_2_tN / ammo_slot_3_tN per equipped pistol / rifle
---- tier_map, else stays "ammo_not_equipped". Other categories delegate to get_section_category.
---- @safety SAFE - nil-guarded item; opts entirely optional
---- @cost O(1) | get_section_category cost + 1 item:section() luabind + 1 item:id() luabind + opts hash lookups
---- @src xray/xrGame/script_game_object_script.cpp section()
+--- Untouchables gate first via get_section_category (section-level: quest/anim/blacklist).
+--- Three additional runtime per-item untouchable checks then apply:
+---   1. get_object_story_id(item:id()) — item has a runtime story_id (quest tracker).
+---      Vanilla precedent: release_npc_inventory.script:81 "extra protection".
+---   2. axr_companions.is_assigned_item(opts.npc_id, item:id()) — item the actor
+---      gave to a companion. Vanilla precedent: death_manager.script:407,
+---      axr_companions.script:1300,1360.
+---   3. se_load_var(item:id(), nil, "strapped_item") — player-strapped weapon.
+---      Vanilla precedent: death_manager.script:439, itms_manager.script:338,
+---      axr_companions.script:1360.
+--- Equipped check then uses opts.equipped_ids (item id). Ammo resolves to ammo_slot_2_tN /
+--- ammo_slot_3_tN per equipped pistol / rifle tier_map, else stays "ammo_not_equipped".
+--- Other categories delegate to get_section_category.
+--- @safety SAFE - nil-guarded item; opts entirely optional; axr_companions module guarded
+--- @cost O(1) | get_section_category cost + item:section/id luabind + 3 hash lookups (story_id, assigned, strapped)
+--- @src xray/xrGame/script_game_object_script.cpp section(), anomaly/_g.script get_object_story_id, anomaly/axr_companions.script is_assigned_item
 --- @see get_section_category (pure section), is_in_category (predicate wrapper)
 --- @param item game_object Inventory item
---- @param opts table|nil { equipped_ids, equipped_pistol_sec, equipped_rifle_sec }
+--- @param opts table|nil { equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }
 --- @return string Category name
 function get_category(item, opts)
     if not item then return "other" end
@@ -612,11 +625,19 @@ function get_category(item, opts)
 
     local base = get_section_category(sec)
 
-    -- Untouchable wins (per spec D6: quest / anim / blacklisted always filtered)
+    -- Untouchable wins (section-level: quest / anim / blacklisted)
     if base == "untouchable" then return base end
 
+    -- Item-level runtime protections (any one → untouchable)
+    local item_id = item:id()
+    if get_object_story_id and get_object_story_id(item_id) then return "untouchable" end
+    if opts and opts.npc_id and axr_companions and axr_companions.is_assigned_item
+        and axr_companions.is_assigned_item(opts.npc_id, item_id) then return "untouchable" end
+    -- save_name (2nd arg) is unused by _g.script:2647-2653; "" matches vanilla itms_manager pattern
+    if se_load_var and se_load_var(item_id, "", "strapped_item") then return "untouchable" end
+
     -- Equipped: opt-in via opts.equipped_ids
-    if opts and opts.equipped_ids and opts.equipped_ids[item:id()] then return "equipped" end
+    if opts and opts.equipped_ids and opts.equipped_ids[item_id] then return "equipped" end
 
     -- Ammo tier resolution per equipped weapon slot
     if base == "ammo_not_equipped" then
@@ -750,14 +771,22 @@ end
 --   keys (profit_max, extras_max, fill_max, ...) so they bypass the {min, max} parser.
 -- ============================================================================
 
--- Parse a "min, max" CSV cell. Empty/malformed cells yield nil.
-local function _parse_min_max(value)
+-- Parse a policy rule cell. Two accepted shapes:
+--   "min, max"  -> { min = number, max = number }   (trade / stash; both fields used)
+--   "max"       -> { min = 0,      max = number }   (cull-only consumers; min unused)
+-- Empty / malformed cells yield nil.
+local function _parse_rule(value)
     if not value or value == "" then return nil end
+    -- Try "min, max" first (longest match)
     local min_str, max_str = string_match(value, "(%S+)%s*,%s*(%S+)")
-    if not min_str then return nil end
-    local min, max = tonumber(min_str), tonumber(max_str)
-    if not min or not max then return nil end
-    return { min = min, max = max }
+    if min_str then
+        local min, max = tonumber(min_str), tonumber(max_str)
+        if min and max then return { min = min, max = max } end
+    end
+    -- Fall back to single-value (max only); min defaults to 0
+    local max_only = tonumber(value)
+    if max_only then return { min = 0, max = max_only } end
+    return nil
 end
 
 -- Contribution one item makes to its category count: ammo categories count rounds
@@ -779,7 +808,7 @@ local function _absorb_policy_line(key, value, specials_set, entries, rules, spe
         specials[key] = tonumber(value) or 0
         return
     end
-    local rule = _parse_min_max(value)
+    local rule = _parse_rule(value)
     if not rule then return end
     entries[#entries + 1] = { category = key, rule = rule }
     rules[key] = rule

@@ -176,7 +176,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 
 **Category model** (symmetric forward + reverse maps):
 - `get_section_category(sec)` - sec → category name. Untouchables (quest / anim / blacklisted) gate first. Medical 5 (medkit / bandage / antirad / stim / pill) and hand grenades via hand-maintained sets (vanilla bundles all medicals under `kind=i_medical` with no field to subdivide; no `_ITM["grenade"]` bucket exists). Other categories via Parse_ITM `_ITM[bucket]` lookups (outfit / helmet / artefact / device / money / grenade_ammo / ammo). Weapons by class prefix `WP_` (per-item fallback; vanilla `IsWeapon` is clsid-only).
-- `get_category(item, opts)` - item → category name, adds per-NPC overrides on top of `get_section_category`: equipped check via `opts.equipped_ids`; ammo tier resolution to `ammo_slot_2_tN` / `ammo_slot_3_tN` per equipped pistol / rifle tier_map.
+- `get_category(item, opts)` - item → category name, adds per-NPC overrides on top of `get_section_category`: three runtime per-item untouchable checks (story_id via `get_object_story_id(item:id())`, companion-gifted via `axr_companions.is_assigned_item(opts.npc_id, item:id())`, player-strapped via `se_load_var(item:id(), "", "strapped_item")`); equipped check via `opts.equipped_ids`; ammo tier resolution to `ammo_slot_2_tN` / `ammo_slot_3_tN` per equipped pistol / rifle tier_map.
 - `resolve_ammo_category(sec, opts)` - section-string variant of the ammo tier branch (no game_object required). Used by stash loot to match each stash ammo section against per-member opts.
 - `is_in_category(sec, category)` - section-based predicate (wraps `get_section_category`). Per-NPC categories (`equipped`, `ammo_slot_*`) always return false on this path. Use `get_category` for those.
 - `get_category_sections(category)` - reverse: category → list of sections. Builders dispatch to hand-maintained sets (medical 5 + grenade), `_ITM[bucket]` reads (Parse_ITM-derived: outfit / helmet / artefact / device / money / grenade_ammo / ammo), kind filter over `_ITM["eatable"]` (food / drink), or `_ITM` unions (crafting = tool + part + upgrade). No `ini_sys:section_for_each` walks. Per-NPC categories (equipped, ammo_slot_*) and `weapon` return empty (weapon is per-item only). Lazy per-category build, weak-keyed cache, addon-aware for Parse_ITM bucket sources; grenade addons need an entry in `_grenade_set`.
@@ -187,7 +187,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 **NPC slot accessors**:
 - `get_equipped_knife(npc)`, `get_equipped_pistol(npc)`, `get_equipped_rifle(npc)`, `get_equipped_grenade(npc)`, `get_equipped_outfit(npc)`, `get_equipped_helmet(npc)`
 - `get_equipped_ids(npc)` - set of item ids across slots 1..LAST_MAIN_SLOT
-- `get_category_opts(npc)` - canonical opts builder: `{ equipped_ids, equipped_pistol_sec, equipped_rifle_sec }` for `get_category`
+- `get_category_opts(npc)` - canonical opts builder: `{ equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }` for `get_category`
 
 **Weapon config**:
 - `get_ammo_classes(weapon_sec)` - set of ammo sections a weapon accepts (hash form)
@@ -220,13 +220,13 @@ LTX policy file shape (consumer mods own the values):
 
 ```ini
 [<section>]
-<category_1> = <min>, <max>
-<category_2> = <min>, <max>
+<category_1> = <min>, <max>   ; two-value row: { min = M, max = N }
+<category_2> = <max>          ; single-value row: { min = 0, max = N }  (cull-only consumers)
 ...
 <special_key> = <number>      ; pulled out per specials_set
 ```
 
-Consumers: `AlifePlus/configs/alifeplus/ap_trade_policy.ltx` (per-rank, `profit_max`), `AlifePlus/configs/alifeplus/ap_stash_policy.ltx` (uniform, `extras_max` + `fill_max`), `AlifeBalance/configs/alifebalance/ab_inventory_policy.ltx` (uniform, no specials).
+Consumers: `AlifePlus/configs/alifeplus/ap_trade_policy.ltx` (per-rank, two-value rows, `profit_max`), `AlifePlus/configs/alifeplus/ap_stash_policy.ltx` (uniform, two-value rows, `extras_max` + `fill_max`), `AlifeBalance/configs/alifebalance/ab_inventory_policy.ltx` (uniform, single-value rows, no specials).
 
 **Slot constants** (from `xrServerEntities/inventory_space.h`):
 - `SLOT_KNIFE=1`, `SLOT_PISTOL=2`, `SLOT_RIFLE=3`, `SLOT_GRENADE=4`, `SLOT_OUTFIT=7`, `SLOT_HELMET=12`, `BACKPACK_SLOT=13`, `LAST_MAIN_SLOT=14`. `m_slots` is sized from `system.ltx [inventory] slot_persistent_<N>` count at `Inventory.cpp:72-86`, not from the `MORE_INVENTORY_SLOTS` enum. Vanilla + GAMMA both ship 14 slots; raising `LAST_MAIN_SLOT` without a matching system.ltx is OOB UB on `ItemFromSlot` (`Inventory.cpp:658`, unbounded).
