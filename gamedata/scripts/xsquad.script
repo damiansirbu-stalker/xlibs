@@ -396,7 +396,9 @@ function iter_member_ids(squad)
 end
 
 -- Resolve squad commander's service role from xdata.npc_roles for diagnostic output.
--- Offline OK: reads section from CSE, no game_object required.
+-- Offline OK: reads section from CSE, no game_object required. Multi-role NPCs (mechanic +
+-- trader, medic + trader) return the most-specific role: mechanic > medic > trader. So
+-- mech_bandit returns "mechanic" (not "trader") and Yar returns "medic" (not "trader").
 -- @cost O(1) | 1 trivial (commander_id) + 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
 local function _commander_role(squad)
     if not squad or not squad.commander_id then return "?" end
@@ -406,9 +408,9 @@ local function _commander_role(squad)
     if not se then return "?" end
     local entry = xdata.npc_roles[se:section_name()]
     if not entry then return "none" end
-    if entry.trader   then return "trader"   end
-    if entry.medic    then return "medic"    end
     if entry.mechanic then return "mechanic" end
+    if entry.medic    then return "medic"    end
+    if entry.trader   then return "trader"   end
     return "none"
 end
 
@@ -595,6 +597,24 @@ function get_squad_smart(squad)
     local se = alife_object(smart_id)
     if not se or se:clsid() ~= clsid.smart_terrain then return nil end
     return se
+end
+
+--- Check if squad is engine-stationed (current_action=1, not in transit)
+--- Engine sets current_action=1 in specific_update when am_i_reached returns true, then keeps
+--- it until either idle_time elapses or a new target is assigned. Sticky while staying,
+--- bounded by smart's idle_time. Returns false during transit, before first arrival, and
+--- after idle expiry triggers reassignment.
+--- @safety SAFE - pure Lua field reads, nil-guarded
+--- @cost O(1) | 0 luabind (current_action / current_target_id are plain CSE fields)
+--- @src anomaly/sim_squad_scripted.script(295-323) arrival + stay + reset lifecycle
+--- @param squad se_squad Squad server object
+--- @param smart_id number|nil When given, checks stationed at THIS specific smart
+--- @return boolean
+function is_stationed(squad, smart_id)
+    if not squad then return false end
+    if squad.current_action ~= 1 then return false end
+    if smart_id and squad.current_target_id ~= smart_id then return false end
+    return true
 end
 
 --- Acquire: set scripted_target (routes to specific_update), clear __lock (AP does not use it)

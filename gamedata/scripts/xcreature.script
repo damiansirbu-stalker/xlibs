@@ -2,7 +2,7 @@
 
 local pairs, type, pcall, setmetatable = pairs, type, pcall, setmetatable
 local string = string
-local IsMonster, IsStalker, alife_character_community = IsMonster, IsStalker, alife_character_community
+local IsMonster, IsStalker, IsTrader, alife_character_community = IsMonster, IsStalker, IsTrader, alife_character_community
 local get_object_story_id, get_object_squad = get_object_story_id, get_object_squad
 local xobject, xlevel, xdata = xobject, xlevel, xdata
 
@@ -51,6 +51,16 @@ end
 --- @param input number|userdata|table Entity ID or object
 --- @return boolean
 function is_stalker(input) local cls = get_clsid(input) return cls and IsStalker(nil, cls) or false end
+
+--- Check if entity is a Script_Trader (CSE class 37 / 36). Sidorovich-class story trader entities
+--- live in this class, not IsStalker; iterate this filter to cover them with bounded cost (~10
+--- entities vanilla Anomaly, ~30-100 with addons) vs the full alife pool.
+--- @safety SAFE - returns false for nil/invalid
+--- @cost O(log n) | 1 luabind medium (alife_object) + 1 luabind trivial (clsid); IsTrader is pure Lua compare
+--- @src anomaly/_g.script(2904) IsTrader
+--- @param input number|userdata|table Entity ID or object
+--- @return boolean
+function is_trader(input) local cls = get_clsid(input) return cls and IsTrader(nil, cls) or false end
 
 --- Check if entity is a mutant
 --- Shorthand: get_clsid + IsMonster(nil, cls) fast path
@@ -217,6 +227,7 @@ function get_mutant_variant(input)
 end
 
 local _stalker_filter = function(e) return is_stalker(e) end
+local _trader_filter = function(e) return is_trader(e) end
 local _mutant_filter = function(e) return is_mutant(e) end
 local _npc_filter = function(e) return is_npc(e) end
 local _alive_filter = function(se) return se.alive and se:alive() end
@@ -451,6 +462,7 @@ function server_objects_iterator:filter(fn)
 end
 
 function server_objects_iterator:stalkers() return self:filter(_stalker_filter) end
+function server_objects_iterator:traders() return self:filter(_trader_filter) end
 function server_objects_iterator:mutants() return self:filter(_mutant_filter) end
 function server_objects_iterator:npcs() return self:filter(_npc_filter) end
 function server_objects_iterator:alive() return self:filter(_alive_filter) end

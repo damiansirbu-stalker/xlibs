@@ -100,6 +100,7 @@ xcreature.query():stalkers():alive():on_level(lvl):each(fn)
 - `get_clsid(input)` - Engine class ID from any input
 - `entity_type(input)` - ENTITY.STALKER, ENTITY.MUTANT, or nil
 - `is_stalker(input)`, `is_mutant(input)`, `is_npc(input)` - Entity type checks
+- `is_trader(input)` - True if entity is Script_Trader CSE (clsid 37 / 36); catches Sidorovich-class
 - `community(input)` - Get faction community
 - `get_name(input)` - Get translated name
 - `pos(input)` - Get position
@@ -109,7 +110,7 @@ xcreature.query():stalkers():alive():on_level(lvl):each(fn)
 - `is_unscriptable(obj)` - Check against xdata.unscriptable_npcs
 - `is_task_giver(obj)` - Check NPC/squad ID against active tasks
 - `query()` - Fluent server objects iterator:
-  - Filters: `stalkers()`, `mutants()`, `npcs()`, `alive()`, `online()`, `on_level(lvl_id)`, `filter(fn)`
+  - Filters: `stalkers()`, `traders()`, `mutants()`, `npcs()`, `alive()`, `online()`, `on_level(lvl_id)`, `filter(fn)`
   - Terminals: `each(callback)`, `collect()`, `count()`, `first()`, `get_npc_counts()`
 
 ### xsquad.script - Squad Queries & Operations
@@ -126,6 +127,7 @@ xsquad.release_squad(squad)
 - `release_squad(squad)` - Release from scripted control, return to simulation
 - `release_squads(opts)` - Bulk release with filter
 - `get_squad_smart(squad)`
+- `is_stationed(squad, smart_id)` - True when engine considers squad stationed (current_action=1). With smart_id, also requires current_target_id match. Sticky until idle_time expires or new target assigned
 - `get_squad_by_member(npc_id)` - Get squad containing NPC
 - `get_community_name(squad)` - Translated community name (safe, never nil)
 - `is_permanent_squad(squad)` - Static identity check (story, trader, named_npc, empty), cached
@@ -255,29 +257,56 @@ local valid = xlevel.is_valid_lvid(se_obj)
 ```lua
 local smart = xsmart.find_smart(pos, { factions = faction, level_id = level_id, filter = xsmart.is_base })
 local arrived = xsmart.is_arrived(squad, smart)
-local holder = xsmart.get_controlling_faction(smart)
+local hostile = xsmart.has_enemy_squad(smart.id, "stalker")
 ```
 
-- `get_actor_smart()` - Nearest smart to actor (engine-maintained, O(1))
+Smart property predicates (read from smart.props / engine fields):
 - `is_base(smart)`, `is_lair(smart)`, `is_resource(smart)`, `is_territory(smart)`
-- `accepts_faction(smart, faction)` - Engine target_precondition Tier 1: props.all OR props.all_stalker/all_monster (via is_squad_monster dispatch) OR props[faction]. Covers both stalker and mutant inputs.
-- `get_declared_factions(smart)` - Enumeration of stalker factions explicitly listed in props (cached). Used to ask "what's literally declared in the LTX".
-- `get_controlling_faction(smart)` - Runtime holder: smart.faction (engine, NPC-derived from jobs + default_faction LTX) first, then smart.owning_faction (warfare, skipping literal "none"), else "none". Real NPC presence outranks warfare metadata. No props fallback -- use accepts_faction / get_declared_factions for the props question.
-- `has_squad_of_faction(smart_id, faction, exclude_id)` - SIMBOARD roster: at least one squad of `faction` currently assigned (excluding optional id).
-- `is_smart_empty(smart)` - No squads assigned
-- `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter). `factions` opt takes a string OR a set; matched via `accepts_faction`. Cheapest filters first (exclude_id, factions, level_id) before the luabind distance_to_sqr call.
+- `has_surge_shelter(smart)` - Smart has surge shelter (emission-safe indoor)
+- `has_campfire(smart)` - Has at least one online campfire (online scope)
+- `has_anomaly(smart)` - Within 50m of any online anomaly zone
+- `has_animated_stalker_jobs(smart)` - Has any non-stub stalker job (excludes generic_point / campfire_point stubs)
+- `accepts_faction(smart, faction)` - Engine target_precondition Tier 1: props.all OR props.all_stalker/all_monster OR props[faction]
+- `get_declared_factions(smart)` - Set of stalker factions explicitly listed in props (cached)
+
+Smart finders:
+- `get_actor_smart()` - Nearest smart to actor (engine-maintained, O(1))
+- `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter, source). `factions` takes string or set
+- `find_first_smart(opts)` - Distance-free variant; first matching smart in pool iteration order
+- `find_smarts_spawning(level_id, faction)` - Array of smarts on level whose recipes produce given faction
+- `smart_iter()` - Stateful iterator over all SIMBOARD smart terrains
+
+SIMBOARD roster (sim-intent membership, NOT physical occupancy):
+- `get_smart_squads(smart_id)` - Raw SIMBOARD.smarts[id].squads hash
+- `assign_squad_to_smart(squad, smart_id)` - Wrap SIMBOARD:assign_squad_to_smart; nil to detach
+- `iter_stationed_squads(smart_id, exclude_id, cap)` - Closure iterator yielding se for squads with current_action=1 AND current_target_id=smart_id (xsquad.is_stationed). Skips in-transit. Cap default 5
+- `has_squad_of_faction(smart_id, faction, exclude_id)` - True if any stationed squad of given faction
+- `has_enemy_squad(smart_id, community, exclude_id)` - True if any stationed squad is faction-enemy of community
+- `is_smart_empty(smart_id)` - No squads assigned (raw roster check, includes in-transit)
+
+Service NPC resolution (online + actor-level via npc_info walk):
+- `get_npc_roles(npc)` - SET of roles `{trader=true, medic=true, mechanic=true}` (any subset, empty for non-service NPCs). Multi-role NPCs (Yar = medic+trader, mechanics with dm_init_trader = mechanic+trader) populate multiple keys. Cached per NPC. Signals: community="trader", clsid=script_trader/trader, section substring patterns, trade= field in active logic block (Demonized-style classifier per Trader Destockifier `trader_autoinject.script:85`). level_spot is NOT used (false-positives on quest NPCs)
+- `is_trader_npc(npc)`, `is_medic_npc(npc)`, `is_mechanic_npc(npc)` - Boolean wrappers checking `get_npc_roles(npc)[role]`
+- `get_trader_at_smart(smart)`, `get_medic_at_smart(smart)`, `get_mechanic_at_smart(smart)` - First online live NPC at smart with role in their set, or nil
+- `has_trader_at_smart(smart)`, `has_medic_at_smart(smart)`, `has_mechanic_at_smart(smart)` - Boolean variants
+
+Squad-smart interaction:
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
-- `get_proximity(squad, smart)` - Distance and arrival metadata
-- `has_stalker_jobs(smart, type_id)` - smart.stalker_jobs has any (type_id nil) or specific job_type_id (e.g. `JOB_TYPE_TRADER` = 15)
-- `get_npc_for_job(smart, type_id)` - Online game_object of the NPC assigned to a job of the given type_id at this smart, or nil. Does NOT resolve the trader NPC (job_type_id=15 tags the visitor patrol slot, not the barman); use `ap_core_util.get_service_npc_at_smart` for traders.
-- `set_shared_spawn(smart, key, faction, spawn_num)` - Additive spawn injection (adds entry alongside originals, no faction_controlled)
-- `clear_shared_spawn(smart, key)` - Remove shared spawn entry, restore original-only spawning
-- `set_exclusive_spawn(smart, key, faction, spawn_num)` - Exclusive spawn injection (sets faction_controlled, suppresses originals via faction gate)
-- `clear_exclusive_spawn(smart, key)` - Remove exclusive spawn, revert faction_controlled and faction to defaults
-- `get_smart_squads(smart_id)` - Raw SIMBOARD squads table for a smart terrain
-- `smart_iter()` - Stateful iterator over all SIMBOARD smart terrains (for smart in xsmart.smart_iter())
-- `dump_smarts(factions, level_id)` - Diagnostic dump
-- `reset_spawns()`, `repopulate()` - Smart terrain population management
+- `get_proximity(squad, smart)` - Distance and arrival metadata (gvid match, same-level, threshold)
+- `has_jobs_for(smart, squad)` - True if every squad member has engine-assigned job at smart (online + actor-level only)
+
+Jobs (smart.stalker_jobs):
+- `has_stalker_jobs(smart, type_id)` - Has any (type_id nil) or specific job_type_id (e.g. JOB_TYPE_TRADER = 15)
+- `get_npc_for_job(smart, type_id)` - Online game_object of NPC assigned to job of given type_id. NOT the trader NPC (job_type_id=15 tags the visitor patrol slot, not the barman); use service-NPC accessors for traders
+
+Section metadata (LTX squad_descr):
+- `section_faction(section)` - Faction (player_id) a squad section produces (cached per section)
+- `get_section_npc_max(section)` - Upper bound of npc_in_squad LTX field (cached)
+
+Diagnostic:
+- `dump_smarts(level_id)` - Per-smart faction + service role inventory (filtered by level when given)
+
+Spawn helpers (set / clear shared / exclusive spawn, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
 
 ### xstash.script - Stash Operations
 
