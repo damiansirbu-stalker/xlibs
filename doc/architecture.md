@@ -215,7 +215,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 **Policy primitives** (uniform shape across consumers):
 - `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`. `entries` preserves declaration order (BUY / LOOT priority); `rules` is the hash for O(1) per-category lookup; `specials` carries numeric keys named in `specials_set` (`profit_max`, `extras_max`, `fill_max`, ...).
 - `classify(npc, opts)` - per-category count walker for an online NPC. Single iterate; ammo categories in rounds, others in items. Skips untouchable + equipped via `get_category`.
-- `iterate_surplus(npc, opts, ctx)` - surfaces items where `count - unit >= max`. `ctx = { rules, counts, on_surplus }`. Mutates `ctx.counts` in place; `ctx.on_surplus(item, cat, sec, unit)` owns the action (transfer, release, queue). Returning `true` from `on_surplus` stops iteration.
+- `iterate_surplus(npc, opts, ctx)` - surfaces items while `count > max`. `ctx = { rules, counts, on_surplus }`. Mutates `ctx.counts` in place; `ctx.on_surplus(item, cat, sec, unit)` owns the action (transfer, release, queue). Returning `true` from `on_surplus` stops iteration. Lands at exactly `max` for `unit = 1` categories; for ammo (`unit > 1`) the final count can fall short of `max` by up to `unit - 1` rounds when the boundary stack overshoots.
 - `build_surplus_map(counts, rules)` - pure. Derives `{ [category] = surplus_count }` from counts vs rules.
 
 LTX policy file shape (consumer mods own the values):

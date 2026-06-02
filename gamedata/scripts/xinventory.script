@@ -876,9 +876,12 @@ end
 
 --- Walk NPC inventory and surface items above their category's policy max
 --- For each non-untouchable non-equipped item: looks up the category rule in ctx.rules;
---- if a rule exists AND count - unit >= max (release would not violate the floor),
---- mutates ctx.counts in place (counts[cat] -= unit) and invokes ctx.on_surplus(item,
---- cat, sec, unit). Returning true from on_surplus stops iteration (engine convention).
+--- if a rule exists AND count > max (category is over the cap), mutates ctx.counts in
+--- place (counts[cat] -= unit) and invokes ctx.on_surplus(item, cat, sec, unit).
+--- Returning true from on_surplus stops iteration (engine convention).
+--- For unit == 1 categories (medkit, weapon, etc.) the walk lands at exactly max.
+--- For unit > 1 categories (ammo, in rounds) releases happen whole-stack; the final
+--- count can fall short of max by up to (unit - 1) when the boundary stack overshoots.
 --- The caller's on_surplus owns the action: trade transfers + credits, inventory-balance
 --- releases. No release happens unless on_surplus does it.
 --- @safety SAFE - nil-guarded args; iterate_inventory tolerant of nil items
@@ -902,7 +905,7 @@ function iterate_surplus(npc, opts, ctx)
         if not rule or not rule.max then return end
         local unit = _unit(cat, item)
         local count = counts[cat] or 0
-        if count - unit < rule.max then return end
+        if count <= rule.max then return end
         counts[cat] = count - unit
         invoked = invoked + 1
         return on_surplus(item, cat, item:section(), unit) == true
