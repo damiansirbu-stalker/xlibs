@@ -3,6 +3,7 @@
 local pairs, ipairs, next, type, alife_object, tostring = pairs, ipairs, next, type, alife_object, tostring
 local pcall, math, table, tonumber = pcall, math, table, tonumber
 local string_match, table_concat = string.match, table.concat
+local character_community = character_community
 local xobject, xsquad, xlevel = xobject, xsquad, xlevel
 
 --- Stalker faction community names used as props keys in simulation_objects_props.ltx
@@ -116,6 +117,35 @@ end
 --- call after bind returns the real role set).
 local _npc_role = {}
 
+-- Signal C of the role cascade: substring match on the NPC section name. See
+-- _detect_role for cascade orchestration and the per-signal rationale.
+-- @complexity O(1) | 9 string:find calls, bounded by literal pattern count.
+local function _section_roles(sec)
+    local roles = {}
+    if sec:find("mechanic") or sec:find("_tech") or sec:find("mech_mlr") or sec:find("mechan") then roles.mechanic = true end
+    if sec:find("medic") or sec:find("medik") or sec:find("doctor") then roles.medic = true end
+    if sec:find("trader") or sec:find("barm[ae]n") then roles.trader = true end
+    return roles
+end
+
+-- Signal D of the role cascade: NPC active logic-block `trade =` LTX field
+-- (Demonized's classifier; anomaly_mods/Trader Destockifier/trader_autoinject.script:85).
+-- companion catalogs are exclusion-only; returns sentinel "_exclude" so the caller can
+-- distinguish "no trade field set" (nil) from "explicitly companion-only" ("_exclude").
+-- @complexity O(1) | 1 db.storage lookup + 1 r_string_ex + at most 4 string:find.
+local function _trade_cat_role(npc)
+    local st = db.storage[npc:id()]
+    if not (st and st.ini and st.section_logic) then return nil end
+    local trade_cat = st.ini:r_string_ex(st.section_logic, "trade")
+    if not trade_cat then return nil end
+    if trade_cat:find("companion") then return "_exclude" end
+    if trade_cat:find("trade_generic_mechanic") then return "mechanic" end
+    if trade_cat:find("trade_generic_barman") then return "trader" end
+    if trade_cat:find("trade_generic_medic") then return "medic" end
+    -- Generic supplier default (Petrenko-style curated catalog).
+    return "trader"
+end
+
 -- Per-NPC role detection. Returns the SET of all roles the NPC fulfills (multi-role: an
 -- NPC like Pripyat Yar is both medic and trader, mechanics with dm_init_trader sell parts
 -- so they're mechanic+trader). Engine-authoritative gate is the trade = field declared in
@@ -126,17 +156,17 @@ local _npc_role = {}
 -- Signals (all checked, all contribute to the role set):
 --   A. character_community == "trader" -> roles.trader (Sidorovich-class universal-neutral)
 --   B. clsid == script_trader / clsid.trader -> roles.trader (Script_Trader-derived NPCs)
---   C. Section name substring patterns (explicit naming):
+--   C. _section_roles: section name substring patterns
 --        contains "mechanic" / "_tech" / "mech_mlr" / "mechan" -> roles.mechanic
 --        contains "medic" / "medik" / "doctor"                 -> roles.medic
 --        contains "trader" / "barm[ae]n"                       -> roles.trader
---   D. trade = field in active logic block. Catalog filename pattern adds the role:
---        contains "companion"              -> (no role added; companions don't serve other squads)
---        contains "trade_generic_mechanic" -> roles.mechanic
---        contains "trade_generic_barman"   -> roles.trader (barman = trader role)
---        contains "trade_generic_medic"    -> roles.medic
---        else                              -> roles.trader (generic supplier / curated catalog)
---      Absent trade = field -> nothing added at this step.
+--   D. _trade_cat_role: trade = field in active logic block
+--        contains "companion"              -> "_exclude" (no role; companions don't serve other squads)
+--        contains "trade_generic_mechanic" -> "mechanic"
+--        contains "trade_generic_barman"   -> "trader" (barman = trader role)
+--        contains "trade_generic_medic"    -> "medic"
+--        else                              -> "trader" (generic supplier / curated catalog)
+--      Absent trade = field -> nil (nothing added at this step).
 --
 -- The earlier single-role single-return design returned the FIRST signal that matched and
 -- missed multi-role NPCs (Yar was medic-only because section pattern returned "medic" before
@@ -148,43 +178,15 @@ local _npc_role = {}
 -- quest), causing false-positive trader classification. The trade = field is the engine's
 -- actual trade-catalog enabler — present iff the NPC has a trade catalog.
 --
--- @cost O(1) | 1 community + 1 clsid + 1 section + at most 1 r_string_ex.
+-- @complexity O(1) | 1 community + 1 clsid + 1 section + delegates to _section_roles / _trade_cat_role.
 --       All cached per NPC id after first call.
 local function _detect_role(npc)
-    local roles = {}
-    local sec = npc:section()
-
-    -- (A) universal-neutral community
+    local roles = _section_roles(npc:section())
     if character_community(npc) == "trader" then roles.trader = true end
-
-    -- (B) engine class
     local cls = npc:clsid()
     if cls == clsid.script_trader or cls == clsid.trader then roles.trader = true end
-
-    -- (C) section name substring patterns
-    if sec:find("mechanic") or sec:find("_tech") or sec:find("mech_mlr") or sec:find("mechan") then roles.mechanic = true end
-    if sec:find("medic") or sec:find("medik") or sec:find("doctor") then roles.medic = true end
-    if sec:find("trader") or sec:find("barm[ae]n") then roles.trader = true end
-
-    -- (D) authoritative: trade = field in active logic block (Demonized's classifier)
-    local st = db.storage[npc:id()]
-    if st and st.ini and st.section_logic then
-        local trade_cat = st.ini:r_string_ex(st.section_logic, "trade")
-        if trade_cat then
-            if trade_cat:find("companion") then
-                -- companion-only catalog: not a public service NPC, no role added
-            elseif trade_cat:find("trade_generic_mechanic") then
-                roles.mechanic = true
-            elseif trade_cat:find("trade_generic_barman") then
-                roles.trader = true
-            elseif trade_cat:find("trade_generic_medic") then
-                roles.medic = true
-            else
-                roles.trader = true  -- generic supplier (Petrenko-style curated catalog, etc.)
-            end
-        end
-    end
-
+    local trade_role = _trade_cat_role(npc)
+    if trade_role and trade_role ~= "_exclude" then roles[trade_role] = true end
     return roles
 end
 
@@ -194,6 +196,8 @@ end
 --- reference. Pre-bind empty sets not cached so a later call after logic binds re-detects.
 --- @safety SAFE - nil-guarded; all engine reads are standard game_object methods
 --- @cost O(1) | 0 luabind cached, 2-5 luabind heavy on miss (community + clsid + section + optional r_string_ex)
+--- @complexity O(1) amortized | luabind cost as above
+--- @see anomaly/xr_logic.script:113 (engine trade= consumer)
 --- @src anomaly_mods/Trader Destockifier .../trader_autoinject.script:85 (Demonized get_trader_type);
 ---      anomaly/utils_obj.script:74 (vanilla is_trader 4-signal); anomaly/xr_logic.script:113 (engine trade= consumer)
 --- @param npc game_object Online NPC game_object
@@ -572,14 +576,27 @@ function iter_stationed_squads(smart_id, exclude_id, cap)
             local id = next(squads, key)
             key = id
             if not id then return nil end
-            if id ~= exclude_id then
-                checked = checked + 1
-                local se = alife_object(id)
-                if xsquad.is_stationed(se, smart_id) then return se end
-            end
+            if id == exclude_id then goto continue end
+            checked = checked + 1
+            local se = alife_object(id)
+            if xsquad.is_stationed(se, smart_id) then return se end
+            ::continue::
         end
         return nil
     end
+end
+
+--- Get the SIMBOARD smarts-by-name dict for whole-world iteration. Callers iterate with
+--- pairs(); use this when an index build or cross-level scan needs every smart, not the
+--- filtered/ranked output of find_smart. Returns nil before SIMBOARD setup completes (pre
+--- actor_on_first_update); callers must nil-check.
+--- @scope global - SIMBOARD.smarts_by_names populated at sim_board init across all levels
+--- @safety SAFE - nil-guarded; returns nil if SIMBOARD or smarts_by_names is unavailable
+--- @complexity O(1) | 0 luabind, table identity return
+--- @see anomaly/sim_board.script (SIMBOARD.smarts_by_names initialized at sim_board setup)
+--- @return table|nil { [name] = smart_terrain, ... } or nil if SIMBOARD not loaded
+function smarts_by_names()
+    return SIMBOARD and SIMBOARD.smarts_by_names
 end
 
 --- Check if any squad of given faction is physically stationed at smart (optionally excluding one id)
