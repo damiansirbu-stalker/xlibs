@@ -645,9 +645,16 @@ end
 --- @src anomaly/sim_board.script(225-266)
 --- @param squad se_squad Squad server object
 --- @param smart_id number|nil Destination smart id, or nil to detach from current
+--- @return boolean True on delegate to SIMBOARD; false when squad/SIMBOARD nil or squad lacks assign_smart method
 function assign_squad_to_smart(squad, smart_id)
-    if not squad or not SIMBOARD then return end
+    if not squad or not SIMBOARD then return false end
+    -- Vanilla sim_board:assign_squad_to_smart calls squad:assign_smart unconditionally
+    -- (sim_board.script:264). Some squads in modded stacks lack the sim_squad_scripted
+    -- class binding; calling without this guard crashes the engine. Returns false on
+    -- skip so consumers can log the broken squad with their own context.
+    if not squad.assign_smart then return false end
     SIMBOARD:assign_squad_to_smart(squad, smart_id)
+    return true
 end
 
 -- Any-of acceptance check used by find_smart / find_first_smart when opts.factions is a set.
