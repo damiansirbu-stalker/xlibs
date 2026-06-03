@@ -9,6 +9,22 @@ local xlevel, xmath, xdata = xlevel, xmath, xdata
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 local CLSID_SQUAD = clsid.online_offline_group_s
 
+--- Class identity check for sim_squad_scripted instances.
+--- Canonical Anomaly idiom: obj:clsid() == clsid.online_offline_group_s
+--- (anomaly/axr_task_manager.script:1128, dialogs_axr_companion.script:231).
+--- Required wherever a saved id may resolve to a different engine class after the
+--- original squad was released and the server-entity slot reassigned (id recycling).
+--- @safety SAFE - nil-guarded; tests for clsid method presence before calling
+--- @cost O(1) | 2 luabind trivial (clsid field access + call)
+--- @src anomaly/class_registrator.script(132), xray/xrGame/clsid_game.h
+--- @param obj se_object|nil Server entity to test
+--- @return boolean True if obj is a sim_squad_scripted instance
+function is_squad(obj)
+    return obj ~= nil
+       and type(obj.clsid) == "function"
+       and obj:clsid() == CLSID_SQUAD
+end
+
 local function _EMPTY_ITER() return nil end
 
 -- Static cache: story_id, trader, named_npc never change within session (weak keys, GC-safe)
