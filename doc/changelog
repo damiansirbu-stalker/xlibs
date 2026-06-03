@@ -1,3 +1,13 @@
+1.7.6
+  Summary: xsmart assign_squad_to_smart guards squads missing the assign_smart method
+
+  xsmart
+    - assign_squad_to_smart nil-checks squad.assign_smart before delegating to SIMBOARD.
+      Vanilla sim_board.script:264 calls squad:assign_smart unconditionally; squads from
+      mods that bypass the sim_squad_scripted class binding crash the engine when any
+      caller (AlifePlus offmap dispatch among others) hits this wrapper. The guard skips
+      those squads instead of crashing.
+
 1.7.5
   Summary: xinventory category API unified, runtime untouchable checks, multi-role NPC detection, xdata trader audit, smarts_by_names accessor
 
