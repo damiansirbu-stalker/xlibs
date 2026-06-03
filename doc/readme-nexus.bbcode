@@ -1,4 +1,4 @@
-Version: 1.7.1
+Version: 1.7.5
 
 [url=https://github.com/damiansirbu-stalker/xlibs]GitHub[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog]Changelog[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt]На русском[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/issues]Bugs, suggestions[/url]
 
@@ -14,11 +14,12 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 
 [size=2][b]Entity and World[/b][/size]
 [list]
-[*][b]xcreature[/b] - Creature identification, type checks, fluent server object query iterator
+[*][b]xcreature[/b] - Creature identification, type checks, fluent server object query iterator, money primitives
 [*][b]xsquad[/b] - Squad search, scripted control, release, chase, iteration
 [*][b]xsmart[/b] - Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
 [*][b]xlevel[/b] - Level/map queries, game time, location names, vertex validation
-[*][b]xobject[/b] - Server object resolution from any input type, offline item creation
+[*][b]xobject[/b] - Server object and online game object resolution from any input type
+[*][b]xinventory[/b] - Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
 [*][b]xstash[/b] - Stash discovery, looting, filling, item filtering
 [*][b]xdata[/b] - Unscriptable NPC/squad tables (traders, mechanics, story characters)
 [*][b]xconst[/b] - X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
