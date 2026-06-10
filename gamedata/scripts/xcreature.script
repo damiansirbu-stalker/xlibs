@@ -425,6 +425,33 @@ function online_iter()
     return _online_iter()
 end
 
+-- id-yielding iterator: lets caller validate via alife_object(id) before any method call on obj
+-- gameobjects_registry (modded-exes) and db.storage (vanilla) are both id-keyed
+local _online_iter_with_id = gameobjects_registry and function()
+    local k, obj
+    return function()
+        k, obj = next(gameobjects_registry, k)
+        return k, obj
+    end
+end or function()
+    local k, data
+    return function()
+        repeat k, data = next(db.storage, k) until not k or (data and data.object)
+        if not k then return nil end
+        return k, data.object
+    end
+end
+
+--- Iterator over online game objects yielding (id, obj) pairs
+--- Caller can validate destroyed-state via alife_object(id) without triggering "destroyed object" warnings
+--- @safety SAFE - id is taken from registry key, no method call on obj required to obtain it
+--- @cost O(n) online objects | 0 luabind (pure Lua next() on table)
+--- @src modded-exes/callbacks_gameobject.script(28-45), anomaly/db.script(15,70-83)
+--- @return function Iterator yielding (id, game_object) pairs
+function online_iter_with_id()
+    return _online_iter_with_id()
+end
+
 local function iterate_online(callback)
     local sim = alife()
     if not sim then return end

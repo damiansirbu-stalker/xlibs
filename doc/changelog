@@ -1,3 +1,12 @@
+next
+  Summary: xcreature id-yielding iterator
+
+  xcreature
+    - Added online_iter_with_id() yielding (id, obj) pairs from gameobjects_registry (modded-exes)
+      or db.storage (fallback). Caller can validate destroyed-state via alife_object(id) before any
+      method call on obj, avoiding "you are trying to use a destroyed object [N]" warnings during the
+      window where iterator yields an obj whose game-side destroy started but server release has run.
+
 1.7.6
   Summary: xsquad.is_squad, xsmart class guard
 
