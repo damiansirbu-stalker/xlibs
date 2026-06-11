@@ -184,7 +184,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - `get_category_sections(category)` - reverse: category → list of sections. Builders dispatch to hand-maintained sets (medical 5 + grenade), `_ITM[bucket]` reads (Parse_ITM-derived: outfit / helmet / artefact / device / money / grenade_ammo / ammo), kind filter over `_ITM["eatable"]` (food / drink), or `_ITM` unions (crafting = tool + part + upgrade). No `ini_sys:section_for_each` walks. Per-NPC categories (equipped, ammo_slot_*) and `weapon` return empty (weapon is per-item only). Lazy per-category build, weak-keyed cache, addon-aware for Parse_ITM bucket sources; grenade addons need an entry in `_grenade_set`.
 
 **Item accessors** (`game_object` item in):
-- `get_section(item)`, `get_ammo_count(item)` (returns 0 for non-ammo), `get_condition(item)`, `get_cost(sec)` (vanilla `cost` field; nil if missing)
+- `get_section(item)`, `get_condition(item)`, `get_cost(sec)` (vanilla `cost` field; nil if missing)
 
 **NPC slot accessors**:
 - `get_equipped_knife(npc)`, `get_equipped_pistol(npc)`, `get_equipped_rifle(npc)`, `get_equipped_grenade(npc)`, `get_equipped_outfit(npc)`, `get_equipped_helmet(npc)`
@@ -192,10 +192,8 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - `get_category_opts(npc)` - canonical opts builder: `{ equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }` for `get_category`
 
 **Weapon config**:
-- `get_ammo_classes(weapon_sec)` - set of ammo sections a weapon accepts (hash form)
 - `get_ammo_sections(weapon_sec)` - ordered array of ammo sections accepted (cached)
 - `get_ammo_tier_map(weapon_sec, n_tiers)` - map `{[ammo_sec]=tier_idx}`; sorts ammo_class by k_ap asc (cost tiebreaker, cost-only fallback if all k_ap=0), splits into N tiers via median. Cached per `(weapon_sec, n_tiers)`. Default `n_tiers=2`.
-- `get_ammo_tier(weapon_sec, ammo_sec, n_tiers)` - convenience lookup
 - `get_box_size(sec)` - rounds per ammo stack (cached)
 
 **Category set returned by `get_category`** (24 values):

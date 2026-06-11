@@ -137,19 +137,6 @@ function get_section(item)
     return item:section()
 end
 
---- Get current ammo count in an ammo stack
---- Wraps item:ammo_get_count(). Returns rounds in this stack for ammo items; returns 0
---- for non-ammo items (engine smart_cast<CWeaponAmmo*> fallback at script_game_object3.cpp:1467).
---- @safety SAFE - nil-guarded item; engine returns 0 (not nil) for non-ammo
---- @cost O(1) | 1 luabind trivial (ammo_get_count: smart_cast + m_boxCurr u16 field read)
---- @src xray/xrGame/script_game_object3.cpp(1463-1470)
---- @param item game_object Ammo item (returns 0 for non-ammo)
---- @return number|nil Rounds in stack; 0 if item is not ammo; nil only if item itself nil
-function get_ammo_count(item)
-    if not item then return nil end
-    return item:ammo_get_count()
-end
-
 --- Get item condition (0.0 - 1.0)
 --- Wraps item:condition(). Meaningful for weapons / outfits / helmets / degradable items.
 --- @safety SAFE - nil-guarded item
@@ -276,19 +263,6 @@ end
 -- WEAPON CONFIG
 -- ============================================================================
 
---- Get the set of ammo classes a weapon section accepts
---- Reads ini_sys:ammo_class for the given weapon section. Works for vanilla weapons,
---- Boomsticks, GAMMA addons -- ini_sys is the engine-merged config picking up overlays.
---- @safety SAFE - nil-guarded sec; parse_list returns empty when ammo_class missing
---- @cost O(1) | 1 luabind heavy (parse_list: ini parse, set form)
---- @src anomaly/_g.script parse_list
---- @param weapon_sec string Weapon section name
---- @return table { [ammo_sec] = true, ... }
-function get_ammo_classes(weapon_sec)
-    if not weapon_sec then return {} end
-    return parse_list(ini_sys, weapon_sec, "ammo_class", true) or {}
-end
-
 local _ammo_sections_cache = {}
 
 --- Get ordered list of ammo sections accepted by a weapon section
@@ -358,18 +332,6 @@ function get_ammo_tier_map(weapon_sec, n_tiers)
     return tier_map
 end
 
---- Get tier (1..N) for an ammo section relative to a weapon's ammo_class
---- Convenience wrapper over get_ammo_tier_map. Returns nil if ammo not in weapon's ammo_class.
---- @safety SAFE - returns nil for nil args or non-matching ammo
---- @cost O(1) | 0 luabind cached (via tier map)
---- @param weapon_sec string Weapon section name
---- @param ammo_sec string Ammo section name
---- @param n_tiers number Number of tiers (default 2)
---- @return number|nil Tier index 1..N, or nil
-function get_ammo_tier(weapon_sec, ammo_sec, n_tiers)
-    if not weapon_sec or not ammo_sec then return nil end
-    return get_ammo_tier_map(weapon_sec, n_tiers)[ammo_sec]
-end
 
 -- ============================================================================
 -- CATEGORY → SECTIONS (reverse map; used by trade BUY pass)
