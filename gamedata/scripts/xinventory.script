@@ -549,11 +549,11 @@ function resolve_ammo_category(sec, opts)
     if not sec or not IsItem("ammo", sec) then return nil end
     if not opts then return "ammo_not_equipped" end
     if opts.equipped_pistol_sec then
-        local tier = get_ammo_tier(opts.equipped_pistol_sec, sec)
+        local tier = get_ammo_tier_map(opts.equipped_pistol_sec, 2)[sec]
         if tier then return "ammo_slot_2_t" .. tier end
     end
     if opts.equipped_rifle_sec then
-        local tier = get_ammo_tier(opts.equipped_rifle_sec, sec)
+        local tier = get_ammo_tier_map(opts.equipped_rifle_sec, 2)[sec]
         if tier then return "ammo_slot_3_t" .. tier end
     end
     return "ammo_not_equipped"
