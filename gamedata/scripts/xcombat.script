@@ -1,7 +1,7 @@
 --- xcombat: Combat AI primitives - weapon classification, geometry, cover reservation, squad helpers
 
 local pairs, math_sqrt = pairs, math.sqrt
-local time_global, RegisterScriptCallback = time_global, RegisterScriptCallback
+local time_global = time_global
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
 local db, alife_object, ini_sys = db, alife_object, ini_sys
@@ -79,13 +79,15 @@ end
 -- =========================================================================
 
 local CHEST_OFFSET_Y = 1.2
-local _rq = nil
+-- collide rqtStatic flag for static-geometry-only ray queries (numeric for cross-fork portability)
+local RQ_STATIC = 2
 
 --- True if a static occluder sits between NPC chest and enemy chest within the engagement distance.
---- Raycasts chest-to-chest against static geometry only; used by the position state machine for cover detection.
---- @safety SAFE - lazy-builds and reuses one module-level rq result; level.ray_pick returns false when nothing hit
---- @cost O(1) | 1 luabind heavy (ray_pick: static-geometry spatial scan) + 2 vector ops
---- @src xray/level_script.cpp:2074 (ray_pick), xray/level_script.cpp:2667 (rqtStatic)
+--- Uses the engine CRayPick class (`ray_pick()`), querying static geometry only; a hit nearer than the
+--- enemy means a wall blocks the line.
+--- @safety SAFE - get_distance returns 0 when nothing is hit
+--- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
+--- @src xray/level_script.cpp:2633 (CRayPick class binding)
 --- @param start_pos vector NPC position (chest offset added internally)
 --- @param end_pos vector enemy position (chest offset added internally)
 --- @return boolean true if a static occluder blocks the line
@@ -98,13 +100,14 @@ function xcombat.has_occluder_between(start_pos, end_pos)
     local dz = end_pos.z - sz
     local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
     if dist < 1 then return false end
-    local start = vector():set(sx, sy, sz)
-    local dir   = vector():set(dx/dist, dy/dist, dz/dist)
-    if not _rq then _rq = script_rq_result() end
-    if not level.ray_pick(start, dir, dist, rq_target.rqtStatic, _rq, nil) then
-        return false
-    end
-    return _rq.range < dist - 1.0
+    local ray = ray_pick()
+    ray:set_flags(RQ_STATIC)
+    ray:set_position(vector():set(sx, sy, sz))
+    ray:set_direction(vector():set(dx/dist, dy/dist, dz/dist))
+    ray:set_range(dist)
+    ray:query()
+    local hit = ray:get_distance()
+    return hit > 0 and hit < dist - 1.0
 end
 
 -- Project member onto the npc->enemy axis; true if it sits ahead and within the lateral band
@@ -263,11 +266,14 @@ xcombat.INDOOR_LEVELS = {
 }
 
 local _surge_smart_positions = nil
+local _surge_level = nil
 
--- Collect surge-shelter smart positions on this level (one-time per level load)
+-- Collect surge-shelter smart positions for the current level. Rebuilt when level.name() changes,
+-- so the cache self-invalidates on level transition with no event subscription.
 -- @cost O(s) smarts | 1 luabind per smart (has_surge_shelter prop read)
 local function _init_surge_smarts()
     _surge_smart_positions = {}
+    _surge_level = level.name()
     if not SIMBOARD or not SIMBOARD.smarts_by_names then return end
     for _, smart in pairs(SIMBOARD.smarts_by_names) do
         if smart and xsmart.has_surge_shelter(smart) and smart.position then
@@ -282,14 +288,15 @@ end
 
 --- True if `pos` is on a fully-indoor level or within a surge-shelter smart's radius.
 --- Level-name table covers underground maps; surge-shelter proximity catches indoor pockets on outdoor levels.
---- @safety SAFE - lazy-builds the surge-smart list once per level, reset on level change
+--- @safety SAFE - lazy-builds the surge-smart list per level, rebuilds when level.name() changes
 --- @cost O(1) on indoor levels, O(s) shelters otherwise | 1 luabind level.name + distance_to_sqr per shelter
 --- @src anomaly/surge_manager.script (surge shelter list)
 --- @param pos vector world position
 --- @return boolean true if indoor
 function xcombat.is_indoor(pos)
-    if xcombat.INDOOR_LEVELS[level.name()] then return true end
-    if not _surge_smart_positions then _init_surge_smarts() end
+    local level_name = level.name()
+    if xcombat.INDOOR_LEVELS[level_name] then return true end
+    if _surge_level ~= level_name then _init_surge_smarts() end
     for i = 1, #_surge_smart_positions do
         local smart = _surge_smart_positions[i]
         if pos:distance_to_sqr(smart.pos) < smart.radius_sqr then return true end
@@ -300,6 +307,11 @@ end
 -- =========================================================================
 -- Cover graph reservation (wraps db.used_level_vertex_ids)
 -- =========================================================================
+
+-- Reverse index owner_id -> its single held lvid. Lets cleanup paths that know only the owner
+-- (offline net_destroy / unregister) release the vertex, since the lvid otherwise lives on the
+-- caller's action instance. Maintained only here in claim/release, so it cannot desync.
+local _owner_lvid = {}
 
 --- Reserve a level vertex for an owner in the shared cover table; false if already held by another.
 --- Mirrors the vanilla cover-occupancy convention so AT NPCs do not stack on one vertex.
@@ -314,6 +326,7 @@ function xcombat.claim_cover(lvid, owner_id)
     local owner = db.used_level_vertex_ids[lvid]
     if owner and owner ~= owner_id then return false end
     db.used_level_vertex_ids[lvid] = owner_id
+    _owner_lvid[owner_id] = lvid
     return true
 end
 
@@ -328,7 +341,35 @@ function xcombat.release_cover(lvid, owner_id)
     if not lvid then return end
     if db.used_level_vertex_ids[lvid] == owner_id then
         db.used_level_vertex_ids[lvid] = nil
+        if _owner_lvid[owner_id] == lvid then _owner_lvid[owner_id] = nil end
     end
+end
+
+--- Release whatever single cover vertex an owner holds, by owner id alone.
+--- For consumer cleanup paths that know the owner but not the lvid (the reserved lvid lives on the
+--- caller's action instance). Call on npc_on_net_destroy so an offline NPC stops holding a slot.
+--- @safety SAFE - no-op when the owner holds nothing
+--- @cost O(1) | 0 luabind (reverse-index lookup + table clears)
+--- @param owner_id number owner whose reservation to drop
+function xcombat.release_owner_cover(owner_id)
+    local lvid = _owner_lvid[owner_id]
+    if not lvid then return end
+    if db.used_level_vertex_ids[lvid] == owner_id then
+        db.used_level_vertex_ids[lvid] = nil
+    end
+    _owner_lvid[owner_id] = nil
+end
+
+--- Owner id currently holding a reserved vertex, or nil when free.
+--- Read-only companion to claim/release; used by trace output to name who contests a cover.
+--- @safety SAFE - nil for missing lvid or unowned vertex
+--- @cost O(1) | 0 luabind (db table read)
+--- @src anomaly/db.script (used_level_vertex_ids)
+--- @param lvid number level vertex id
+--- @return number|nil owner id, or nil when free
+function xcombat.cover_owner(lvid)
+    if not lvid then return nil end
+    return db.used_level_vertex_ids[lvid]
 end
 
 --- True if the vertex is reserved by someone other than this owner.
@@ -376,22 +417,50 @@ function xcombat.squad_alive_count(squad_id)
     return count
 end
 
+local SQUAD_INITIAL_TTL_MS = 60000
 local _squad_initial = {}
 
 --- Get or set the squad's baseline strength for the current combat session.
 --- Baseline is the alive count at first AT engagement; the squad state machine sizes attrition against it.
---- @safety SAFE - returns 1 for nil squad
+--- TTL-backed: reads refresh the entry, so it survives an active fight and expires ~60s after the last
+--- read, re-baselining the next engagement. Self-cleaning, no lifecycle reset needed.
+--- @safety SAFE - returns 1 for nil squad, nil when unset or expired
 --- @cost O(1) | 0 luabind (table access)
 --- @param squad_id number squad server id
 --- @param set_value number|nil when given, stores and returns the baseline
---- @return number|nil baseline, or nil if unset
+--- @return number|nil baseline, or nil if unset/expired
 function xcombat.squad_initial(squad_id, set_value)
     if not squad_id then return 1 end
+    local tg = time_global()
     if set_value then
-        _squad_initial[squad_id] = set_value
+        _squad_initial[squad_id] = { value = set_value, expires = tg + SQUAD_INITIAL_TTL_MS }
         return set_value
     end
-    return _squad_initial[squad_id]
+    local entry = _squad_initial[squad_id]
+    if not entry or tg >= entry.expires then return nil end
+    entry.expires = tg + SQUAD_INITIAL_TTL_MS
+    return entry.value
+end
+
+--- 0-based position of an NPC within its squad's member iteration order.
+--- Stable per combat session; gives each member a distinct lateral lane instead of the
+--- global-id modulo, which clashed whenever two squadmates shared `id % bucket_count`.
+--- @safety SAFE - returns 0 for nil/absent squad or member not found
+--- @cost O(m) members | alife_object + iter per call (called once per NPC at state init)
+--- @src anomaly/sim_squad_scripted.script (squad_members)
+--- @param squad_id number squad server id
+--- @param npc_id number member id
+--- @return number 0-based ordinal, 0 when unresolved
+function xcombat.squad_member_ordinal(squad_id, npc_id)
+    if not squad_id then return 0 end
+    local squad = alife_object(squad_id)
+    if not squad then return 0 end
+    local i = 0
+    for member_id in xsquad.iter_member_ids(squad) do
+        if member_id == npc_id then return i end
+        i = i + 1
+    end
+    return 0
 end
 
 -- =========================================================================
@@ -463,32 +532,10 @@ function xcombat.lateral_offset(bucket, dx, dz, dist, step_m, total_buckets)
 end
 
 -- =========================================================================
--- Lifecycle: cache cleanup
+-- No lifecycle subscriptions. xcombat registers no live-event callbacks and runs no hidden
+-- behavior. Every cache is transient and self-invalidating: weapon-kind and squad-count by TTL,
+-- squad-baseline by TTL, surge-shelter positions by level-name change. The cover reservation is
+-- ownership-guarded; an offline NPC is freed by the consumer calling xcombat.release_owner_cover
+-- from its own npc_on_net_destroy. The squad-behavior census is driven only by the consumer's
+-- explicit record_pick / clear_pick. Nothing to wire, nothing hidden.
 -- =========================================================================
-
-local function _on_entity_unregister(se_obj)
-    if not se_obj then return end
-    local id = se_obj.id
-    _weapon_kind_cache[id] = nil
-    for _, members in pairs(_squad_behavior) do
-        members[id] = nil
-    end
-end
-
-local function _on_actor_first_update()
-    _weapon_kind_cache  = {}
-    _squad_count_cache  = {}
-    _squad_behavior     = {}
-    _squad_initial      = {}
-    _surge_smart_positions = nil
-end
-
-local function _on_level_changing()
-    _surge_smart_positions = nil
-end
-
-function on_game_start()
-    RegisterScriptCallback("server_entity_on_unregister", _on_entity_unregister)
-    RegisterScriptCallback("actor_on_first_update",       _on_actor_first_update)
-    RegisterScriptCallback("on_level_changing",           _on_level_changing)
-end
