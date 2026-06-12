@@ -163,41 +163,87 @@ end
 
 local COVER_MIN_ENEMY_DIST = 1
 local COVER_MAX_ENEMY_DIST = 30
+local COVER_MIN_RADIUS     = 3
+local COVER_RADIUS_STEP    = 4
+local STEP_DECREMENT_M     = 2
 
---- Step a level vertex `step` metres along `dir` from `from_lvid`, returning it only if accessible.
---- Wraps level.vertex_in_direction with the validity gate (in-range id, accessible, distinct from origin).
---- @safety SAFE - returns nil on invalid/inaccessible/same vertex
---- @cost O(1) | 2 luabind (vertex_in_direction trivial, accessible medium graph check)
---- @src xray/level_script.cpp (vertex_in_direction), xray/script_game_object3.cpp (accessible)
+-- True if vid is in-range, accessible, not the NPC's own node, and free (or already ours).
+-- Mirrors vanilla utils_obj.validate (the battle-tested validate+lmove pattern), reservation-aware.
+-- @cost O(1) | 2 luabind (accessible medium, level_vertex_id trivial) + db read
+local function _is_free(npc, vid)
+    if not vid or vid >= INVALID_LVID then return false end
+    if not npc:accessible(vid) then return false end
+    if vid == npc:level_vertex_id() then return false end
+    local owner = db.used_level_vertex_ids[vid]
+    return owner == nil or owner == npc:id()
+end
+
+--- Nearest free accessible vertex toward `dir`, decreasing the step until one validates.
+--- Decreasing-radius loop (the vanilla try_to_strafe / try_go_backward pattern) so a blocked exact
+--- distance degrades to a shorter reachable one instead of failing; reservation-aware via _is_free.
+--- @safety SAFE - returns nil only when no free vertex exists along dir
+--- @cost O(s/2) steps | up to step/2 luabind (vertex_in_direction trivial + accessible medium) each
+--- @src xray/level_script.cpp (vertex_in_direction), anomaly/utils_obj.script(643) (decreasing-radius pattern)
 --- @param npc game_object
 --- @param from_lvid number origin level vertex id
 --- @param dir vector unit direction
---- @param step number distance in metres
---- @return number|nil accessible destination vertex id, or nil
+--- @param step number starting distance in metres
+--- @return number|nil free accessible vertex id, or nil
 function xcombat.vertex_toward(npc, from_lvid, dir, step)
-    local lvid = level.vertex_in_direction(from_lvid, dir, step)
-    if lvid and lvid < INVALID_LVID and lvid ~= from_lvid and npc:accessible(lvid) then
-        return lvid
+    local step_m = step
+    while step_m >= STEP_DECREMENT_M do
+        local vid = level.vertex_in_direction(from_lvid, dir, step_m)
+        if vid and vid < INVALID_LVID and _is_free(npc, vid) then return vid end
+        step_m = step_m - STEP_DECREMENT_M
     end
     return nil
 end
 
---- Best cover vertex near `search_pos` that still has a shot at `ene_pos`, if accessible.
---- Wraps npc:best_cover (fixed enemy-distance bounds) plus the validity gate; radius varies per caller.
---- @safety SAFE - returns nil when no cover found or the vertex is invalid/inaccessible
---- @cost O(1) | 2 luabind (best_cover heavy spatial scan, accessible medium graph check)
---- @src xray/script_game_object3.cpp:66 (best_cover)
+--- Nearest free cover vertex around `search_pos` that holds a shot at `ene_pos`.
+--- Expands the best_cover radius outward and skips reserved vertices (the vanilla find_close_cover
+--- pattern), so it returns the closest UNTAKEN cover instead of the single best (which may be occupied).
+--- @safety SAFE - returns nil when no free cover is found within max_radius
+--- @cost O(r) radii | 1 best_cover heavy + 1 accessible medium per radius step
+--- @src xray/script_game_object3.cpp:66 (best_cover), anomaly/utils_obj.script(547) (find_close_cover)
 --- @param npc game_object
 --- @param search_pos vector centre of the cover search
 --- @param ene_pos vector enemy position the cover must face
---- @param radius number search radius in metres
---- @return number|nil accessible cover vertex id, or nil
-function xcombat.cover_vertex(npc, search_pos, ene_pos, radius)
-    local cover = npc:best_cover(search_pos, ene_pos, radius, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
-    if not cover then return nil end
-    local lvid = cover:level_vertex_id()
-    if lvid and lvid < INVALID_LVID and npc:accessible(lvid) then return lvid end
+--- @param max_radius number largest search radius in metres
+--- @return number|nil free accessible cover vertex id, or nil
+function xcombat.cover_vertex(npc, search_pos, ene_pos, max_radius)
+    local radius_m = COVER_MIN_RADIUS
+    while radius_m <= max_radius do
+        local cover = npc:best_cover(search_pos, ene_pos, radius_m, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
+        if cover and _is_free(npc, cover:level_vertex_id()) then
+            return cover:level_vertex_id()
+        end
+        radius_m = radius_m + COVER_RADIUS_STEP
+    end
     return nil
+end
+
+--- Move the NPC toward `vid`, routing to the nearest accessible node if vid itself is blocked.
+--- Owns the vanilla send_to_nearest_accessible_vertex behaviour: always sets a reachable destination,
+--- never fails, so charge / advance never pick-fail to vanilla on tight or indoor geometry.
+--- @safety SAFE - always sets a valid dest (own node when vid invalid)
+--- @cost O(1) | 1-2 luabind (accessible medium, accessible_nearest medium on miss, set_dest trivial)
+--- @src anomaly/utils_obj.script(514) (send_to_nearest_accessible_vertex), xray/script_game_object3.cpp (accessible_nearest)
+--- @param npc game_object
+--- @param vid number desired destination vertex id
+--- @return number the vertex the NPC was actually sent to
+function xcombat.send_to(npc, vid)
+    if not vid or vid >= INVALID_LVID then
+        local own = npc:level_vertex_id()
+        npc:set_dest_level_vertex_id(own)
+        return own
+    end
+    if not npc:accessible(vid) then
+        local nvid = npc:accessible_nearest(level.vertex_position(vid), VEC_ZERO)
+        npc:set_dest_level_vertex_id(nvid)
+        return nvid
+    end
+    npc:set_dest_level_vertex_id(vid)
+    return vid
 end
 
 -- =========================================================================
