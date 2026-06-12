@@ -159,6 +159,3 @@ function repopulate()
     SIMBOARD:fill_start_position()
     return true
 end
-
-function on_game_start()
-end
