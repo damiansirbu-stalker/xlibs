@@ -16,7 +16,7 @@ xcombat.INVALID_LVID = INVALID_LVID
 -- =========================================================================
 
 xcombat.AGGRESSOR_KINDS = {
-    w_pistol = true, w_shotgun = true, w_smg = true, w_knife = true,
+    w_pistol = true, w_shotgun = true, w_smg = true, w_melee = true,
 }
 
 xcombat.SNIPER_KINDS = {
@@ -28,7 +28,7 @@ xcombat.RANGED_KINDS = {
 }
 
 xcombat.WEAPON_RANGES = {
-    w_knife     = { min = 0,  max = 2   },
+    w_melee     = { min = 0,  max = 2   },
     w_pistol    = { min = 2,  max = 20  },
     w_shotgun   = { min = 2,  max = 15  },
     w_smg       = { min = 2,  max = 30  },
