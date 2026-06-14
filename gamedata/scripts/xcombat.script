@@ -1,15 +1,24 @@
---- xcombat: Combat AI primitives - weapon classification, geometry, cover reservation, squad helpers
+--- xcombat: combat AI primitives - weapon classification, NPC control commands, geometry, movement targeting, cover reservation, squad spread
 
 local pairs, math_sqrt = pairs, math.sqrt
 local time_global = time_global
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
+local move, look, state_mgr = move, look, state_mgr
 local db, alife_object, ini_sys = db, alife_object, ini_sys
 
 xcombat = xcombat or {}
 
 local INVALID_LVID = 4294967295
 xcombat.INVALID_LVID = INVALID_LVID
+
+-- Combat-state options - the three orthogonal knobs set_combat resolves into one engine state. Exposed as
+-- constants so consumers name the intent and never carry a raw state name or the colliding "standing"/"stand".
+-- fire = weapon field of the chosen state: FIRE shoots, SNIPE precision-shoots, READY holds fire with the
+-- weapon up, STOW puts it away. posture = stand/crouch. movement = stationary/walk/run.
+xcombat.FIRE,  xcombat.SNIPE,  xcombat.READY, xcombat.STOW = "FIRE", "SNIPE", "READY", "STOW"
+xcombat.STAND, xcombat.CROUCH = "STAND", "CROUCH"
+xcombat.STILL, xcombat.WALK,   xcombat.RUN  = "STILL", "WALK", "RUN"
 
 -- =========================================================================
 -- Weapon classification
@@ -21,10 +30,6 @@ xcombat.AGGRESSOR_KINDS = {
 
 xcombat.SNIPER_KINDS = {
     w_sniper = true,
-}
-
-xcombat.RANGED_KINDS = {
-    w_rifle = true, w_smg = true, w_sniper = true,
 }
 
 xcombat.WEAPON_RANGES = {
@@ -47,7 +52,7 @@ local _weapon_kind_cache = {}
 --- @src anomaly/configs/items/weapons/w_*.ltx (kind field), xray/script_ini_file.cpp
 --- @param npc game_object
 --- @return string|nil weapon kind, or nil when unarmed/unresolved
-function xcombat.weapon_kind(npc)
+function xcombat.get_weapon_kind(npc)
     local id = npc:id()
     local tg = time_global()
     local entry = _weapon_kind_cache[id]
@@ -70,8 +75,91 @@ end
 --- @cost O(1) | 0 luabind
 --- @param kind string weapon kind
 --- @return table { min = number, max = number }
-function xcombat.weapon_range(kind)
+function xcombat.get_weapon_range(kind)
     return xcombat.WEAPON_RANGES[kind] or xcombat.WEAPON_RANGES.w_rifle
+end
+
+-- =========================================================================
+-- NPC control - the takeover writes the NPC through set_combat + aim_at, so the consumer issues no raw
+-- engine calls. A stationary fire state plus aim_at makes the engine fire at the enemy autonomously every
+-- frame (the turret model); set_combat owns weapon mode + posture + movement, send_to owns destination.
+-- =========================================================================
+
+local AIM_OFFSET_Y = 1.5
+
+-- The combat-state matrix: [fire][posture][movement] -> the one state_lib state that bundles exactly that
+-- weapon mode, posture, and movement. This IS the safety mechanism: resolving the state from the requested
+-- knobs guarantees the state's own bodystate/movement agree with what set_combat then sets explicitly, so
+-- the two never contradict (the engine flicker the npc-combat-control doc warns about). Verified against
+-- state_lib.script. A missing cell = the engine ships no such state (crouch+run+fire, any moving snipe,
+-- moving ready); set_combat returns false for those instead of forcing a wrong one.
+local COMBAT_STATES = {
+    FIRE = {
+        STAND  = { STILL = "threat_fire", WALK = "raid_fire", RUN = "assault_fire" },
+        CROUCH = { STILL = "hide_fire",   WALK = "sneak_fire" },
+    },
+    SNIPE = {
+        STAND  = { STILL = "threat_sniper_fire" },
+        CROUCH = { STILL = "hide_sniper_fire" },
+    },
+    READY = {
+        STAND  = { STILL = "threat_na" },
+        CROUCH = { STILL = "hide_na" },
+    },
+    STOW = {
+        STAND  = { RUN = "sprint" },
+    },
+}
+
+-- Posture/movement keys into the engine `move` enum, looked up at call time (not module load) so the
+-- module loads even where `move` is absent (the validator stub). `move` is cached at file top.
+local BODY_KEY = { STAND = "standing", CROUCH = "crouch" }
+local MOVE_KEY = { STILL = "stand", WALK = "walk", RUN = "run" }
+
+-- State for a (fire, posture, movement) combo, or nil when the engine ships none.
+-- @cost O(1) | 0 luabind (nested table lookup)
+local function _combat_state(fire, posture, movement)
+    local by_fire = COMBAT_STATES[fire]
+    local by_post = by_fire and by_fire[posture]
+    return by_post and by_post[movement]
+end
+
+--- Drive the NPC's combat state - the one command for weapon mode, posture, and movement.
+--- Replaces raw state_mgr / set_body_state / set_movement_type / sniper_fire_mode calls with three safe
+--- orthogonal knobs: it resolves the matching state from the matrix so state and the explicit posture/movement
+--- always agree (no engine contention), and returns false without touching the NPC when the engine ships no
+--- state for the combo, so the caller can pick another. opts.state names any state_lib state directly for
+--- the rare case the knobs do not cover, keeping every engine state reachable.
+--- @safety SAFE - returns false on an unsupported combo; the four engine calls are SAFE_WRAPped
+--- @cost O(1) | 1 state_mgr dispatch + 2 luabind trivial (set_body_state, set_movement_type) + 1 sniper toggle
+--- @src anomaly/state_lib.script (bundles), anomaly/state_mgr.script:503 (set_state)
+--- @src xray/script_game_object_script2.cpp:282-283 (body/movement), xray/script_game_object_script3.cpp:453 (sniper)
+--- @param npc game_object
+--- @param opts table { fire, posture, movement, aim = game_object|nil, state = string|nil }
+--- @return boolean true if a state was applied, false if the combo has no state
+function xcombat.set_combat(npc, opts)
+    local state = opts.state or _combat_state(opts.fire, opts.posture, opts.movement)
+    if not state then return false end
+    state_mgr.set_state(npc, state, nil, nil, { look_object = opts.aim }, { fast_set = true })
+    if not opts.state then
+        local body = BODY_KEY[opts.posture]
+        if body then npc:set_body_state(move[body]) end
+        local mvt = MOVE_KEY[opts.movement]
+        if mvt then npc:set_movement_type(move[mvt]) end
+    end
+    npc:sniper_fire_mode(opts.fire == "SNIPE")
+    return true
+end
+
+--- Aim the NPC's fire line at a world position (raised to torso/head height) - the trigger half of the turret.
+--- A fire state plus this set_sight is enough for the engine to fire every frame; no trigger command.
+--- @safety SAFE - set_sight is SAFE_WRAPped engine-side
+--- @cost O(1) | 1 luabind medium (set_sight: sight manager retarget) + 1 vector ctor
+--- @src xray/script_game_object_script3.cpp:83 (set_sight fire_point overload), xray/ai_stalker_fire.cpp:193-240 (aim feeds g_fireParams)
+--- @param npc game_object
+--- @param pos vector world position to aim at
+function xcombat.aim_at(npc, pos)
+    npc:set_sight(look.fire_point, vector():set(pos.x, pos.y + AIM_OFFSET_Y, pos.z))
 end
 
 -- =========================================================================
@@ -82,15 +170,18 @@ local CHEST_OFFSET_Y = 1.2
 -- collide rqtStatic flag for static-geometry-only ray queries (numeric for cross-fork portability)
 local RQ_STATIC = 2
 
---- True if a static occluder sits between NPC chest and enemy chest within the engagement distance.
---- Uses the engine CRayPick class (`ray_pick()`), querying static geometry only; a hit nearer than the
---- enemy means a wall blocks the line.
+--- True if a WALL (baked level geometry) blocks the straight line between the two points.
+--- Casts a ray with the rqtStatic flag, so it hits ONLY static world collision - never dynamic objects,
+--- crates, doors, NPCs, or the actor, and it has no notion of FOV. This is the pure "is there a wall"
+--- test. For "can the NPC actually perceive/shoot the enemy" use npc:see(enemy), which adds FOV plus
+--- dynamic occlusion. Both endpoints are lifted a fixed chest height (CHEST_OFFSET_Y), so it is
+--- posture-coarse: it does not model a crouched muzzle clearing a low wall a standing one would not.
 --- @safety SAFE - get_distance returns 0 when nothing is hit
 --- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
---- @src xray/level_script.cpp:2633 (CRayPick class binding)
+--- @src xray/level_script.cpp:2633 (CRayPick binding), xray/xrCDB/xr_collide_defs.h:73 (rqtStatic = static geometry only)
 --- @param start_pos vector NPC position (chest offset added internally)
 --- @param end_pos vector enemy position (chest offset added internally)
---- @return boolean true if a static occluder blocks the line
+--- @return boolean true if a static wall blocks the line
 function xcombat.has_occluder_between(start_pos, end_pos)
     local sx = start_pos.x
     local sy = start_pos.y + CHEST_OFFSET_Y
@@ -110,29 +201,30 @@ function xcombat.has_occluder_between(start_pos, end_pos)
     return hit > 0 and hit < dist - 1.0
 end
 
--- Project member onto the npc->enemy axis; true if it sits ahead and within the lateral band
+-- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
+-- axis = { npc_pos, nx, nz, dist, thresh_sqr }, precomputed once by the caller.
 -- @cost O(1) | 0 luabind (pure vector field math)
-local function _is_on_line(member_pos, npc_pos, nx, nz, dist, thresh_sqr)
-    local mx = member_pos.x - npc_pos.x
-    local mz = member_pos.z - npc_pos.z
-    local along = mx * nx + mz * nz
-    if along <= 0 or along >= dist then return false end
-    local perp_x = mx - along * nx
-    local perp_z = mz - along * nz
-    return perp_x*perp_x + perp_z*perp_z < thresh_sqr
+local function _is_on_line(member_pos, axis)
+    local mx = member_pos.x - axis.npc_pos.x
+    local mz = member_pos.z - axis.npc_pos.z
+    local along = mx * axis.nx + mz * axis.nz
+    if along <= 0 or along >= axis.dist then return false end
+    local perp_x = mx - along * axis.nx
+    local perp_z = mz - along * axis.nz
+    return perp_x*perp_x + perp_z*perp_z < axis.thresh_sqr
 end
 
 -- One member check; lifted out so the loop body has no nested if-chain
 -- @cost O(1) | 2 luabind (level.object_by_id + alive) on hit; vector field access
-local function _member_blocks_line(member_id, my_id, npc_pos, nx, nz, dist, thresh_sqr)
+local function _member_blocks_line(member_id, my_id, axis)
     if member_id == my_id then return false end
     local member = level_object_by_id(member_id)
     if not member or not member:alive() then return false end
-    return _is_on_line(member:position(), npc_pos, nx, nz, dist, thresh_sqr)
+    return _is_on_line(member:position(), axis)
 end
 
 --- True if any living squadmate sits roughly on the NPC -> enemy firing line within combat range.
---- Projects each member onto the firing axis; used to detect friendly line-of-fire blocking before advancing.
+--- Projects each member onto the firing axis; used to detect a friendly line-of-fire block before firing.
 --- @safety SAFE - nil-guarded squad lookup, empty-squad returns false
 --- @cost O(m) members | 1 luabind get_squad_by_member + 2 luabind per online member (object_by_id, alive)
 --- @src anomaly/sim_squad_scripted.script (squad_members)
@@ -141,33 +233,32 @@ end
 --- @param ene_pos vector enemy position
 --- @param lateral_thresh_m number lateral half-width of the firing lane
 --- @return boolean true if a squadmate blocks the lane
-function xcombat.friendly_in_line(npc, npc_pos, ene_pos, lateral_thresh_m)
+function xcombat.has_friendly_in_line(npc, npc_pos, ene_pos, lateral_thresh_m)
     local squad = xsquad.get_squad_by_member(npc:id())
     if not squad then return false end
     local dx = ene_pos.x - npc_pos.x
     local dz = ene_pos.z - npc_pos.z
     local dist = math_sqrt(dx*dx + dz*dz)
     if dist < 1 then return false end
-    local nx = dx / dist
-    local nz = dz / dist
-    local thresh_sqr = lateral_thresh_m * lateral_thresh_m
+    local axis = {
+        npc_pos = npc_pos, nx = dx / dist, nz = dz / dist,
+        dist = dist, thresh_sqr = lateral_thresh_m * lateral_thresh_m,
+    }
     local my_id = npc:id()
     for member_id in xsquad.iter_member_ids(squad) do
-        if _member_blocks_line(member_id, my_id, npc_pos, nx, nz, dist, thresh_sqr) then
-            return true
-        end
+        if _member_blocks_line(member_id, my_id, axis) then return true end
     end
     return false
 end
 
 -- =========================================================================
--- Movement targeting (vertex validation primitives)
+-- Movement targeting. vertex_toward is the geometry primitive (explicit origin, decreasing-step search).
+-- find_point (open point) and find_peek (a firing vertex at a cover edge) are the maneuver-facing finders:
+-- direction + distance from the NPC, one clean search, vertex-or-nil, no side-step, no offset baked in.
 -- =========================================================================
 
 local COVER_MIN_ENEMY_DIST = 1
 local COVER_MAX_ENEMY_DIST = 30
-local COVER_MIN_RADIUS     = 3
-local COVER_RADIUS_STEP    = 4
 local STEP_DECREMENT_M     = 2
 
 -- True if vid is in-range, accessible, not the NPC's own node, and free (or already ours).
@@ -182,11 +273,13 @@ local function _is_free(npc, vid)
 end
 
 --- Nearest free accessible vertex toward `dir`, decreasing the step until one validates.
---- Decreasing-radius loop (the vanilla try_to_strafe / try_go_backward pattern) so a blocked exact
---- distance degrades to a shorter reachable one instead of failing; reservation-aware via _is_free.
---- @safety SAFE - returns nil only when no free vertex exists along dir
+--- Decreasing-step loop (the vanilla try_to_strafe / try_go_backward pattern) so a blocked exact
+--- distance degrades to a shorter reachable one along the same axis; reservation-aware via _is_free.
+--- Engine returns the origin vertex when nothing is found ahead (level_script.cpp:422), so the origin
+--- is rejected explicitly: a result equal to from_lvid means "no progress" and degrades to nil.
+--- @safety SAFE - returns nil when no free vertex exists along dir
 --- @cost O(s/2) steps | up to step/2 luabind (vertex_in_direction trivial + accessible medium) each
---- @src xray/level_script.cpp (vertex_in_direction), anomaly/utils_obj.script(643) (decreasing-radius pattern)
+--- @src xray/level_script.cpp:410 (vertex_in_direction, returns from_lvid on no-progress), anomaly/utils_obj.script(643)
 --- @param npc game_object
 --- @param from_lvid number origin level vertex id
 --- @param dir vector unit direction
@@ -196,38 +289,79 @@ function xcombat.vertex_toward(npc, from_lvid, dir, step)
     local step_m = step
     while step_m >= STEP_DECREMENT_M do
         local vid = level.vertex_in_direction(from_lvid, dir, step_m)
-        if vid and vid < INVALID_LVID and _is_free(npc, vid) then return vid end
+        if vid and vid < INVALID_LVID and vid ~= from_lvid and _is_free(npc, vid) then return vid end
         step_m = step_m - STEP_DECREMENT_M
     end
     return nil
 end
 
---- Nearest free cover vertex around `search_pos` that holds a shot at `ene_pos`.
---- Expands the best_cover radius outward and skips reserved vertices (the vanilla find_close_cover
---- pattern), so it returns the closest UNTAKEN cover instead of the single best (which may be occupied).
---- @safety SAFE - returns nil when no free cover is found within max_radius
---- @cost O(r) radii | 1 best_cover heavy + 1 accessible medium per radius step
---- @src xray/script_game_object3.cpp:66 (best_cover), anomaly/utils_obj.script(547) (find_close_cover)
+--- Free reachable vertex `distance_m` from the NPC along `dir`, or nil. Maneuver-facing.
+--- Resolves from the NPC's own node via vertex_toward; nil on a blocked path (recovery is the caller's, not a hidden side-step).
+--- @safety SAFE - nil when no free vertex validates along dir
+--- @cost O(s/2) steps | 1 luabind trivial (level_vertex_id) + vertex_toward scan
+--- @src xray/level_script.cpp (vertex_in_direction)
 --- @param npc game_object
---- @param search_pos vector centre of the cover search
---- @param ene_pos vector enemy position the cover must face
---- @param max_radius number largest search radius in metres
---- @return number|nil free accessible cover vertex id, or nil
-function xcombat.cover_vertex(npc, search_pos, ene_pos, max_radius)
-    local radius_m = COVER_MIN_RADIUS
-    while radius_m <= max_radius do
-        local cover = npc:best_cover(search_pos, ene_pos, radius_m, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
-        if cover and _is_free(npc, cover:level_vertex_id()) then
-            return cover:level_vertex_id()
-        end
-        radius_m = radius_m + COVER_RADIUS_STEP
+--- @param dir vector unit direction
+--- @param distance_m number distance in metres
+--- @return number|nil free accessible vertex id, or nil
+function xcombat.find_point(npc, dir, distance_m)
+    return xcombat.vertex_toward(npc, npc:level_vertex_id(), dir, distance_m)
+end
+
+local PEEK_COVER_RADIUS = 10
+local PEEK_EDGE_MIN_M   = 1
+local PEEK_EDGE_MAX_M   = 6
+local PEEK_EDGE_STEP_M  = 1
+
+-- One edge probe: a free reachable vertex `step` from hide_lvid along `edge` with a clear static line to
+-- the enemy, or nil. Lifted out of find_peek to flatten the search loop and reuse one direction vector.
+-- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
+local function _edge_firing_vid(npc, hide_lvid, edge, step, enemy_pos)
+    local vid = level.vertex_in_direction(hide_lvid, edge, step)
+    if not vid or vid >= INVALID_LVID or vid == hide_lvid or not _is_free(npc, vid) then return nil end
+    if xcombat.has_occluder_between(level.vertex_position(vid), enemy_pos) then return nil end
+    return vid
+end
+
+--- Reachable firing vertex at the EDGE of a nearby obstacle: a clear shot to the enemy with the obstacle
+--- one step away to duck behind (the peek position). best_cover is used only to LOCATE the obstacle -
+--- never as the firing spot, which sits fully behind it and cannot shoot - then the obstacle's two
+--- perpendicular edges are probed outward for the first side with a clear static line to the enemy.
+--- search_pos centres the obstacle search (default the NPC's own position): pass a point toward / behind /
+--- wide of the enemy to get a forward / fall-back / flanking peek. Returns nil when no obstacle is near or
+--- neither edge can shoot; the caller then picks another move.
+--- @safety SAFE - nil on no obstacle / no clear edge; all reads nil-guarded
+--- @cost O(e) edge steps | 1 best_cover heavy + up to 2 raycasts + accessible per step
+--- @src xray/script_game_object3.cpp:66 (best_cover), xray/level_script.cpp:410 (vertex_in_direction)
+--- @param npc game_object
+--- @param enemy_pos vector enemy position the firing line must reach
+--- @param search_pos vector|nil centre of the obstacle search; defaults to the NPC's position
+--- @return number|nil firing vertex id at a cover edge, or nil
+function xcombat.find_peek(npc, enemy_pos, search_pos)
+    local center = search_pos or npc:position()
+    local cover = npc:best_cover(center, enemy_pos, PEEK_COVER_RADIUS, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
+    if not cover then return nil end
+    local hide_lvid = cover:level_vertex_id()
+    local hide_pos = level.vertex_position(hide_lvid)
+    local dx = enemy_pos.x - hide_pos.x
+    local dz = enemy_pos.z - hide_pos.z
+    local len = math_sqrt(dx*dx + dz*dz)
+    if len < 1 then return nil end
+    local px, pz = -dz / len, dx / len
+    local edge = vector()
+    local step = PEEK_EDGE_MIN_M
+    while step <= PEEK_EDGE_MAX_M do
+        local vid = _edge_firing_vid(npc, hide_lvid, edge:set(px, 0, pz), step, enemy_pos)
+                 or _edge_firing_vid(npc, hide_lvid, edge:set(-px, 0, -pz), step, enemy_pos)
+        if vid then return vid end
+        step = step + PEEK_EDGE_STEP_M
     end
     return nil
 end
 
 --- Move the NPC toward `vid`, routing to the nearest accessible node if vid itself is blocked.
 --- Owns the vanilla send_to_nearest_accessible_vertex behaviour: always sets a reachable destination,
---- never fails, so charge / advance never pick-fail to vanilla on tight or indoor geometry.
+--- never fails, so a move maneuver never stalls on tight or indoor geometry.
 --- @safety SAFE - always sets a valid dest (own node when vid invalid)
 --- @cost O(1) | 1-2 luabind (accessible medium, accessible_nearest medium on miss, set_dest trivial)
 --- @src anomaly/utils_obj.script(514) (send_to_nearest_accessible_vertex), xray/script_game_object3.cpp (accessible_nearest)
@@ -367,91 +501,39 @@ end
 --- @src anomaly/db.script (used_level_vertex_ids)
 --- @param lvid number level vertex id
 --- @return number|nil owner id, or nil when free
-function xcombat.cover_owner(lvid)
+function xcombat.get_cover_owner(lvid)
     if not lvid then return nil end
     return db.used_level_vertex_ids[lvid]
 end
 
 --- True if the vertex is reserved by someone other than this owner.
---- Lets a holder detect that its reserved cover was taken and trigger a re-pick.
+--- Lets a holder detect that its reserved cover was taken and trigger a re-resolve.
 --- @safety SAFE - false when nil or unowned
 --- @cost O(1) | 0 luabind (db table read)
 --- @src anomaly/db.script (used_level_vertex_ids)
 --- @param lvid number level vertex id
 --- @param owner_id number querying NPC id
 --- @return boolean true if owned by another id
-function xcombat.cover_stolen(lvid, owner_id)
+function xcombat.is_cover_stolen(lvid, owner_id)
     if not lvid then return false end
     local owner = db.used_level_vertex_ids[lvid]
     return owner ~= nil and owner ~= owner_id
 end
 
 -- =========================================================================
--- Squad helpers
+-- Squad spread
 -- =========================================================================
 
-local SQUAD_COUNT_TTL_MS = 1000
-local _squad_count_cache = {}
-
---- Living online member count for a squad, TTL-cached 1s.
---- Iterates members counting alive game objects; cache keeps the per-tick squad-state read cheap.
---- @safety SAFE - returns 1 for nil squad, skips offline/dead members
---- @cost O(1) | 0 luabind cached, O(m) on miss | alife_object + object_by_id + alive per member
---- @src anomaly/sim_squad_scripted.script (squad_members)
---- @param squad_id number squad server id
---- @return number living online member count
-function xcombat.squad_alive_count(squad_id)
-    if not squad_id then return 1 end
-    local tg = time_global()
-    local entry = _squad_count_cache[squad_id]
-    if entry and tg < entry.expires then return entry.count end
-    local squad = alife_object(squad_id)
-    local count = 0
-    if squad then
-        for member_id in xsquad.iter_member_ids(squad) do
-            local member = level_object_by_id(member_id)
-            if member and member:alive() then count = count + 1 end
-        end
-    end
-    _squad_count_cache[squad_id] = { count = count, expires = tg + SQUAD_COUNT_TTL_MS }
-    return count
-end
-
-local SQUAD_INITIAL_TTL_MS = 60000
-local _squad_initial = {}
-
---- Get or set the squad's baseline strength for the current combat session.
---- Baseline is the alive count at first AT engagement; the squad state machine sizes attrition against it.
---- TTL-backed: reads refresh the entry, so it survives an active fight and expires ~60s after the last
---- read, re-baselining the next engagement. Self-cleaning, no lifecycle reset needed.
---- @safety SAFE - returns 1 for nil squad, nil when unset or expired
---- @cost O(1) | 0 luabind (table access)
---- @param squad_id number squad server id
---- @param set_value number|nil when given, stores and returns the baseline
---- @return number|nil baseline, or nil if unset/expired
-function xcombat.squad_initial(squad_id, set_value)
-    if not squad_id then return 1 end
-    local tg = time_global()
-    if set_value then
-        _squad_initial[squad_id] = { value = set_value, expires = tg + SQUAD_INITIAL_TTL_MS }
-        return set_value
-    end
-    local entry = _squad_initial[squad_id]
-    if not entry or tg >= entry.expires then return nil end
-    entry.expires = tg + SQUAD_INITIAL_TTL_MS
-    return entry.value
-end
-
 --- 0-based position of an NPC within its squad's member iteration order.
---- Stable per combat session; gives each member a distinct lateral lane instead of the
---- global-id modulo, which clashed whenever two squadmates shared `id % bucket_count`.
+--- Stable per combat session; gives each member a distinct spread bucket instead of the global-id
+--- modulo, which clashed whenever two squadmates shared `id % bucket_count`.
 --- @safety SAFE - returns 0 for nil/absent squad or member not found
 --- @cost O(m) members | alife_object + iter per call (called once per NPC at state init)
 --- @src anomaly/sim_squad_scripted.script (squad_members)
 --- @param squad_id number squad server id
 --- @param npc_id number member id
 --- @return number 0-based ordinal, 0 when unresolved
-function xcombat.squad_member_ordinal(squad_id, npc_id)
+function xcombat.get_squad_ordinal(squad_id, npc_id)
     if not squad_id then return 0 end
     local squad = alife_object(squad_id)
     if not squad then return 0 end
@@ -464,78 +546,8 @@ function xcombat.squad_member_ordinal(squad_id, npc_id)
 end
 
 -- =========================================================================
--- Squad behavior census (for uniqueness in decide)
--- =========================================================================
-
-local _squad_behavior = {}
-
---- True if a squadmate (not npc_id) currently holds the given behavior.
---- Drives the squad-uniqueness skip in decide so members spread across behaviors.
---- @safety SAFE - false when squad/census absent
---- @cost O(m) members | 0 luabind (table iteration)
---- @param squad_id number squad server id
---- @param npc_id number querying NPC id
---- @param behavior_name string behavior to test
---- @return boolean true if another member holds it
-function xcombat.squadmate_in(squad_id, npc_id, behavior_name)
-    if not squad_id then return false end
-    local members = _squad_behavior[squad_id]
-    if not members then return false end
-    for id, name in pairs(members) do
-        if id ~= npc_id and name == behavior_name then return true end
-    end
-    return false
-end
-
---- Record the behavior an NPC picked into its squad's census.
---- @safety SAFE - no-op for nil squad
---- @cost O(1) | 0 luabind (table write)
---- @param squad_id number squad server id
---- @param npc_id number NPC id
---- @param behavior_name string behavior picked
-function xcombat.record_pick(squad_id, npc_id, behavior_name)
-    if not squad_id then return end
-    _squad_behavior[squad_id] = _squad_behavior[squad_id] or {}
-    _squad_behavior[squad_id][npc_id] = behavior_name
-end
-
---- Clear an NPC's entry from its squad's behavior census.
---- @safety SAFE - no-op for nil squad or absent census
---- @cost O(1) | 0 luabind (table write)
---- @param squad_id number squad server id
---- @param npc_id number NPC id
-function xcombat.clear_pick(squad_id, npc_id)
-    if not squad_id then return end
-    local members = _squad_behavior[squad_id]
-    if members then members[npc_id] = nil end
-end
-
--- =========================================================================
--- Lateral squad spread (perpendicular offset for fan-out)
--- =========================================================================
-
---- Perpendicular (x, z) offset that fans squad members across the firing axis by bucket.
---- Centres the bucket band on zero so members spread symmetrically left/right of the NPC->enemy line.
---- @safety SAFE - returns 0,0 for nil bucket or zero distance
---- @cost O(1) | 0 luabind (pure math)
---- @param bucket number per-id bucket index
---- @param dx number axis delta x
---- @param dz number axis delta z
---- @param dist number axis length
---- @param step_m number spacing between buckets
---- @param total_buckets number bucket count
---- @return number, number perpendicular x and z offset
-function xcombat.lateral_offset(bucket, dx, dz, dist, step_m, total_buckets)
-    if not bucket or not dist or dist <= 0 then return 0, 0 end
-    local lateral_m = (bucket - (total_buckets - 1) * 0.5) * step_m
-    return -dz / dist * lateral_m, dx / dist * lateral_m
-end
-
--- =========================================================================
--- No lifecycle subscriptions. xcombat registers no live-event callbacks and runs no hidden
--- behavior. Every cache is transient and self-invalidating: weapon-kind and squad-count by TTL,
--- squad-baseline by TTL, surge-shelter positions by level-name change. The cover reservation is
--- ownership-guarded; an offline NPC is freed by the consumer calling xcombat.release_owner_cover
--- from its own npc_on_net_destroy. The squad-behavior census is driven only by the consumer's
--- explicit record_pick / clear_pick. Nothing to wire, nothing hidden.
+-- No lifecycle subscriptions. xcombat registers no live-event callbacks and runs no hidden behavior.
+-- Every cache is transient and self-invalidating: weapon-kind by TTL, surge-shelter positions by
+-- level-name change. The cover reservation is ownership-guarded; an offline NPC is freed by the
+-- consumer calling xcombat.release_owner_cover from its own npc_on_net_destroy. Nothing to wire, nothing hidden.
 -- =========================================================================
