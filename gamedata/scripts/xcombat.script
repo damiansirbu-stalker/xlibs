@@ -1,6 +1,6 @@
 --- xcombat: combat AI primitives - weapon classification, NPC control commands, geometry, movement targeting, cover reservation, squad spread
 
-local pairs, math_sqrt = pairs, math.sqrt
+local pairs, math_sqrt, math_cos, math_sin = pairs, math.sqrt, math.cos, math.sin
 local time_global = time_global
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
@@ -252,14 +252,22 @@ function xcombat.has_friendly_in_line(npc, npc_pos, ene_pos, lateral_thresh_m)
 end
 
 -- =========================================================================
--- Movement targeting. vertex_toward is the geometry primitive (explicit origin, decreasing-step search).
--- find_point (open point) and find_peek (a firing vertex at a cover edge) are the maneuver-facing finders:
--- direction + distance from the NPC, one clean search, vertex-or-nil, no side-step, no offset baked in.
+-- Movement targeting. _vertex_toward is the geometry primitive (decreasing-step search along a direction).
+-- The maneuver-facing finders all return a level vertex or nil, no side effects, uniform find_<noun> naming:
+--   find_point - a reachable vertex in a direction at a distance
+--   find_cover - a firing vertex at the nearest cover (best_cover, then a ring sweep for a clear shot)
+--   find_shot  - a firing vertex around the NPC with a clear shot (the smart sidestep; no cover needed)
 -- =========================================================================
 
+local COVER_RADIUS         = 10
 local COVER_MIN_ENEMY_DIST = 1
 local COVER_MAX_ENEMY_DIST = 30
 local STEP_DECREMENT_M     = 2
+local PROBE_MIN_M          = 1
+local PROBE_MAX_M          = 6
+local PROBE_STEP_M         = 1
+local PROBE_DIRS           = 8
+local PROBE_ARC            = 2 * math.pi / PROBE_DIRS
 
 -- True if vid is in-range, accessible, not the NPC's own node, and free (or already ours).
 -- Mirrors vanilla utils_obj.validate (the battle-tested validate+lmove pattern), reservation-aware.
@@ -272,20 +280,10 @@ local function _is_free(npc, vid)
     return owner == nil or owner == npc:id()
 end
 
---- Nearest free accessible vertex toward `dir`, decreasing the step until one validates.
---- Decreasing-step loop (the vanilla try_to_strafe / try_go_backward pattern) so a blocked exact
---- distance degrades to a shorter reachable one along the same axis; reservation-aware via _is_free.
---- Engine returns the origin vertex when nothing is found ahead (level_script.cpp:422), so the origin
---- is rejected explicitly: a result equal to from_lvid means "no progress" and degrades to nil.
---- @safety SAFE - returns nil when no free vertex exists along dir
---- @cost O(s/2) steps | up to step/2 luabind (vertex_in_direction trivial + accessible medium) each
---- @src xray/level_script.cpp:410 (vertex_in_direction, returns from_lvid on no-progress), anomaly/utils_obj.script(643)
---- @param npc game_object
---- @param from_lvid number origin level vertex id
---- @param dir vector unit direction
---- @param step number starting distance in metres
---- @return number|nil free accessible vertex id, or nil
-function xcombat.vertex_toward(npc, from_lvid, dir, step)
+-- _find_toward: nearest free accessible vertex toward `dir`, decreasing the step until one validates
+-- (the vanilla try_to_strafe pattern). Engine returns the origin on no-progress, so origin == nil result.
+-- @cost O(s/2) steps | up to step/2 luabind (vertex_in_direction trivial + accessible medium) each
+local function _find_toward(npc, from_lvid, dir, step)
     local step_m = step
     while step_m >= STEP_DECREMENT_M do
         local vid = level.vertex_in_direction(from_lvid, dir, step_m)
@@ -295,68 +293,79 @@ function xcombat.vertex_toward(npc, from_lvid, dir, step)
     return nil
 end
 
---- Free reachable vertex `distance_m` from the NPC along `dir`, or nil. Maneuver-facing.
---- Resolves from the NPC's own node via vertex_toward; nil on a blocked path (recovery is the caller's, not a hidden side-step).
+--- Free reachable vertex `distance_m` from the NPC along `dir`, or nil.
+--- Resolves from the NPC's own node via the decreasing-step primitive; nil on a blocked path (recovery is the caller's).
 --- @safety SAFE - nil when no free vertex validates along dir
---- @cost O(s/2) steps | 1 luabind trivial (level_vertex_id) + vertex_toward scan
---- @src xray/level_script.cpp (vertex_in_direction)
+--- @cost O(s/2) steps | 1 luabind trivial (level_vertex_id) + the _find_toward scan
+--- @src xray/level_script.cpp:410 (vertex_in_direction)
 --- @param npc game_object
 --- @param dir vector unit direction
 --- @param distance_m number distance in metres
 --- @return number|nil free accessible vertex id, or nil
 function xcombat.find_point(npc, dir, distance_m)
-    return xcombat.vertex_toward(npc, npc:level_vertex_id(), dir, distance_m)
+    return _find_toward(npc, npc:level_vertex_id(), dir, distance_m)
 end
 
-local PEEK_COVER_RADIUS = 10
-local PEEK_EDGE_MIN_M   = 1
-local PEEK_EDGE_MAX_M   = 6
-local PEEK_EDGE_STEP_M  = 1
-
--- One edge probe: a free reachable vertex `step` from hide_lvid along `edge` with a clear static line to
--- the enemy, or nil. Lifted out of find_peek to flatten the search loop and reuse one direction vector.
+-- One probe: a free reachable vertex `step` from `from_lvid` along `dir` with a clear static line to the
+-- enemy, or nil.
 -- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
-local function _edge_firing_vid(npc, hide_lvid, edge, step, enemy_pos)
-    local vid = level.vertex_in_direction(hide_lvid, edge, step)
-    if not vid or vid >= INVALID_LVID or vid == hide_lvid or not _is_free(npc, vid) then return nil end
+local function _probe_firing_vid(npc, from_lvid, dir, step, enemy_pos)
+    local vid = level.vertex_in_direction(from_lvid, dir, step)
+    if not vid or vid >= INVALID_LVID or vid == from_lvid or not _is_free(npc, vid) then return nil end
     if xcombat.has_occluder_between(level.vertex_position(vid), enemy_pos) then return nil end
     return vid
 end
 
---- Reachable firing vertex at the EDGE of a nearby obstacle: a clear shot to the enemy with the obstacle
---- one step away to duck behind (the peek position). best_cover is used only to LOCATE the obstacle -
---- never as the firing spot, which sits fully behind it and cannot shoot - then the obstacle's two
---- perpendicular edges are probed outward for the first side with a clear static line to the enemy.
---- search_pos centres the obstacle search (default the NPC's own position): pass a point toward / behind /
---- wide of the enemy to get a forward / fall-back / flanking peek. Returns nil when no obstacle is near or
---- neither edge can shoot; the caller then picks another move.
---- @safety SAFE - nil on no obstacle / no clear edge; all reads nil-guarded
---- @cost O(e) edge steps | 1 best_cover heavy + up to 2 raycasts + accessible per step
+-- One ring of probes around a centre vertex: PROBE_DIRS directions at `step`, first with a clear shot wins.
+-- @cost O(d) dirs | up to PROBE_DIRS (vertex_in_direction + accessible + raycast) per ring
+local function _probe_ring(npc, from_lvid, step, enemy_pos)
+    local dir = vector()
+    for index = 0, PROBE_DIRS - 1 do
+        local angle = index * PROBE_ARC
+        local vid = _probe_firing_vid(npc, from_lvid, dir:set(math_cos(angle), 0, math_sin(angle)), step, enemy_pos)
+        if vid then return vid end
+    end
+    return nil
+end
+
+-- Sweep rings of increasing radius around a centre vertex for the nearest free vertex with a clear shot.
+-- @cost O(r*d) | up to (rings*PROBE_DIRS) raycasts
+local function _sweep_for_shot(npc, from_lvid, enemy_pos)
+    local step = PROBE_MIN_M
+    while step <= PROBE_MAX_M do
+        local vid = _probe_ring(npc, from_lvid, step, enemy_pos)
+        if vid then return vid end
+        step = step + PROBE_STEP_M
+    end
+    return nil
+end
+
+--- Firing vertex at the nearest cover: best_cover locates the obstacle, then a ring sweep around it returns
+--- the nearest free vertex with a clear shot. The NPC stands there with the obstacle adjacent to duck behind.
+--- @safety SAFE - nil when no cover near or nothing around it can see the enemy
+--- @cost O(r*d) | 1 best_cover heavy + up to (rings*PROBE_DIRS) raycasts
 --- @src xray/script_game_object3.cpp:66 (best_cover), xray/level_script.cpp:410 (vertex_in_direction)
 --- @param npc game_object
 --- @param enemy_pos vector enemy position the firing line must reach
---- @param search_pos vector|nil centre of the obstacle search; defaults to the NPC's position
---- @return number|nil firing vertex id at a cover edge, or nil
-function xcombat.find_peek(npc, enemy_pos, search_pos)
+--- @param search_pos vector|nil centre of the cover search; defaults to the NPC's position
+--- @return number|nil firing vertex id at cover, or nil
+function xcombat.find_cover(npc, enemy_pos, search_pos)
     local center = search_pos or npc:position()
-    local cover = npc:best_cover(center, enemy_pos, PEEK_COVER_RADIUS, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
+    local cover = npc:best_cover(center, enemy_pos, COVER_RADIUS, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
     if not cover then return nil end
-    local hide_lvid = cover:level_vertex_id()
-    local hide_pos = level.vertex_position(hide_lvid)
-    local dx = enemy_pos.x - hide_pos.x
-    local dz = enemy_pos.z - hide_pos.z
-    local len = math_sqrt(dx*dx + dz*dz)
-    if len < 1 then return nil end
-    local px, pz = -dz / len, dx / len
-    local edge = vector()
-    local step = PEEK_EDGE_MIN_M
-    while step <= PEEK_EDGE_MAX_M do
-        local vid = _edge_firing_vid(npc, hide_lvid, edge:set(px, 0, pz), step, enemy_pos)
-                 or _edge_firing_vid(npc, hide_lvid, edge:set(-px, 0, -pz), step, enemy_pos)
-        if vid then return vid end
-        step = step + PEEK_EDGE_STEP_M
-    end
-    return nil
+    return _sweep_for_shot(npc, cover:level_vertex_id(), enemy_pos)
+end
+
+--- Firing vertex around the NPC with a clear shot - the smart sidestep to clear a blocked shot (a wall or a
+--- squadmate in the firing lane). Same ring sweep as find_cover but centred on the NPC's own node, no cover.
+--- @safety SAFE - nil when no nearby vertex can see the enemy
+--- @cost O(r*d) | up to (rings*PROBE_DIRS) raycasts
+--- @src xray/level_script.cpp:410 (vertex_in_direction)
+--- @param npc game_object
+--- @param enemy_pos vector enemy position the firing line must reach
+--- @return number|nil firing vertex id with a clear shot, or nil
+function xcombat.find_shot(npc, enemy_pos)
+    return _sweep_for_shot(npc, npc:level_vertex_id(), enemy_pos)
 end
 
 --- Move the NPC toward `vid`, routing to the nearest accessible node if vid itself is blocked.
