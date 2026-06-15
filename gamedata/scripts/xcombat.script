@@ -1,6 +1,6 @@
 --- xcombat: combat AI primitives - weapon classification, NPC control commands, geometry, movement targeting, cover reservation, squad spread
 
-local pairs, math_sqrt, math_cos, math_sin = pairs, math.sqrt, math.cos, math.sin
+local pairs, math_sqrt, math_cos, math_sin, math_abs = pairs, math.sqrt, math.cos, math.sin, math.abs
 local time_global = time_global
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
@@ -149,6 +149,44 @@ function xcombat.set_combat(npc, opts)
     end
     npc:sniper_fire_mode(opts.fire == "SNIPE")
     return true
+end
+
+-- Movement speed order for nearest-cell clamping (STILL < WALK < RUN).
+local MOVE_ORDER = { [xcombat.STILL] = 0, [xcombat.WALK] = 1, [xcombat.RUN] = 2 }
+
+-- Nearest movement the posture row actually ships to the requested one: exact when present, else the
+-- available movement closest in speed (so STOW's only sprint, or SNIPE's only still, satisfies any request).
+local function _nearest_movement(by_post, movement)
+    if by_post[movement] then return movement end
+    local want = MOVE_ORDER[movement] or 0
+    local best, best_delta
+    for move_name in pairs(by_post) do
+        local delta = math_abs((MOVE_ORDER[move_name] or 0) - want)
+        if not best_delta or delta < best_delta then best, best_delta = move_name, delta end
+    end
+    return best
+end
+
+--- Clamp a desired (posture, movement) to a combo the engine actually ships for this fire mode.
+--- COMBAT_STATES is the single source of which stances exist; callers express a preference (crouch or stand,
+--- still/walk/run) and this returns the nearest real cell, so no caller hardcodes "crouch+run+fire has no
+--- state" or "stow only sprints". Tries the requested posture first, falls back to the other when its row is
+--- absent (only STOW, which is stand-only), then snaps movement to the nearest the row ships.
+--- @safety SAFE - returns the inputs unchanged when fire has no matrix entry (set_combat then returns false)
+--- @cost O(1) | 0 luabind (table lookups)
+--- @param fire string FIRE/SNIPE/READY/STOW
+--- @param posture string STAND/CROUCH preference
+--- @param movement string STILL/WALK/RUN preference
+--- @return string, string a (posture, movement) pair that resolves to a real state_lib state
+function xcombat.resolve_stance(fire, posture, movement)
+    local by_fire = COMBAT_STATES[fire]
+    if not by_fire then return posture, movement end
+    local order = (posture == xcombat.CROUCH) and { xcombat.CROUCH, xcombat.STAND } or { xcombat.STAND, xcombat.CROUCH }
+    for i = 1, 2 do
+        local by_post = by_fire[order[i]]
+        if by_post then return order[i], _nearest_movement(by_post, movement) end
+    end
+    return posture, movement
 end
 
 --- Aim the NPC's fire line at a world position (raised to torso/head height) - the trigger half of the turret.
