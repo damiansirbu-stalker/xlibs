@@ -489,11 +489,6 @@ end
 -- Cover graph reservation (wraps db.used_level_vertex_ids)
 -- =========================================================================
 
--- Reverse index owner_id -> its single held lvid. Lets cleanup paths that know only the owner
--- (offline net_destroy / unregister) release the vertex, since the lvid otherwise lives on the
--- caller's action instance. Maintained only here in claim/release, so it cannot desync.
-local _owner_lvid = {}
-
 --- Reserve a level vertex for an owner in the shared cover table; false if already held by another.
 --- Mirrors the vanilla cover-occupancy convention so AT NPCs do not stack on one vertex.
 --- @safety SAFE - rejects invalid lvid and contested ownership
@@ -507,7 +502,6 @@ function xcombat.claim_cover(lvid, owner_id)
     local owner = db.used_level_vertex_ids[lvid]
     if owner and owner ~= owner_id then return false end
     db.used_level_vertex_ids[lvid] = owner_id
-    _owner_lvid[owner_id] = lvid
     return true
 end
 
@@ -522,49 +516,7 @@ function xcombat.release_cover(lvid, owner_id)
     if not lvid then return end
     if db.used_level_vertex_ids[lvid] == owner_id then
         db.used_level_vertex_ids[lvid] = nil
-        if _owner_lvid[owner_id] == lvid then _owner_lvid[owner_id] = nil end
     end
-end
-
---- Release whatever single cover vertex an owner holds, by owner id alone.
---- For consumer cleanup paths that know the owner but not the lvid (the reserved lvid lives on the
---- caller's action instance). Call on npc_on_net_destroy so an offline NPC stops holding a slot.
---- @safety SAFE - no-op when the owner holds nothing
---- @cost O(1) | 0 luabind (reverse-index lookup + table clears)
---- @param owner_id number owner whose reservation to drop
-function xcombat.release_owner_cover(owner_id)
-    local lvid = _owner_lvid[owner_id]
-    if not lvid then return end
-    if db.used_level_vertex_ids[lvid] == owner_id then
-        db.used_level_vertex_ids[lvid] = nil
-    end
-    _owner_lvid[owner_id] = nil
-end
-
---- Owner id currently holding a reserved vertex, or nil when free.
---- Read-only companion to claim/release; used by trace output to name who contests a cover.
---- @safety SAFE - nil for missing lvid or unowned vertex
---- @cost O(1) | 0 luabind (db table read)
---- @src anomaly/db.script (used_level_vertex_ids)
---- @param lvid number level vertex id
---- @return number|nil owner id, or nil when free
-function xcombat.get_cover_owner(lvid)
-    if not lvid then return nil end
-    return db.used_level_vertex_ids[lvid]
-end
-
---- True if the vertex is reserved by someone other than this owner.
---- Lets a holder detect that its reserved cover was taken and trigger a re-resolve.
---- @safety SAFE - false when nil or unowned
---- @cost O(1) | 0 luabind (db table read)
---- @src anomaly/db.script (used_level_vertex_ids)
---- @param lvid number level vertex id
---- @param owner_id number querying NPC id
---- @return boolean true if owned by another id
-function xcombat.is_cover_stolen(lvid, owner_id)
-    if not lvid then return false end
-    local owner = db.used_level_vertex_ids[lvid]
-    return owner ~= nil and owner ~= owner_id
 end
 
 -- =========================================================================
@@ -593,8 +545,8 @@ function xcombat.get_squad_ordinal(squad_id, npc_id)
 end
 
 -- =========================================================================
--- No lifecycle subscriptions. xcombat registers no live-event callbacks and runs no hidden behavior.
--- Every cache is transient and self-invalidating: weapon-kind by TTL, surge-shelter positions by
--- level-name change. The cover reservation is ownership-guarded; an offline NPC is freed by the
--- consumer calling xcombat.release_owner_cover from its own npc_on_net_destroy. Nothing to wire, nothing hidden.
+-- No lifecycle subscriptions and no game state. xcombat registers no live-event callbacks and holds no
+-- ownership tables. The cover reservation is the engine's db.used_level_vertex_ids, written given an explicit
+-- lvid + owner; the only module tables are transient memoization caches (weapon-kind by TTL, surge-shelter
+-- positions by level-name change). The consumer keeps the lvid it claimed and releases it. Nothing hidden.
 -- =========================================================================
