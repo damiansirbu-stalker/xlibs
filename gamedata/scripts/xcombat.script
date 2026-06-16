@@ -80,6 +80,44 @@ function xcombat.get_weapon_range(kind)
 end
 
 -- =========================================================================
+-- Enemy memory - the engine tracks each NPC's per-enemy perception (visual + sound + hit) with a last-seen
+-- timestamp and a last-known position. The takeover reads these instead of re-deriving them with its own
+-- raycast clock: memory_time is the signal vanilla uses to disengage (xr_combat_ignore.script:111),
+-- memory_position is what the reference graft mod pursues when the enemy is not currently visible
+-- (rx_combat.script:298). npc:see() stays for the tactical "can I shoot right now" checks.
+-- =========================================================================
+
+--- Milliseconds since the NPC last perceived the enemy by ANY sense (sight, sound, or hit).
+--- memory_time aggregates the most-recent last-perceived time across visual/sound/hit memory, stamped from
+--- time_global (memory_manager.cpp:255-274, visual_memory_manager.cpp:526). Large value = unsensed (the engine
+--- still remembers the enemy, nothing fresh); a negative result (only possible across a load) reads as fresh.
+--- This is the disengagement read vanilla uses at xr_combat_ignore.script:111.
+--- @safety SAFE - npc is a stalker/monster at every combat call site; enemy is a remembered object
+--- @cost O(1) | 1 luabind (memory list lookup, no raycast)
+--- @param npc game_object the perceiving NPC
+--- @param enemy game_object the remembered enemy
+--- @param tg number time_global() snapshot
+--- @return number ms since last perception
+function xcombat.enemy_unseen_ms(npc, enemy, tg)
+    return tg - npc:memory_time(enemy)
+end
+
+--- Position to track the enemy for movement: the live position when currently seen, else the last-known
+--- position from memory (memory_position, memory_manager.cpp:279). Mirrors the reference graft mod rx_combat
+--- (live on see, memory_position when not - rx_combat.script:230,298). Pursuing the last-known spot lets a
+--- chase end where the enemy was lost instead of trailing the live, fleeing target.
+--- @safety SAFE - enemy is a remembered object (guaranteed when it is the NPC's best_enemy)
+--- @cost O(1) | 1 luabind
+--- @param npc game_object the perceiving NPC
+--- @param enemy game_object the remembered enemy
+--- @param sees boolean whether the NPC currently sees the enemy (slot.sees)
+--- @return vector position to treat as the enemy for movement resolution
+function xcombat.enemy_track_pos(npc, enemy, sees)
+    if sees then return enemy:position() end
+    return npc:memory_position(enemy)
+end
+
+-- =========================================================================
 -- NPC control - the takeover writes the NPC through set_combat + aim_at, so the consumer issues no raw
 -- engine calls. A stationary fire state plus aim_at makes the engine fire at the enemy autonomously every
 -- frame (the turret model); set_combat owns weapon mode + posture + movement, send_to owns destination.
