@@ -403,6 +403,38 @@ function transfer_money(from, amount, to)
     return true
 end
 
+--- Get personal goodwill from one inventory owner toward another.
+--- Reads ONLY the personal-relation term (RELATION_REGISTRY personal map); it excludes the
+--- community / reputation / rank contributions to the summed attitude. NEUTRAL (0) if unset.
+--- @safety SAFE - nil-guarded; GetGoodwill VERIFY trips only on non-CInventoryOwner
+--- @cost O(1) | 1 luabind medium (goodwill: RELATION_REGISTRY().GetGoodwill personal-map lookup)
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(744-754), xray/xrGame/relation_registry.cpp(134-149)
+--- @param obj game_object Subject (whose attitude is read)
+--- @param target game_object Object of the attitude
+--- @return number Personal goodwill; 0 if obj/target nil
+function get_goodwill(obj, target)
+    if not obj or not target then return 0 end
+    return obj:goodwill(target)
+end
+
+--- Set personal goodwill from one inventory owner toward another (absolute write).
+--- Writes the personal-relation term only; the engine clamps to [game_relations]
+--- personal_goodwill_limits (-3000, 2000). GetRelationType reads the summed attitude
+--- (personal + community + reputation + rank), so a low enough personal value flips this one
+--- pair to enemy (attitude < attitude_neutal_threshold = -999) without touching community.
+--- @safety SAFE - nil-guarded; set_goodwill clamps internally
+--- @cost O(1) | 1 luabind medium (set_goodwill: RELATION_REGISTRY().SetGoodwill personal-map write)
+--- @src xray/xrGame/script_game_object_script3.cpp(292), xray/xrGame/relation_registry.cpp(151-159)
+--- @param obj game_object Subject
+--- @param value number Personal goodwill to set (clamped engine-side)
+--- @param target game_object Object of the attitude
+--- @return boolean true on call, false if obj/target/value nil
+function set_goodwill(obj, value, target)
+    if not obj or not target or not value then return false end
+    obj:set_goodwill(value, target)
+    return true
+end
+
 -- game_objects_iter fallback for vanilla/AOEngine (no callbacks_gameobject.script)
 -- @cost O(n) | 0 luabind
 local _online_iter = game_objects_iter or function()

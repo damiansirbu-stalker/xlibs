@@ -1,11 +1,19 @@
 next
-  Summary: xcreature id-yielding iterator, xinventory dead-helper cleanup
+  Summary: xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory dead-helper cleanup
 
   xcreature
+    - Added get_goodwill(obj, target) / set_goodwill(obj, value, target) over the engine personal
+      relation registry. set_goodwill writes only the personal term (engine-clamped), letting a
+      caller flip one NPC's attitude toward another without touching community relations.
     - Added online_iter_with_id() yielding (id, obj) pairs from gameobjects_registry (modded-exes)
       or db.storage (fallback). Caller can validate destroyed-state via alife_object(id) before any
       method call on obj, avoiding "you are trying to use a destroyed object [N]" warnings during the
       window where iterator yields an obj whose game-side destroy started but server release has run.
+
+  xpda
+    - Added npc_tip(npc, msg, opts) sending an NPC-attributed PDA tip: header is the speaker's name,
+      body the message id, icon the speaker's portrait, plus a PDA sound. Direct to the actor (not
+      faction-channel routed). opts: header, sound, showtime.
 
   xinventory
     - Removed get_ammo_count, get_ammo_classes, get_ammo_tier, get_ammo_tier_sorted. No downstream

@@ -124,3 +124,30 @@ function send(caption, msg, icon)
     actor:give_game_news(caption, msg, icon or "ui_inGame2_PDA_unknown", 0, 7000)
     return true
 end
+
+--- Send an NPC-attributed PDA tip: header is the speaker's name, body is a message, icon is the
+--- speaker's portrait, plus a PDA sound. Direct to the actor (not faction-channel routed), so it
+--- always reaches the player regardless of the speaker's faction. Wraps dynamic_news_helper
+--- (icon_by "npc" path), with a give_game_news fallback for engines lacking the helper. The
+--- message is a string id; the helper translates it (the fallback translates it explicitly).
+--- @safety SAFE - returns false if npc / msg / db.actor unavailable; never crashes
+--- @cost O(1) | 1 luabind heavy (give_game_news) + character_name + character_icon + sound play
+--- @src anomaly/dynamic_news_helper.script send_tip, xray/xrGame/script_game_object_script3.cpp(208)
+--- @param npc game_object Speaking NPC (provides character_name + character_icon)
+--- @param msg string Message string id (translated downstream, not pre-translated)
+--- @param opts table|nil { header?, sound?, showtime? }; sound "news"/"danger"/"beep_1"/"beep_2"; showtime in seconds
+--- @return boolean
+function npc_tip(npc, msg, opts)
+    if not npc or not msg then return false end
+    local actor = db and db.actor
+    if not actor then return false end
+    opts = opts or {}
+    local header = opts.header or npc:character_name()
+    local icon = npc:character_icon()
+    local showtime = opts.showtime or 7
+    if dynamic_news_helper and dynamic_news_helper.send_tip then
+        return dynamic_news_helper.send_tip(msg, header, 0, showtime, icon, opts.sound or "news", "npc")
+    end
+    actor:give_game_news(header, game.translate_string(msg), icon, 0, showtime * 1000)
+    return true
+end
