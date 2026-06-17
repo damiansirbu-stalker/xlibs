@@ -723,14 +723,24 @@ end
 --
 --   POLICY LTX (consumer mods own the values; xinventory owns the shape):
 --     [<section_name>]
---     <category_1> = <min>, <max>
---     <category_2> = <min>, <max>
+--     <category_1>    = <min>, <max>
+--     <category_2>    = <min>, <max>
+--     <item_section>  = <min>, <max>  ; per-section override (key is an item section name)
 --     ...
---     <special_key>  = <number>      ; pulled out per specials_set
+--     <special_key>   = <number>      ; pulled out per specials_set
 --
 --   Each consumer ships its own LTX file under configs/<mod>/<mod>_<purpose>_policy.ltx;
 --   declaration order in the block carries BUY/LOOT priority; specials_set names numeric
 --   keys (profit_max, extras_max, fill_max, ...) so they bypass the {min, max} parser.
+--
+--   A row keyed by an item SECTION (any key not in KNOWN_CATEGORIES and not matching the
+--   ammo_slot tier pattern) is a per-section override: it lands in block.section_rules and,
+--   in iterate_surplus, overrides the category rule for that exact section. classify counts
+--   a section-ruled item under its section key, not its category, so the category cap sees
+--   only non-overridden items (e.g. grenade = 1,3 + grenade_smoke = 0,0 caps non-smoke
+--   grenades at 3 and divests all smoke). The surplus pass (sell / cull) is section-aware
+--   here; any BUY behavior (excluding a section, or targeting a specific section's min) is the
+--   consumer's, driven off this same section_rules map.
 -- ============================================================================
 
 -- Parse a policy rule cell. Two accepted shapes:
@@ -762,46 +772,70 @@ local function _unit(category, item)
     return 1
 end
 
--- Route one parsed LTX line: numeric specials go to specials[]; {min, max} rows become
--- an entry (ordered) and a rules[cat] mapping. Empty/malformed keys/values skipped.
-local function _absorb_policy_line(key, value, specials_set, entries, rules, specials)
+-- The category names get_section_category can emit. A policy key in this set (or matching
+-- the per-NPC ammo_slot tier pattern) is a category rule; any other key is an item-section
+-- override. Explicit set fails loud: a typo'd category name becomes a section rule that
+-- never matches an item rather than silently merging into the wrong category.
+local KNOWN_CATEGORIES = {
+    untouchable = true, medkit = true, bandage = true, antirad = true,
+    stim = true, pill = true, grenade = true, food = true, drink = true,
+    grenade_ammo = true, ammo_not_equipped = true, artefact = true,
+    outfit = true, helmet = true, device = true, money = true,
+    crafting = true, weapon = true, other = true,
+}
+
+-- True for a policy key that names a category (vs an item section). Per-NPC ammo tiers
+-- (ammo_slot_2_tN / ammo_slot_3_tN) are categories resolved at runtime, not literal sections.
+local function _is_category_key(key)
+    if KNOWN_CATEGORIES[key] then return true end
+    return string_match(key, "^ammo_slot_[23]_t%d+$") ~= nil
+end
+
+-- Route one parsed LTX line into the accumulating block: numeric specials go to
+-- block.specials; {min, max} rows become an ordered block.entries plus either a
+-- block.rules[cat] (category key) or a block.section_rules[sec] (item-section key)
+-- mapping. Empty/malformed keys/values skipped.
+local function _absorb_policy_line(key, value, specials_set, block)
     if not key or key == "" then return end
     if specials_set[key] then
-        specials[key] = tonumber(value) or 0
+        block.specials[key] = tonumber(value) or 0
         return
     end
     local rule = _parse_rule(value)
     if not rule then return end
-    entries[#entries + 1] = { category = key, rule = rule }
-    rules[key] = rule
+    block.entries[#block.entries + 1] = { category = key, rule = rule }
+    if _is_category_key(key) then
+        block.rules[key] = rule
+    else
+        block.section_rules[key] = rule
+    end
 end
 
 -- Load one policy block (one section). Missing section yields empty block.
 local function _load_policy_block(ini, section, specials_set)
-    local entries, rules, specials = {}, {}, {}
-    if not ini or not ini:section_exist(section) then
-        return { entries = entries, rules = rules, specials = specials }
-    end
+    local block = { entries = {}, rules = {}, section_rules = {}, specials = {} }
+    if not ini or not ini:section_exist(section) then return block end
     local line_count = ini:line_count(section)
     for i = 0, line_count - 1 do
         local _, key, value = ini:r_line_ex(section, i, "", "")
-        _absorb_policy_line(key, value, specials_set, entries, rules, specials)
+        _absorb_policy_line(key, value, specials_set, block)
     end
-    return { entries = entries, rules = rules, specials = specials }
+    return block
 end
 
 --- Load an LTX policy file with uniform {min, max}-per-category shape
 --- Generic loader for the trade / stash / inventory-balance policy shape. Each named
---- section yields a block { entries, rules, specials }. entries preserves declaration
---- order (= BUY / LOOT priority); rules is the hash for O(1) per-category lookup;
---- specials carries numeric keys named in specials_set (profit_max, extras_max, ...).
+--- section yields a block { entries, rules, section_rules, specials }. entries preserves
+--- declaration order (= BUY / LOOT priority); rules is the hash for O(1) per-category lookup;
+--- section_rules holds per-item-section overrides (key = section name); specials carries
+--- numeric keys named in specials_set (profit_max, extras_max, ...).
 --- @safety SAFE - missing file / section / line yields empty block; malformed lines skipped
 --- @cost O(lines) | per line: 1 luabind heavy r_line_ex
 --- @src anomaly/axr_trade_manager precedent (per-section buy_sell rows; this generalizes to per-category)
 --- @param path string LTX path under gamedata/configs (e.g. "alifebalance\\ab_inventory_policy.ltx")
 --- @param sections table Array of section names to load
 --- @param specials_set table|nil Hash {key=true} of keys to extract as specials[key]=number
---- @return table { [section] = { entries = ordered_list, rules = hash, specials = hash } }
+--- @return table { [section] = { entries = ordered_list, rules = hash, section_rules = hash, specials = hash } }
 function load_policy(path, sections, specials_set)
     local result = {}
     if not path or not sections then return result end
@@ -817,60 +851,80 @@ end
 --- Single iterate over the NPC's inventory; per-item get_category drops untouchable
 --- and equipped automatically (caller never sees them in the counts hash). Ammo
 --- categories count in ROUNDS (sum of ammo_get_count across stacks); other categories
---- count in ITEMS.
+--- count in ITEMS. When section_rules is given, an item whose section has an override
+--- counts under its SECTION key instead of its category key, so the category cap sees
+--- only non-overridden items (counts is a flat map; section and category keys are disjoint).
 --- @safety SAFE - nil-guarded npc; offline npc yields empty (iterate_inventory online-only)
---- @cost O(items) | per item: 1 get_category + opts-keyed hash lookups + 0-1 ammo_get_count
+--- @cost O(items) | per item: 1 get_category + opts-keyed hash lookups + 0-1 ammo_get_count + (section_rules ? 1 item:section)
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc); nil opts treats every ammo as ammo_not_equipped
---- @return table { [category] = count }
-function classify(npc, opts)
+--- @param section_rules table|nil From load_policy(...).section_rules; nil = pure per-category counting
+--- @return table { [category|section] = count }
+function classify(npc, opts, section_rules)
     local counts = {}
     if not npc then return counts end
     iterate_inventory(npc:id(), function(_, item)
         if not item then return end
         local cat = get_category(item, opts)
         if cat == "untouchable" or cat == "equipped" then return end
-        counts[cat] = (counts[cat] or 0) + _unit(cat, item)
+        local key = cat
+        if section_rules then
+            local sec = item:section()
+            if section_rules[sec] then key = sec end
+        end
+        counts[key] = (counts[key] or 0) + _unit(cat, item)
     end)
     return counts
 end
 
---- Walk NPC inventory and surface items above their category's policy max
---- For each non-untouchable non-equipped item: looks up the category rule in ctx.rules;
---- if a rule exists AND count > max (category is over the cap), mutates ctx.counts in
---- place (counts[cat] -= unit) and invokes ctx.on_surplus(item, cat, sec, unit).
+--- Walk NPC inventory and surface items above their policy max
+--- For each non-untouchable non-equipped item: a per-section override in ctx.section_rules
+--- (keyed by the item's section) takes precedence over the category rule in ctx.rules. If a
+--- rule exists AND count > max (over the cap), mutates ctx.counts in place (counts[key] -= unit)
+--- and invokes ctx.on_surplus(item, cat, sec, unit). The count key is the section name for an
+--- overridden item, the category name otherwise -- matching how classify partitions counts, so
+--- a section override does not consume the category's budget.
 --- Returning true from on_surplus stops iteration (engine convention).
---- For unit == 1 categories (medkit, weapon, etc.) the walk lands at exactly max.
---- For unit > 1 categories (ammo, in rounds) releases happen whole-stack; the final
---- count can fall short of max by up to (unit - 1) when the boundary stack overshoots.
+--- For unit == 1 (medkit, weapon, grenade, etc.) the walk lands at exactly max.
+--- For unit > 1 (ammo, in rounds) releases happen whole-stack; the final count can fall short
+--- of max by up to (unit - 1) when the boundary stack overshoots.
 --- The caller's on_surplus owns the action: trade transfers + credits, inventory-balance
 --- releases. No release happens unless on_surplus does it.
 --- @safety SAFE - nil-guarded args; iterate_inventory tolerant of nil items
---- @cost O(items) | per item: 1 get_category + 1 rules hash lookup + 0-1 ammo_get_count
+--- @cost O(items) | per item: 1 get_category + 1 hash lookup + 0-1 ammo_get_count + (section_rules ? 1 item:section)
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc)
 --- @param ctx table { rules = hash from load_policy(...).rules,
----                    counts = mutable counts from classify(npc, opts),
+---                    section_rules = hash from load_policy(...).section_rules (optional),
+---                    counts = mutable counts from classify(npc, opts, section_rules),
 ---                    on_surplus = function(item, category, section, unit) }
 --- @return number Count of surplus items ctx.on_surplus was called on
 function iterate_surplus(npc, opts, ctx)
     if not npc or not ctx or not ctx.rules or not ctx.counts or not ctx.on_surplus then return 0 end
     local rules, counts, on_surplus = ctx.rules, ctx.counts, ctx.on_surplus
+    local section_rules = ctx.section_rules
     local invoked = 0
     iterate_inventory(npc:id(), function(_, item)
         if not item then return end
         local cat = get_category(item, opts)
         if cat == "untouchable" or cat == "equipped" then return end
-        local rule = rules[cat]
+        local sec = item:section()
+        local rule, key = nil, nil
+        local srule = section_rules and section_rules[sec]
+        if srule then
+            rule, key = srule, sec
+        else
+            rule, key = rules[cat], cat
+        end
         if not rule or not rule.max then return end
         local unit = _unit(cat, item)
-        local count = counts[cat] or 0
+        local count = counts[key] or 0
         if count <= rule.max then return end
-        counts[cat] = count - unit
+        counts[key] = count - unit
         invoked = invoked + 1
-        return on_surplus(item, cat, item:section(), unit) == true
+        return on_surplus(item, cat, sec, unit) == true
     end)
     return invoked
 end
@@ -878,7 +932,8 @@ end
 --- Derive per-category surplus from counts vs rules (pure)
 --- Returns categories where count > rule.max with the surplus amount. Categories
 --- without a rule or with no max are ignored. Used by stash fill to plan per-event
---- deposits without re-walking inventory.
+--- deposits without re-walking inventory. Category-only: per-section overrides are not
+--- consulted here (callers needing section surplus use iterate_surplus, which is section-aware).
 --- @safety SAFE - nil-guarded inputs (returns empty)
 --- @cost O(counts) pure Lua, no luabind
 --- @param counts table From classify(npc, opts)
