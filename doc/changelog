@@ -1,5 +1,5 @@
 next
-  Summary: xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory per-section policy overrides, dead-helper cleanup
+  Summary: xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory policy rows by category or item section, dead-helper cleanup
 
   xcreature
     - Added get_goodwill(obj, target) / set_goodwill(obj, value, target) over the engine personal
@@ -16,10 +16,15 @@ next
       faction-channel routed). opts: header, sound, showtime.
 
   xinventory
-    - Added per-section policy overrides: a policy row keyed by an item section name now caps that
-      section on its own, apart from its category. The count and surplus walks apply the section rule
-      ahead of the category rule, so a policy can target one item (a single grenade type, an ammo
-      section) without defining a new category.
+    - Added item-section policy rows: a policy row key is now a category or an item section. An item
+      uses its section's rule when the policy names that section, otherwise its category's rule
+      (policy_key); classify, iterate_surplus and build_surplus_map all key through it. A config can
+      cap a whole category or single out individual items in one min/max policy.
+    - Changed get_equipped_ids to exclude the grenade slot, so a slotted grenade stays managed by
+      inventory policy (capped, or removed when its section is named) instead of reading as equipped.
+    - Added is_corpse_take(mode, bag) and deny_move(flags) for ActorMenu_on_item_before_move
+      handlers: is_corpse_take tells a loot-mode take from a dead body, deny_move vetoes the move.
+      A consumer gates corpse looting without touching the engine list enum or the ret_value flag.
     - Removed get_ammo_count, get_ammo_classes, get_ammo_tier, get_ammo_tier_sorted. No downstream
       consumer remained after AlifeTactics at_ammo switched to a fixed AP section set. Public surface
       retains get_ammo_sections, get_ammo_tier_map (used by AlifePlus trade), resolve_ammo_category.
