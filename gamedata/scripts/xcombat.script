@@ -117,6 +117,26 @@ function xcombat.enemy_track_pos(npc, enemy, sees)
     return npc:memory_position(enemy)
 end
 
+--- Disclose an enemy to an NPC: inject it into the NPC's memory and register the NPC in combat.
+--- Relation-clean -- no goodwill / community write. The enemy_manager selects the injected object
+--- as an enemy only when is_relation_enemy already holds; for a stalker that resolves via the summed
+--- attitude dominated by the faction term (CAI_Stalker::tfGetRelationType -> RELATION_REGISTRY
+--- GetRelationType), so a known faction-hostile object is engaged without mutating any relation. The
+--- writer counterpart to enemy_unseen_ms / enemy_track_pos. Both calls require a CAI_Stalker receiver.
+--- @safety SAFE - nil-guarded npc/enemy
+--- @cost O(1) | 2 luabind (enable_memory_object: visual-memory inject; register_in_combat: agent_manager().member())
+--- @src xray/script_game_object3.cpp:65 (enable_memory_object), xray/script_game_object_inventory_owner.cpp:1945 (register_in_combat)
+--- @src xray/enemy_manager.cpp:69 (is_relation_enemy gate), xray/ai/stalker/ai_stalker_misc.cpp (CAI_Stalker::tfGetRelationType)
+--- @param npc game_object stalker to alert
+--- @param enemy game_object hostile object to disclose
+--- @return boolean true when applied
+function xcombat.disclose_enemy(npc, enemy)
+    if not npc or not enemy then return false end
+    npc:enable_memory_object(enemy, true)
+    npc:register_in_combat()
+    return true
+end
+
 -- =========================================================================
 -- NPC control - the takeover writes the NPC through set_combat + aim_at, so the consumer issues no raw
 -- engine calls. A stationary fire state plus aim_at makes the engine fire at the enemy autonomously every
