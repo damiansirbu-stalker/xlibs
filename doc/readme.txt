@@ -1,5 +1,5 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
-Version: 1.7.6
+Version: 1.7.7
 GitHub: https://github.com/damiansirbu-stalker/xlibs
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
@@ -63,7 +63,7 @@ Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
 Compatibility:
-Tested with vanilla Anomaly 1.5.3, Demonized main, Demonized MT, and AOEngine (latest versions).
+Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
 Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
 
 Development:
@@ -81,3 +81,14 @@ Usage and License:
   Addons, patches, integrations: allowed. Credit "xlibs by Damian Sirbu" visibly on your mod page.
   Reproducing the implementation in other software: not allowed, even with credit.
   Full license in LICENSE file and on GitHub.
+
+Reporting issues and suggestions
+Open a bug report or a suggestion at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose.
+Also discussed on the GAMMA, EFP, Anomaly, and Zona Discord servers.
+
+Before posting, read this readme.
+
+Include:
+- Exact steps to reproduce, from a new game or a named save, with expected and actual result.
+- xray.log, plus engine build, modlist, load order.
+- Describe the behavior. With hundreds of mods and overrides, only the log shows whether this mod was involved and what caused it.

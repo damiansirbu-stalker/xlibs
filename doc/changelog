@@ -1,5 +1,10 @@
-next
-  Summary: xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory policy rows by category or item section, dead-helper cleanup
+1.7.7
+  Summary: xcombat combat-AI module, xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory policy rows by category or item section, dead-helper cleanup
+
+  xcombat (new)
+    - Combat-AI primitives for a script-driven NPC combat takeover: enemy-memory readers, ring-search
+      cover and shot finders, a combat-state matrix, engine-routed movement and stance resolution, and
+      disclose_enemy to force an NPC to register a known enemy. Drives the AlifeTactics turret takeover.
 
   xcreature
     - Added get_goodwill(obj, target) / set_goodwill(obj, value, target) over the engine personal
