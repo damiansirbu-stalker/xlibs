@@ -4,7 +4,12 @@ local _start_time = nil
 
 --- Get game-seconds since epoch (level start time)
 --- Caches level.get_start_time() (constant per save). Cache reset on on_game_start.
---- @safety SAFE - guards level.present() before level.get_start_time() (NULL singleton during transitions)
+--- @safety Safe in gameplay and from on_game_load onward (time manager loaded, Level() constructed
+---   at net_spawn -- smart_mutator/broker read it there every load). NOT safe in load_state /
+---   on_game_start: level.present() returns true but Level()'s start time is not loaded yet, so
+---   level.get_start_time AVs (level_script.cpp:2079, no null guard). Never call game_sec before
+---   on_game_load. Tested: ap_ext_loot_claim CTD calling this in load_state (xray_damian.log
+---   2026-06-21, AnomalyDX9).
 --- @cost O(1) | 2 luabind (get_game_time medium: xrTime ctor from Level().GetStartGameTime; diffSec trivial: (a-b)/sec2ms), first call adds 1 luabind medium (get_start_time: xrTime construction)
 --- @src xray/xrGame/level_script.cpp(2079) get_start_time, xray/xrGame/xr_time.cpp(76) diffSec, level_script.cpp(2733) get_game_time
 --- @return number Game-seconds since epoch (0 when no level)
