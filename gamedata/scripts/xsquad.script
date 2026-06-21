@@ -373,6 +373,9 @@ end
 
 --- Iterate all SIMBOARD squads as resolved server entities
 --- Handles SIMBOARD/alife nil guards and skips deleted squads (nil from alife_object)
+--- Caller must not mutate SIMBOARD.squads (release_squad, SIMBOARD:create_squad, anything touching the
+--- table) mid-iteration: next() continuation is then undefined. Collect IDs first, mutate after the loop
+--- (see release_squads two-pass at :711-736).
 --- @safety SAFE - alife_object returns nil for deleted, skipped automatically
 --- @cost O(n) squads | 1 luabind medium per squad (sim:object: xr_map find)
 --- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
