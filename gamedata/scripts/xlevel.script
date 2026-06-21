@@ -205,10 +205,14 @@ end
 
 --- Get level_id by raw level name (e.g. "l05_bar" -> 5)
 --- Lazy-built name->id map from SIMBOARD.smarts_by_names; covers every level with at least one smart.
---- Lua VM restarts on level transition so the cache is naturally fresh per game session.
+--- Cache is a module-local. The engine recreates the Lua VM on every level transition and on save/load
+--- (CALifeSimulator ctor -> restart_all -> script_engine().init() -> CScriptStorage::reinit), so it
+--- rebuilds fresh each VM life and cannot go stale; within one VM life the SIMBOARD -> game.graph
+--- name->id mapping is immutable, so the map stays correct.
 --- @safety SAFE - nil guards on alife/SIMBOARD/graph; returns nil if level lookup is unavailable
 --- @cost O(n_smarts) first call (~300-500 smarts in GAMMA, each: vertex trivial + level_id trivial + level_name medium), O(1) cached
 --- @src anomaly/sim_board.script, xray/xrGame/game_graph_inline.h, xray/xrGame/alife_simulator_script.cpp(313)
+--- @src xray/xrGame/alife_simulator.cpp(28-48), xray/xrServerEntities/script_storage.cpp(391-399)
 --- @param name string Raw level name (sim:level_name format)
 --- @return number|nil Level ID, or nil if name unknown or SIMBOARD unavailable
 function get_level_id_by_name(name)
