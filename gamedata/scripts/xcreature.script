@@ -5,6 +5,7 @@ local string = string
 local IsMonster, IsStalker, IsTrader, alife_character_community = IsMonster, IsStalker, IsTrader, alife_character_community
 local get_object_story_id, get_object_squad = get_object_story_id, get_object_squad
 local xobject, xlevel, xdata = xobject, xlevel, xdata
+local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 
 ENTITY = {
     STALKER = "stalker",
@@ -21,7 +22,6 @@ ENTITY = {
 function get_clsid(input)
     if not input then return nil end
     local input_type = type(input)
-    if input_type == "number" and input > 0 and input < 1000 then return input end
     if input_type == "number" then input = xobject.se(input) end
     if not input then return nil end
     if input.clsid then return input:clsid() end
@@ -188,7 +188,7 @@ function get_mutant_species(input)
     local species
     if cls == clsid.online_offline_group_s then
         local cmd_id = se:commander_id()
-        if cmd_id and cmd_id ~= 65535 then
+        if cmd_id and cmd_id ~= INVALID_ENTITY_ID then
             local cmd = xobject.se(cmd_id)
             if cmd then species = _resolve_npc_species(cmd) end
         end
@@ -216,7 +216,7 @@ function get_mutant_variant(input)
     local cls = se:clsid()
     if cls == clsid.online_offline_group_s then
         local cmd_id = se:commander_id()
-        if not cmd_id or cmd_id == 65535 then return nil end
+        if not cmd_id or cmd_id == INVALID_ENTITY_ID then return nil end
         local cmd = xobject.se(cmd_id)
         if not cmd then return nil end
         if not _resolve_npc_species(cmd) then return nil end

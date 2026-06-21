@@ -1,3 +1,14 @@
+next
+  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup
+
+  xcreature
+    - Fixed get_clsid misclassifying low entity IDs. It short-circuited any number in [1,999] as an
+      already-resolved class id and returned it unchanged, so early story NPCs (ids below 1000) read
+      back their own id instead of a clsid and is_npc / is_stalker / is_mutant returned wrong answers.
+      Numbers now always resolve through xobject.se. No caller passed a raw clsid through this path.
+    - Replaced literal 65535 invalid-entity sentinels in get_mutant_species / get_mutant_variant with
+      xconst.INVALID_ENTITY_ID, matching xsquad.
+
 1.7.7
   Summary: xcombat combat-AI module, xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory policy rows by category or item section, dead-helper cleanup
 
