@@ -149,8 +149,9 @@ local AIM_OFFSET_Y = 1.5
 -- weapon mode, posture, and movement. This IS the safety mechanism: resolving the state from the requested
 -- knobs guarantees the state's own bodystate/movement agree with what set_combat then sets explicitly, so
 -- the two never contradict (the engine flicker the npc-combat-control doc warns about). Verified against
--- state_lib.script. A missing cell = the engine ships no such state (crouch+run+fire, any moving snipe,
--- moving ready); set_combat returns false for those instead of forcing a wrong one.
+-- state_lib.script. A missing cell = the engine ships no such state (crouch+run in any fire mode, any moving
+-- snipe); set_combat returns false for those instead of forcing a wrong one. READY mirrors FIRE's moving
+-- cells (raid/assault/sneak = the weapon-up, no-trigger counterparts of raid_fire/assault_fire/sneak_fire).
 local COMBAT_STATES = {
     FIRE = {
         STAND  = { STILL = "threat_fire", WALK = "raid_fire", RUN = "assault_fire" },
@@ -161,8 +162,8 @@ local COMBAT_STATES = {
         CROUCH = { STILL = "hide_sniper_fire" },
     },
     READY = {
-        STAND  = { STILL = "threat_na" },
-        CROUCH = { STILL = "hide_na" },
+        STAND  = { STILL = "threat_na", WALK = "raid",  RUN = "assault" },
+        CROUCH = { STILL = "hide_na",   WALK = "sneak" },
     },
     STOW = {
         STAND  = { RUN = "sprint" },
