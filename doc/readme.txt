@@ -72,6 +72,10 @@ Code patterns and engine usage validated against established work by reputable G
 The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
 Full report in doc/test-report.log.
 
+FAQ:
+Do I need modded exes?
+  Yes. xlibs needs themrdemonized modded exes (2025.9.10 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.
+
 Credits:
 Altogolik - support, ideas, source materials
 
