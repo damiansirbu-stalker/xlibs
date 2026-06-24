@@ -35,6 +35,21 @@ function se(input)
     return id and alife_object(id) or nil
 end
 
+--- True if the entity is story-protected (has a story id). Exempts quest-critical
+--- NPCs/squads from scripted pursuit and cleanup.
+--- @safety SAFE - nil-guarded
+--- @cost O(1) | 1 luabind trivial (get_object_story_id: id->story_id map lookup)
+--- @src anomaly/_g.script get_object_story_id
+--- @param se_obj table|number Server object or entity id
+--- @return boolean
+function is_story(se_obj)
+    if not se_obj then return false end
+    local id = type(se_obj) == "number" and se_obj or se_obj.id
+    if not id then return false end
+    local story_id = get_object_story_id(id)
+    return story_id ~= nil and story_id ~= -1
+end
+
 --- Get online game object by ID
 --- Complement to se(); returns nil when entity is offline, ID is invalid, or level not loaded
 --- @safety SAFE - level.present() guards NULL g_pGameLevel during transitions; net_Find rejects id==0xffff (xr_object_list.h:72)

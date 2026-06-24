@@ -30,6 +30,40 @@ function get_game_hours()
     return level.get_time_hours() + level.get_time_days() * 24
 end
 
+--- True during night hours (20:00-05:00).
+--- Core/library counterpart to ap_ext_util.is_night so core code can gate behaviour on time of day.
+--- @safety SAFE - level.present() guards no-game-session
+--- @cost O(1) | 1 luabind trivial (get_time_hours)
+--- @src xray/xrGame/level_script.cpp(289) get_time_hours
+--- @return boolean
+function is_night()
+    if not level.present() then return false end
+    local hours = level.get_time_hours()
+    return hours >= 20 or hours < 5
+end
+
+--- Current rain factor 0..1 (0 with no session).
+--- Thin wrap of level.rain_factor so weather-gated logic avoids a raw engine call.
+--- @safety SAFE - level.present() guards no-game-session
+--- @cost O(1) | 1 luabind trivial (rain_factor)
+--- @src xray/xrGame/level_script.cpp rain_factor
+--- @return number
+function rain_factor()
+    if not level.present() then return 0 end
+    return level.rain_factor()
+end
+
+--- True while a surge (emission) is underway.
+--- Wraps the vanilla xr_conditions.surge_started gate so callers avoid the raw module reference.
+--- @safety SAFE - level.present() guards; xr_conditions.surge_started is the vanilla check
+--- @cost O(1) | 1 luabind trivial via xr_conditions
+--- @src anomaly/xr_conditions.script surge_started, anomaly/surge_manager.script
+--- @return boolean
+function surge_active()
+    if not level.present() then return false end
+    return xr_conditions.surge_started() == true
+end
+
 --- Get level_id from server entity
 --- Vertex-to-level mapping is immutable (baked in game.graph). Cached after first lookup per gvid.
 --- @safety SAFE - nil guard on se_obj + game_graph (pcall cached in module-level gg)
