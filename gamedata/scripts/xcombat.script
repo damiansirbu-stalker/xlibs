@@ -4,7 +4,7 @@ local pairs, math_sqrt, math_cos, math_sin, math_abs = pairs, math.sqrt, math.co
 local time_global = time_global
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
-local move, look, state_mgr = move, look, state_mgr
+local move, state_mgr = move, state_mgr
 local db, alife_object, ini_sys = db, alife_object, ini_sys
 
 xcombat = xcombat or {}
@@ -98,7 +98,7 @@ end
 --- @param enemy game_object the remembered enemy
 --- @param tg number time_global() snapshot
 --- @return number ms since last perception
-function xcombat.enemy_unseen_ms(npc, enemy, tg)
+function xcombat.get_unseen_ms(npc, enemy, tg)
     return tg - npc:memory_time(enemy)
 end
 
@@ -112,7 +112,7 @@ end
 --- @param enemy game_object the remembered enemy
 --- @param sees boolean whether the NPC currently sees the enemy (slot.sees)
 --- @return vector position to treat as the enemy for movement resolution
-function xcombat.enemy_track_pos(npc, enemy, sees)
+function xcombat.get_track_pos(npc, enemy, sees)
     if sees then return enemy:position() end
     return npc:memory_position(enemy)
 end
@@ -122,7 +122,7 @@ end
 --- as an enemy only when is_relation_enemy already holds; for a stalker that resolves via the summed
 --- attitude dominated by the faction term (CAI_Stalker::tfGetRelationType -> RELATION_REGISTRY
 --- GetRelationType), so a known faction-hostile object is engaged without mutating any relation. The
---- writer counterpart to enemy_unseen_ms / enemy_track_pos. Both calls require a CAI_Stalker receiver.
+--- writer counterpart to get_unseen_ms / get_track_pos. Both calls require a CAI_Stalker receiver.
 --- @safety SAFE - nil-guarded npc/enemy
 --- @cost O(1) | 2 luabind (enable_memory_object: visual-memory inject; register_in_combat: agent_manager().member())
 --- @src xray/script_game_object3.cpp:65 (enable_memory_object), xray/script_game_object_inventory_owner.cpp:1945 (register_in_combat)
@@ -138,12 +138,10 @@ function xcombat.disclose_enemy(npc, enemy)
 end
 
 -- =========================================================================
--- NPC control - the takeover writes the NPC through set_combat + aim_at, so the consumer issues no raw
--- engine calls. A stationary fire state plus aim_at makes the engine fire at the enemy autonomously every
--- frame (the turret model); set_combat owns weapon mode + posture + movement, send_to owns destination.
+-- NPC control - the takeover writes the NPC through set_combat, so the consumer issues no raw engine calls.
+-- set_combat owns weapon mode + posture + movement and hands the fire state its look_object, so the engine
+-- object-track aims and fires at the enemy autonomously every frame (the turret model); send_to owns destination.
 -- =========================================================================
-
-local AIM_OFFSET_Y = 1.5
 
 -- The combat-state matrix: [fire][posture][movement] -> the one state_lib state that bundles exactly that
 -- weapon mode, posture, and movement. This IS the safety mechanism: resolving the state from the requested
@@ -246,17 +244,6 @@ function xcombat.resolve_stance(fire, posture, movement)
         if by_post then return order[i], _nearest_movement(by_post, movement) end
     end
     return posture, movement
-end
-
---- Aim the NPC's fire line at a world position (raised to torso/head height) - the trigger half of the turret.
---- A fire state plus this set_sight is enough for the engine to fire every frame; no trigger command.
---- @safety SAFE - set_sight is SAFE_WRAPped engine-side
---- @cost O(1) | 1 luabind medium (set_sight: sight manager retarget) + 1 vector ctor
---- @src xray/script_game_object_script3.cpp:83 (set_sight fire_point overload), xray/ai_stalker_fire.cpp:193-240 (aim feeds g_fireParams)
---- @param npc game_object
---- @param pos vector world position to aim at
-function xcombat.aim_at(npc, pos)
-    npc:set_sight(look.fire_point, vector():set(pos.x, pos.y + AIM_OFFSET_Y, pos.z))
 end
 
 -- =========================================================================
