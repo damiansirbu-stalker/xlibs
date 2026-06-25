@@ -36,7 +36,7 @@ end
 --- @cost O(1) | 1 luabind trivial via xr_conditions
 --- @src anomaly/xr_conditions.script surge_started, anomaly/surge_manager.script
 --- @return boolean
-function surge_active()
+function is_surge()
     if not level.present() then return false end
     return xr_conditions.surge_started() == true
 end
