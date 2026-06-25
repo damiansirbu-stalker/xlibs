@@ -251,11 +251,45 @@ end
 -- =========================================================================
 
 local CHEST_OFFSET_Y = 1.2
--- collide rqtStatic flag for static-geometry-only ray queries (numeric for cross-fork portability)
+-- collide flags (numeric for cross-fork portability, xrCDB/xr_collide_defs.h:69-77): rqtStatic = the baked
+-- level-geometry CDB only (walls, floors, terrain); rqtBoth = that PLUS game objects (crates, barrels, doors,
+-- NPCs, the actor) - props that never move are still rqtObject, not rqtStatic, so a static-only ray passes
+-- straight through them.
 local RQ_STATIC = 2
+local RQ_BOTH   = 3
+-- start an object ray this far forward so the casting NPC's own CForm (the ray begins inside it) is never the
+-- hit; the first metre is where the NPC already stands, so skipping it loses nothing.
+local SELF_CLEARANCE_M = 1.0
+
+-- Shared chest-height ray. True if anything matching `flags` blocks the straight line. `start_clearance`
+-- (or nil) moves the start that far forward before casting, to skip the caster's own body for object rays.
+local function _ray_blocked(start_pos, end_pos, flags, start_clearance)
+    local sx = start_pos.x
+    local sy = start_pos.y + CHEST_OFFSET_Y
+    local sz = start_pos.z
+    local dx = end_pos.x - sx
+    local dy = (end_pos.y + CHEST_OFFSET_Y) - sy
+    local dz = end_pos.z - sz
+    local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
+    if dist < 1 then return false end
+    local ux, uy, uz = dx/dist, dy/dist, dz/dist
+    if start_clearance then
+        if dist <= start_clearance + 1 then return false end
+        sx, sy, sz = sx + ux*start_clearance, sy + uy*start_clearance, sz + uz*start_clearance
+        dist = dist - start_clearance
+    end
+    local ray = ray_pick()
+    ray:set_flags(flags)
+    ray:set_position(vector():set(sx, sy, sz))
+    ray:set_direction(vector():set(ux, uy, uz))
+    ray:set_range(dist)
+    ray:query()
+    local hit = ray:get_distance()
+    return hit > 0 and hit < dist - 1.0
+end
 
 --- True if a WALL (baked level geometry) blocks the straight line between the two points.
---- Casts a ray with the rqtStatic flag, so it hits ONLY static world collision - never dynamic objects,
+--- Casts a ray with the rqtStatic flag, so it hits ONLY static world collision - never objects,
 --- crates, doors, NPCs, or the actor, and it has no notion of FOV. This is the pure "is there a wall"
 --- test. For "can the NPC actually perceive/shoot the enemy" use npc:see(enemy), which adds FOV plus
 --- dynamic occlusion. Both endpoints are lifted a fixed chest height (CHEST_OFFSET_Y), so it is
@@ -267,22 +301,22 @@ local RQ_STATIC = 2
 --- @param end_pos vector enemy position (chest offset added internally)
 --- @return boolean true if a static wall blocks the line
 function xcombat.has_occluder_between(start_pos, end_pos)
-    local sx = start_pos.x
-    local sy = start_pos.y + CHEST_OFFSET_Y
-    local sz = start_pos.z
-    local dx = end_pos.x - sx
-    local dy = (end_pos.y + CHEST_OFFSET_Y) - sy
-    local dz = end_pos.z - sz
-    local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
-    if dist < 1 then return false end
-    local ray = ray_pick()
-    ray:set_flags(RQ_STATIC)
-    ray:set_position(vector():set(sx, sy, sz))
-    ray:set_direction(vector():set(dx/dist, dy/dist, dz/dist))
-    ray:set_range(dist)
-    ray:query()
-    local hit = ray:get_distance()
-    return hit > 0 and hit < dist - 1.0
+    return _ray_blocked(start_pos, end_pos, RQ_STATIC, nil)
+end
+
+--- True if a WALL or a game OBJECT (crate, barrel, door, NPC, the actor) blocks the straight line. Same
+--- chest-height ray as has_occluder_between but rqtBoth, so it sees props that are level objects and not
+--- baked geometry - a flee lane must avoid a crate the static-only ray runs the NPC straight into. Starts
+--- SELF_CLEARANCE_M forward so the caster's own body is not the hit. Catches NPCs/items on the line too
+--- (a flee then fans to another heading), which is acceptable for choosing a clear escape lane.
+--- @safety SAFE - get_distance returns 0 when nothing is hit
+--- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
+--- @src xray/xrCDB/xr_collide_defs.h:69-77 (rqtBoth = rqtObject | rqtStatic)
+--- @param start_pos vector start (chest offset added internally)
+--- @param end_pos vector end (chest offset added internally)
+--- @return boolean true if a wall or object blocks the line
+function xcombat.has_obstacle_between(start_pos, end_pos)
+    return _ray_blocked(start_pos, end_pos, RQ_BOTH, SELF_CLEARANCE_M)
 end
 
 -- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
@@ -453,15 +487,16 @@ function xcombat.find_shot(npc, enemy_pos)
     return _sweep_for_shot(npc, npc:level_vertex_id(), enemy_pos)
 end
 
--- One flee-lane probe: a free reachable vertex the full `distance_m` along `dir` AND a clear straight static
--- line out to it (no wall in the run lane). Unlike _probe_firing_vid the ray is the NPC's own run lane, not a
--- line to the enemy, and the vertex must reach the full distance (no decreasing step) - a flee wants a long
--- open lane, not the nearest reachable node.
+-- One flee-lane probe: a free reachable vertex the full `distance_m` along `dir` AND a clear straight line out
+-- to it with no wall OR object (crate, barrel) in the run lane. Unlike _probe_firing_vid the ray is the NPC's
+-- own run lane, not a line to the enemy, it tests objects not just static geometry (a flee must not run into a
+-- crate the navmesh routes through), and the vertex must reach the full distance (no decreasing step) - a flee
+-- wants a long open lane, not the nearest reachable node.
 -- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
 local function _probe_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
     local vid = level.vertex_in_direction(own_lvid, dir, distance_m)
     if not vid or vid >= INVALID_LVID or vid == own_lvid or not _is_free(npc, vid) then return nil end
-    if xcombat.has_occluder_between(npc_pos, level.vertex_position(vid)) then return nil end
+    if xcombat.has_obstacle_between(npc_pos, level.vertex_position(vid)) then return nil end
     return vid
 end
 
@@ -482,7 +517,7 @@ local function _flee_lane_at(npc, own_lvid, npc_pos, away_dir, offset_deg, dista
 end
 
 --- Flee destination: the heading nearest `away_dir` whose run lane is clear for the full `distance_m` (a
---- reachable vertex that far out with no static wall on the straight line to it). Fans candidate headings out
+--- reachable vertex that far out with no wall or object on the straight line to it). Fans candidate headings out
 --- from away_dir in `arc_deg` steps to +-`max_spread_deg`, straight-away first, first clear lane wins. No clear
 --- lane at any heading falls back to the farthest reachable partial along away_dir, so a fleeing NPC keeps
 --- moving unless it is fully walled (then nil, the caller holds via send_to).
