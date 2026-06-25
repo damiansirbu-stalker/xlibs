@@ -352,6 +352,7 @@ local PROBE_MAX_M          = 6
 local PROBE_STEP_M         = 1
 local PROBE_DIRS           = 8
 local PROBE_ARC            = 2 * math.pi / PROBE_DIRS
+local DEG_TO_RAD           = math.pi / 180
 
 -- True if vid is in-range, accessible, not the NPC's own node, and free (or already ours).
 -- Mirrors vanilla utils_obj.validate (the battle-tested validate+lmove pattern), reservation-aware.
@@ -450,6 +451,63 @@ end
 --- @return number|nil firing vertex id with a clear shot, or nil
 function xcombat.find_shot(npc, enemy_pos)
     return _sweep_for_shot(npc, npc:level_vertex_id(), enemy_pos)
+end
+
+-- One flee-lane probe: a free reachable vertex the full `distance_m` along `dir` AND a clear straight static
+-- line out to it (no wall in the run lane). Unlike _probe_firing_vid the ray is the NPC's own run lane, not a
+-- line to the enemy, and the vertex must reach the full distance (no decreasing step) - a flee wants a long
+-- open lane, not the nearest reachable node.
+-- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
+local function _probe_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
+    local vid = level.vertex_in_direction(own_lvid, dir, distance_m)
+    if not vid or vid >= INVALID_LVID or vid == own_lvid or not _is_free(npc, vid) then return nil end
+    if xcombat.has_occluder_between(npc_pos, level.vertex_position(vid)) then return nil end
+    return vid
+end
+
+-- Try one fan offset to both sides of away_dir (straight-away when offset is 0); the first side whose run lane
+-- is clear for the full distance wins, else nil. The XZ rotation of away_dir by +-offset is the 2D rotation
+-- matrix, no atan2.
+-- @cost O(1) | up to 2 (vertex_in_direction + accessible + raycast)
+local function _flee_lane_at(npc, own_lvid, npc_pos, away_dir, offset_deg, distance_m)
+    local dir = vector()
+    for side = 1, (offset_deg == 0 and 1 or 2) do
+        local angle = (side == 1 and offset_deg or -offset_deg) * DEG_TO_RAD
+        local cos_a, sin_a = math_cos(angle), math_sin(angle)
+        dir:set(away_dir.x * cos_a - away_dir.z * sin_a, 0, away_dir.x * sin_a + away_dir.z * cos_a)
+        local vid = _probe_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
+        if vid then return vid end
+    end
+    return nil
+end
+
+--- Flee destination: the heading nearest `away_dir` whose run lane is clear for the full `distance_m` (a
+--- reachable vertex that far out with no static wall on the straight line to it). Fans candidate headings out
+--- from away_dir in `arc_deg` steps to +-`max_spread_deg`, straight-away first, first clear lane wins. No clear
+--- lane at any heading falls back to the farthest reachable partial along away_dir, so a fleeing NPC keeps
+--- moving unless it is fully walled (then nil, the caller holds via send_to).
+--- @safety SAFE - nil only when no vertex validates along away_dir at all
+--- @cost O(n) headings | up to (2*max_spread/arc + 1) (vertex_in_direction + accessible + raycast)
+--- @src xray/level_script.cpp:410 (vertex_in_direction)
+--- @param npc game_object
+--- @param away_dir vector unit direction away from the danger
+--- @param distance_m number required clear-lane length in metres
+--- @param arc_deg number heading step between fanned candidates, degrees (>0)
+--- @param max_spread_deg number maximum fan to either side of away_dir, degrees
+--- @return number|nil flee destination vertex id, or nil when fully walled
+function xcombat.find_flee_lane(npc, away_dir, distance_m, arc_deg, max_spread_deg)
+    local own = npc:level_vertex_id()
+    if not arc_deg or arc_deg <= 0 then
+        return _find_toward(npc, own, away_dir, distance_m)
+    end
+    local npc_pos = npc:position()
+    local offset_deg = 0
+    while offset_deg <= max_spread_deg do
+        local vid = _flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, distance_m)
+        if vid then return vid end
+        offset_deg = offset_deg + arc_deg
+    end
+    return _find_toward(npc, own, away_dir, distance_m)
 end
 
 --- Move the NPC toward `vid`, routing to the nearest accessible node if vid itself is blocked.
