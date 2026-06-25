@@ -755,6 +755,24 @@ function find_first_smart(opts)
     return nil
 end
 
+--- Nearest base for an NPC routing out of a fight: the nearest is_base smart with no enemy squad stationed (a
+--- place its enemies do not hold). Keys on actual squad occupancy, NOT declared faction props (most vanilla
+--- smarts declare none, so an accepts_faction filter matches nothing). nil when no base qualifies - the caller
+--- then flees in place rather than running to a non-base edge smart. Same find_smart + is_base reuse as
+--- AlifePlus's flee (ap_ext_consequences_basekill), with an occupancy gate instead of a fixed own-faction.
+--- @safety SAFE - nil when no non-enemy-held base on the level
+--- @cost O(n smarts x min(5,squads)) per find_smart, run at a maneuver commit (not per tick)
+--- @see find_smart, is_base, has_enemy_squad
+--- @param community string the NPC's community
+--- @param pos vector the NPC's position
+--- @param level_id number the level to search (online NPCs are on the actor's level)
+--- @return smart_terrain|nil nearest non-enemy-held base, or nil
+function find_friendly_base(community, pos, level_id)
+    if not community or not pos then return nil end
+    return find_smart(pos, { level_id = level_id,
+        filter = function(smart) return is_base(smart) and not has_enemy_squad(smart.id, community) end })
+end
+
 -- Any section in recipe.squads has section_faction equal to faction? Short-circuits on match.
 -- @cost O(Q) sections per recipe (~1-5) | 0 luabind cached per section, else 1 luabind heavy via section_faction
 local function _recipe_has_faction(recipe, faction)
