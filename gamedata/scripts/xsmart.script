@@ -108,6 +108,27 @@ function get_npc_for_job(smart, type_id)
     return nil
 end
 
+--- Resolve the job a specific NPC currently holds at this smart (inverse of get_npc_for_job).
+--- Reads the NPC's engine-bound .job -- the descriptor set in select_npc_job. Returns
+--- nil when the NPC has no npc_info entry (not arrived/registered, or smart offline: npc_info is
+--- populated only for online smarts on the actor's level) or holds no job yet. The descriptor
+--- carries .section ("logic@<smart>_<job>") and, for auto-generated jobs, .job_type_id (compare
+--- against JOB_TYPE_GENERIC_POINT / JOB_TYPE_CAMPFIRE_POINT / ...); exclusive LTX jobs carry
+--- .exclusive=true and no .job_type_id.
+--- @scope online - reads smart.npc_info; empty for offline / off-actor-level smarts
+--- @safety SAFE - pure Lua table reads, nil-guarded
+--- @cost O(1) | 0 luabind (npc_info is a pure Lua hash)
+--- @src anomaly/smart_terrain.script(771,801) the .job field set in select_npc_job
+--- @src anomaly/gulag_general.script(281-303) job_type_id table, (1183-1246) exclusive jobs
+--- @param smart smart_terrain Smart terrain to query
+--- @param npc_id number NPC server id
+--- @return table|nil Job descriptor { section, job_type_id?, exclusive? } or nil
+function get_job_for_npc(smart, npc_id)
+    if not smart or not smart.npc_info or not npc_id then return nil end
+    local info = smart.npc_info[npc_id]
+    return info and info.job
+end
+
 --- Lazy per-NPC role cache. Roles are immutable in practice (section, community, and bound
 --- logic block don't change at runtime for service NPCs), so entries are populated on first
 --- query and never invalidated. Dead NPCs leave stale entries; the cached value remains
