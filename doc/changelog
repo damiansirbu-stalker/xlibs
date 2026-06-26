@@ -1,5 +1,5 @@
 next
-  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup
+  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc
 
   xcreature
     - Fixed get_clsid misclassifying low entity IDs. It short-circuited any number in [1,999] as an
@@ -8,6 +8,10 @@ next
       Numbers now always resolve through xobject.se. No caller passed a raw clsid through this path.
     - Replaced literal 65535 invalid-entity sentinels in get_mutant_species / get_mutant_variant with
       xconst.INVALID_ENTITY_ID, matching xsquad.
+
+  xsmart
+    - Added get_job_for_npc(smart, npc_id): the job a given NPC holds at the smart, or nil. Inverse
+      of get_npc_for_job. The descriptor carries section and job_type_id.
 
 1.7.7
   Summary: xcombat combat-AI module, xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory policy rows by category or item section, dead-helper cleanup
