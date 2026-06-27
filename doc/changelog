@@ -1,5 +1,5 @@
 next
-  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc
+  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire
 
   xcreature
     - Fixed get_clsid misclassifying low entity IDs. It short-circuited any number in [1,999] as an
@@ -12,6 +12,9 @@ next
   xsmart
     - Added get_job_for_npc(smart, npc_id): the job a given NPC holds at the smart, or nil. Inverse
       of get_npc_for_job. The descriptor carries section and job_type_id.
+    - Added is_near_campfire(smart, position, radius): true if the position is within radius of any
+      campfire bound to the smart. Distinguishes a real fire seat from the campfire_point scheme's
+      random-cover fallback.
 
 1.7.7
   Summary: xcombat combat-AI module, xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory policy rows by category or item section, dead-helper cleanup
