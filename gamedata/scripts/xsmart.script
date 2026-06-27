@@ -383,6 +383,31 @@ function has_campfire(smart)
     return tbl and next(tbl) ~= nil or false
 end
 
+--- Test if a position is within radius of any campfire bound to the smart.
+--- Reads db.campfire_table_by_smart_names[smart:name()] (bind_campfire, online scope) and measures
+--- against each binder.object. Tells a real fire seat (the seat ring is <=8m from the fire,
+--- xr_campfire_point.script:65-101) from the campfire_point random-cover fallback, which lands
+--- decoupled from the fire.
+--- @scope online - campfire binders exist while the campfire is online (switch_distance)
+--- @safety SAFE - nil-guarded; binder.object guarded for the net_destroy transition edge
+--- @cost O(k) k=campfires at smart (1-3) | per fire: 1 luabind trivial (object:position) + distance_to_sqr inline
+--- @src anomaly/bind_campfire.script(20-27) campfire_table_by_smart_names binders with .object
+--- @param smart smart_terrain Smart terrain to query
+--- @param position vector World position to test
+--- @param radius number Meters
+--- @return boolean True if position is within radius of any bound campfire
+function is_near_campfire(smart, position, radius)
+    if not smart or not position then return false end
+    local fires = db.campfire_table_by_smart_names and db.campfire_table_by_smart_names[smart:name()]
+    if not fires then return false end
+    local r2 = radius * radius
+    for _, binder in pairs(fires) do
+        local obj = binder and binder.object
+        if obj and position:distance_to_sqr(obj:position()) <= r2 then return true end
+    end
+    return false
+end
+
 --- Check if smart terrain is near anomaly zones
 --- Proximity check against db.anomaly_by_name; online scope (switch_distance, not current-level)
 --- @scope online - db.anomaly_by_name populated by anomaly zone binders at net_spawn; binder.object is the online physics object. Same online_distance / offline_distance hysteresis as campfires.
