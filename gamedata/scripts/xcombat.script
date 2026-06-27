@@ -1,7 +1,8 @@
 --- xcombat: combat AI primitives - weapon classification, NPC control commands, geometry, movement targeting, cover reservation, squad spread
 
 local pairs, math_sqrt, math_cos, math_sin, math_abs = pairs, math.sqrt, math.cos, math.sin, math.abs
-local time_global = time_global
+local math_acos, math_deg = math.acos, math.deg
+local time_global, tostring = time_global, tostring
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
 local move, state_mgr = move, state_mgr
@@ -38,7 +39,7 @@ xcombat.WEAPON_RANGES = {
     w_shotgun   = { min = 2,  max = 15  },
     w_smg       = { min = 2,  max = 30  },
     w_rifle     = { min = 3,  max = 80  },
-    w_sniper    = { min = 30, max = 150 },
+    w_sniper    = { min = 10, max = 150 },
     w_explosive = { min = 10, max = 100 },
 }
 
@@ -196,6 +197,52 @@ end
 function xcombat.unregister_in_combat(npc)
     if not npc or not npc:alive() then return end
     npc:unregister_in_combat()
+end
+
+-- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
+local _operators = nil
+
+--- Short name of the engine combat operator the NPC's brain is running now (combat / danger / alife).
+--- Reads the motivation action manager's current action id and maps the known combat planner ids to a label;
+--- any other live action shows as its raw id, an absent/uninitialized manager as "-". A read of who drives.
+--- @safety SAFE - nil-guarded manager + initialized() check, never constructs
+--- @cost O(1) | 3 luabind trivial (motivation_action_manager, initialized, current_action_id - field reads)
+--- @src xray/script_game_object_script2.cpp (motivation_action_manager), anomaly/xr_actions_id.script
+--- @param npc game_object stalker
+--- @return string operator label ("combat"/"danger"/"alife"/id/"-")
+function xcombat.get_operator(npc)
+    if not _operators then
+        _operators = {
+            [stalker_ids.action_combat_planner] = "combat",
+            [stalker_ids.action_danger_planner] = "danger",
+            [stalker_ids.action_alife_planner]  = "alife",
+        }
+    end
+    local mgr = npc:motivation_action_manager()
+    if not (mgr and mgr:initialized()) then return "-" end
+    local cur = mgr:current_action_id()
+    if not cur then return "-" end
+    return _operators[cur] or tostring(cur)
+end
+
+--- Degrees the NPC's body facing is off the straight line to target_pos (0 = dead on, 180 = opposite).
+--- A combat NPC normally faces near its enemy, so a large offset is the body pointed away (the weird-aim cue).
+--- Flat XZ angle from the dot product of the unit facing and the unit direction to the target.
+--- @safety SAFE - returns 0 when the target sits on the NPC (degenerate direction)
+--- @cost O(1) | 2 luabind trivial (direction, position field reads) + pure math
+--- @src xray/script_game_object_script2.cpp:98 (direction)
+--- @param npc game_object
+--- @param target_pos vector world position the NPC should be facing
+--- @return number degrees in [0, 180]
+function xcombat.get_facing_offset(npc, target_pos)
+    local dir = npc:direction()
+    local np = npc:position()
+    local vx, vz = target_pos.x - np.x, target_pos.z - np.z
+    local mag = math_sqrt(vx * vx + vz * vz)
+    if mag < 1 then return 0 end
+    local cos = (dir.x * vx + dir.z * vz) / mag
+    if cos > 1 then cos = 1 elseif cos < -1 then cos = -1 end
+    return math_deg(math_acos(cos))
 end
 
 -- =========================================================================
