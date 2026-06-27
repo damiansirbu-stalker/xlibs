@@ -285,6 +285,20 @@ function get_squad_by_member(npc_id)
     return alife_object(group_id)
 end
 
+--- Get raw squad community id (faction key), untranslated
+--- The untranslated sibling of get_community_name: returns the engine community string
+--- (e.g. "dolg", "stalker") for use as a faction KEY, not display text. get_community_name
+--- runs the result through game.translate_string and must not be used where the raw id matters.
+--- @safety SAFE - nil-guarded squad + method presence check
+--- @cost O(1) | 1 luabind (get_squad_community heavy shared_str return) on hit
+--- @src anomaly/sim_squad_scripted.script(857) get_squad_community
+--- @param squad userdata Squad server object
+--- @return string|nil Raw community id, or nil if no squad / no community method
+function get_community(squad)
+    if not (squad and squad.get_squad_community) then return nil end
+    return squad:get_squad_community()
+end
+
 --- Get translated squad community name
 --- Safe wrapper: nil-guarded get_squad_community + game.translate_string
 --- @safety SAFE - nil-guarded, falls back to "stalker" translation key

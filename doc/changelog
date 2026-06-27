@@ -1,5 +1,5 @@
 next
-  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire
+  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire, xinventory get_rank_chance and release_item_id, xsquad get_community
 
   xcreature
     - Fixed get_clsid misclassifying low entity IDs. It short-circuited any number in [1,999] as an
@@ -15,6 +15,17 @@ next
     - Added is_near_campfire(smart, position, radius): true if the position is within radius of any
       campfire bound to the smart. Distinguishes a real fire seat from the campfire_point scheme's
       random-cover fallback.
+
+  xinventory
+    - Added get_rank_chance(section, actor, ruleset): a 0..1 appearance chance for a section by the
+      actor's rank tier, with a hard category floor and per-tier cost bands. Rank-gate kernel for the
+      AlifePlus faction market.
+    - Added release_item_id(id): id-based sibling of release_item that releases offline items too
+      (no game_object required).
+
+  xsquad
+    - Added get_community(squad): raw community id (faction key), the untranslated sibling of
+      get_community_name.
 
 1.7.7
   Summary: xcombat combat-AI module, xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory policy rows by category or item section, dead-helper cleanup

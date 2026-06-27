@@ -630,6 +630,59 @@ function is_in_category(sec, category)
 end
 
 -- ============================================================================
+-- RANK GATE
+-- ============================================================================
+
+-- True when the actor's rank is below the floor tier named for this section or category. A missing
+-- floor entry or unresolved tier name returns false (no block). Split out to keep get_rank_chance
+-- under the complexity ceiling.
+local function _below_rank_floor(actor, floor, section, category)
+    local tier = floor and (floor[section] or floor[category])
+    if not tier then return false end
+    local interval = ranks.get_rank_interval(tier)
+    local lo = interval and interval[1]
+    local actor_rank = actor.character_rank and actor:character_rank()
+    return lo and actor_rank and actor_rank < lo or false
+end
+
+--- Rank-gated appearance chance for a section under a ruleset
+--- Generic kernel: resolves the section's category (get_section_category) and cost (get_cost)
+--- and the actor's rank tier (ranks.get_obj_rank_name / character_rank), then returns a 0..1
+--- chance. Two gates: (1) hard floor — a section or category named in ruleset.floor returns
+--- chance 0 while the actor's character_rank is below that tier's interval lower bound; (2) cost
+--- band — within the actor's tier row, the first {cost, chance} entry whose cost >= the section
+--- cost wins (entries ascending by cost), so cheap sections stay common and expensive ones rare
+--- at low rank. Missing floor / tier row / bands all open (chance 1), so an unconfigured ruleset
+--- never blocks; a misconfigured floor tier name is ignored (does not block). Caller rolls
+--- math_random() <= chance and fail-closes.
+--- @safety SAFE - nil-guarded section / actor / ruleset; bad tier name skips the floor
+--- @cost O(1) | get_section_category + get_cost + 2 ranks lookups + O(bands) row walk (~3)
+--- @src anomaly/ranks.script(56) get_obj_rank_name, (89) get_rank_interval; xray/xrGame/script_game_object_script2.cpp(106) character_rank
+--- @see get_section_category (category), get_cost (cost)
+--- @param section string Item section name
+--- @param actor game_object Player object (character_rank + rank tier source)
+--- @param ruleset table { floor = { [section|category] = tier_name }, bands = { [tier_name] = { {cost,chance}, ... asc }, default = {...} } }
+--- @return number Appearance chance in [0, 1]
+function get_rank_chance(section, actor, ruleset)
+    if not section or not actor or not ruleset then return 0 end
+    local category = get_section_category(section)
+    if _below_rank_floor(actor, ruleset.floor, section, category) then return 0 end
+
+    -- Cost band per actor tier (falls back to a default row, then to fully open)
+    local bands = ruleset.bands
+    if not bands then return 1 end
+    local row = bands[ranks.get_obj_rank_name(actor)] or bands.default
+    if not row then return 1 end
+    local cost = get_cost(section) or 0
+    for i = 1, #row do
+        local band = row[i]
+        if band.cost and cost <= band.cost then return band.chance or 0 end
+    end
+    -- Cost above every listed threshold: take the rarest (last) defined band
+    return row[#row] and row[#row].chance or 0
+end
+
+-- ============================================================================
 -- ITEM LIFECYCLE (moved from xobject per item-domain boundary)
 -- ============================================================================
 
@@ -715,6 +768,20 @@ end
 function release_item(item)
     if not item then return false end
     alife_release_id(item:id())
+    return true
+end
+
+--- Release an item from the simulation by id (online or offline)
+--- The id-based sibling of release_item: works without a game_object, so it releases offline items
+--- too (release_item needs a live game_object). Event-queued, safe mid-iterate.
+--- @safety SAFE - nil-guarded id
+--- @cost O(1) | 1 luabind (alife_release_id: event queue enqueue)
+--- @src anomaly/_g.script alife_release_id, xray/xrGame/alife_simulator_script.cpp
+--- @param id number Item entity id
+--- @return boolean Success
+function release_item_id(id)
+    if not id then return false end
+    alife_release_id(id)
     return true
 end
 

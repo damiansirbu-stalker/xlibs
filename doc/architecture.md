@@ -129,6 +129,7 @@ xsquad.release_squad(squad)
 - `get_squad_smart(squad)`
 - `is_stationed(squad, smart_id)` - True when engine considers squad stationed (current_action=1). With smart_id, also requires current_target_id match. Sticky until idle_time expires or new target assigned
 - `get_squad_by_member(npc_id)` - Get squad containing NPC
+- `get_community(squad)` - Raw community id (faction key), untranslated. Use for keying/comparison; the translated `get_community_name` is display-only
 - `get_community_name(squad)` - Translated community name (safe, never nil)
 - `is_permanent_squad(squad)` - Static identity check (story, trader, named_npc, empty), cached
 - `has_active_role(squad)` - Dynamic role check (task_giver, companion)
@@ -181,6 +182,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - `get_category(item, opts)` - item → category name, adds per-NPC overrides on top of `get_section_category`: three runtime per-item untouchable checks (story_id via `get_object_story_id(item:id())`, companion-gifted via `axr_companions.is_assigned_item(opts.npc_id, item:id())`, player-strapped via `se_load_var(item:id(), "", "strapped_item")`); equipped check via `opts.equipped_ids`; ammo tier resolution to `ammo_slot_2_tN` / `ammo_slot_3_tN` per equipped pistol / rifle tier_map.
 - `resolve_ammo_category(sec, opts)` - section-string variant of the ammo tier branch (no game_object required). Used by stash loot to match each stash ammo section against per-member opts.
 - `is_in_category(sec, category)` - section-based predicate (wraps `get_section_category`). Per-NPC categories (`equipped`, `ammo_slot_*`) always return false on this path. Use `get_category` for those.
+- `get_rank_chance(section, actor, ruleset)` - rank-gate kernel: a 0..1 appearance chance for a section under `ruleset = { floor = {[section|category]=tier}, bands = {[tier]={{cost,chance}, ... asc}, default} }`. Resolves the section category (`get_section_category`) + cost (`get_cost`) and the actor's rank tier (`ranks.get_obj_rank_name` / `character_rank`); a floor tier returns 0 below its rank, otherwise the first cost band whose `cost >= ` the section cost wins. Unconfigured opens (chance 1). Caller rolls and fail-closes. Used by the AlifePlus faction market.
 - `get_category_sections(category)` - reverse: category → list of sections. Builders dispatch to hand-maintained sets (medical 5 + grenade), `_ITM[bucket]` reads (Parse_ITM-derived: outfit / helmet / artefact / device / money / grenade_ammo / ammo), kind filter over `_ITM["eatable"]` (food / drink), or `_ITM` unions (crafting = tool + part + upgrade). No `ini_sys:section_for_each` walks. Per-NPC categories (equipped, ammo_slot_*) and `weapon` return empty (weapon is per-item only). Lazy per-category build, weak-keyed cache, addon-aware for Parse_ITM bucket sources; grenade addons need an entry in `_grenade_set`.
 
 **Item accessors** (`game_object` item in):
@@ -208,7 +210,8 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - `iterate_inventory(npc_id, callback)` - online-only inventory walk (engine has no offline iteration API). Replaces `xobject.iterate_online_inventory`.
 - `create_item(section, npc_id, t)` - spawn item on any NPC (online / offline / cross-map via smart-terrain fallback). Replaces `xobject.create_item`.
 - `transfer_item(from_npc, item, to_npc)` - move item between owners.
-- `release_item(item)` - alife_release_id wrapper.
+- `release_item(item)` - alife_release_id wrapper (needs a live game_object).
+- `release_item_id(id)` - id-based release sibling; works offline (no game_object required).
 
 **Policy primitives** (uniform shape across consumers):
 - `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`. `entries` preserves declaration order (BUY / LOOT priority); `rules` is the hash for O(1) per-category lookup; `specials` carries numeric keys named in `specials_set` (`profit_max`, `extras_max`, `fill_max`, ...).
