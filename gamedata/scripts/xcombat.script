@@ -138,6 +138,67 @@ function xcombat.disclose_enemy(npc, enemy)
 end
 
 -- =========================================================================
+-- GOAP takeover - the planner block list and the squad combat-mask lifecycle. The takeover grafts one
+-- evaluator + one action per stalker (the AT policy half) and adds world_property(EVAL_ID, false) as a
+-- precondition to every planner in get_blocked_planners(), so while the flag holds the vanilla
+-- combat/danger/state/alife chain is gated off and the grafted action is the only producer of the
+-- EVAL_ID=false the brain now requires. register/unregister replicate the squad memory-sharing bookkeeping
+-- the blocked CStalkerCombatPlanner no longer performs (its initialize register / finalize unregister).
+-- =========================================================================
+
+-- The blocked-planner id list, built once and cached. Resolved at call time (install), not at file body, so
+-- the base library never auto-loads the GOAP id modules at load and xr_danger.actid is defined before the read.
+local _blocked_planners = nil
+
+--- GOAP planner ids the takeover precondition-blocks while a transaction is open (built once, cached).
+--- xr_danger's danger action + the engine combat/danger planners + state_mgr's +2 slot + the alife planner:
+--- the chokepoint chain the brain runs toward eWorldPropertyPuzzleSolved when an enemy is selected.
+--- @safety SAFE - returns the cached list; the ids are engine/vanilla constants present at install time
+--- @cost O(1) | 0 luabind (engine-id field reads, cached after first build)
+--- @src anomaly/xr_actions_id.script:8,13 (alife, state_mgr), anomaly/xr_danger.script:41 (actid)
+--- @src xray/stalker_combat_planner.cpp:182,193-194 (the mask bookkeeping the block removes)
+--- @return table array of GOAP action/planner ids
+function xcombat.get_blocked_planners()
+    if not _blocked_planners then
+        _blocked_planners = {
+            stalker_ids.action_combat_planner,
+            stalker_ids.action_danger_planner,
+            xr_danger.actid,
+            xr_actions_id.state_mgr + 2,
+            xr_actions_id.alife,
+        }
+    end
+    return _blocked_planners
+end
+
+--- Set the NPC's squad combat-mask bit - join the squad memory-sharing group.
+--- The grafted action calls this in its initialize because the blocked CStalkerCombatPlanner::initialize (its
+--- last act) no longer runs; without it an AT NPC stays out of agent memory propagation. Idempotent (the engine
+--- ORs the bit); alive-gated because the bound call reaches agent_manager().member(), valid only on a live stalker.
+--- @safety SAFE - nil/alive-guarded; register_in_combat is SAFE_WRAPped and a no-op on a non-stalker
+--- @cost O(1) | 1 luabind medium (register_in_combat: agent_manager().member() mask OR)
+--- @src xray/script_game_object_script2.cpp:381 (binding), xray/stalker_combat_planner.cpp:182 (the removed call)
+--- @param npc game_object stalker
+function xcombat.register_in_combat(npc)
+    if not npc or not npc:alive() then return end
+    npc:register_in_combat()
+end
+
+--- Clear the NPC's squad combat-mask bit - leave the squad memory-sharing group.
+--- The grafted action calls this in its finalize because the blocked CStalkerCombatPlanner::finalize (its
+--- guarded unregister) no longer runs. Idempotent (clears an already-clear bit harmlessly); alive-gated because
+--- finalize also fires on death, where the agent member state is torn down and the bound call faults on the
+--- stale object (the engine smart_cast guards type, not liveness).
+--- @safety SAFE - nil/alive-guarded (skips the dead-object fault the engine smart_cast does not catch)
+--- @cost O(1) | 1 luabind medium (unregister_in_combat: agent_manager().member() mask clear)
+--- @src xray/script_game_object_script2.cpp:382 (binding), xray/stalker_combat_planner.cpp:193-194 (the removed call)
+--- @param npc game_object stalker
+function xcombat.unregister_in_combat(npc)
+    if not npc or not npc:alive() then return end
+    npc:unregister_in_combat()
+end
+
+-- =========================================================================
 -- NPC control - the takeover writes the NPC through set_combat, so the consumer issues no raw engine calls.
 -- set_combat owns weapon mode + posture + movement and hands the fire state its look_object, so the engine
 -- object-track aims and fires at the enemy autonomously every frame (the turret model); send_to owns destination.
