@@ -465,6 +465,24 @@ function get_cost(sec)
     return v
 end
 
+--- Translated player-facing name of an item section: resolves `inv_name` through the string table.
+--- Falls back to the section id when no inv_name is set or the lookup misses, so the return is
+--- always a usable display string.
+--- @safety SAFE - nil-guarded sec; returns the section id on any miss
+--- @cost O(1) | 1 r_string_ex + 1 translate
+--- @see xray/xrServerEntities/script_ini_file.cpp r_string_ex; anomaly inv_name -> game.translate_string convention
+--- @param sec string Item section name
+--- @return string Display name, or the section id on miss
+function get_item_name(sec)
+    if not sec then return "" end
+    local key = ini_sys:r_string_ex(sec, "inv_name")
+    if key and key ~= "" then
+        local name = game.translate_string(key)
+        if name and name ~= "" then return name end
+    end
+    return sec
+end
+
 local _box_size_cache = {}
 
 --- Get ammo box size (rounds per stack) for an ammo section
