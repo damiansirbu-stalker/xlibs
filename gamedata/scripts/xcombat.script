@@ -199,6 +199,106 @@ function xcombat.unregister_in_combat(npc)
     npc:unregister_in_combat()
 end
 
+-- =========================================================================
+-- GOAP takeover graft - the evaluator + action grafted per stalker and the install/release wiring. xcombat owns
+-- this MECHANISM; the consumer owns POLICY through a spec { gate(npc)->bool, on_begin(npc) }. While the consumer
+-- raises the gate the evaluator returns true; the brain needs TAKEOVER_ID=false to reach
+-- eWorldPropertyPuzzleSolved and finds every blocked vanilla planner precondition-gated on TAKEOVER_ID=false, so
+-- the grafted action (the sole producer of TAKEOVER_ID=false) is the only path and runs. Lower the gate and
+-- vanilla resumes. The graft is permanent for the NPC's life; a transaction is just the gate going up then down.
+-- One spec drives every NPC - the per-NPC gate flag and maneuver state live in the consumer, keyed by npc:id().
+-- =========================================================================
+
+-- GOAP id shared by the grafted evaluator and action (the evaluator and action id-spaces are separate, so one
+-- value serves both, matching the proven v1 graft). 188200 is free; xr_danger.actid is 188113.
+local TAKEOVER_ID = 188200
+
+local _takeover_spec = nil
+local _takeover_installed = {}
+
+-- The gate evaluator: true exactly while the consumer's gate is raised for this NPC. The brain polls it every
+-- plan solve, so it is a flag read - the consumer decides off the hot path and the gate is a cached lookup.
+class "xcombat_takeover_evaluator" (property_evaluator)
+function xcombat_takeover_evaluator:__init(name) super(nil, name) end
+function xcombat_takeover_evaluator:evaluate()
+    return _takeover_spec ~= nil and _takeover_spec.gate(self.object) == true
+end
+
+-- The grafted action: while the gate holds it is the only producer of TAKEOVER_ID=false, so the brain runs it.
+-- initialize (the engine calls it ONCE, when the action activates) joins the squad combat group and issues the
+-- maneuver via spec.on_begin - the single place AT touches the engine, set once. execute (the engine calls it
+-- every frame) does NOTHING: the engine's own state machine carries the maneuver, AT runs no per-frame logic.
+-- finalize leaves the group and clears the sniper flag so a handed-back NPC is not stranded in precision-fire mode.
+class "xcombat_takeover_action" (action_base)
+function xcombat_takeover_action:__init(name) super(nil, name) end
+function xcombat_takeover_action:initialize()
+    action_base.initialize(self)
+    local npc = self.object
+    npc:set_desired_position()
+    npc:set_desired_direction()
+    npc:set_path_type(game_object.level_path)
+    npc:set_mental_state(anim.danger)
+    npc:register_in_combat()
+    if _takeover_spec and _takeover_spec.on_begin then _takeover_spec.on_begin(npc) end
+end
+function xcombat_takeover_action:execute()
+    action_base.execute(self)
+end
+function xcombat_takeover_action:finalize()
+    action_base.finalize(self)
+    local npc = self.object
+    if npc:alive() then npc:unregister_in_combat() end
+    npc:sniper_fire_mode(false)
+end
+
+--- Graft the takeover onto a stalker: add the gate evaluator + the consumer action and precondition-block the
+--- vanilla combat chain on the gate. Idempotent per NPC; the graft is permanent for the NPC's life, so a
+--- transaction is the gate raising then lowering. The spec is the consumer policy, shared across NPCs - the
+--- per-NPC gate flag and maneuver state live in the consumer, read by npc:id() inside the gate/body callbacks.
+--- @safety SAFE - nil/manager guarded; returns false (no-op) without a motivation_action_manager
+--- @cost O(b) blocked planners | add_evaluator + add_action + b*(action lookup + add_precondition), one-time at install
+--- @src anomaly/xr_actions_id.script, anomaly/xr_evaluators_id.script:17 (sidor_wounded_base); xray/stalker_planner.cpp:68-69,128,149-163 (the goal chain the gate exploits)
+--- @param npc game_object stalker
+--- @param spec table { gate = function(npc) -> boolean, on_begin = function(npc) issued once at takeover }
+--- @return boolean true when grafted or already grafted, false when the NPC has no action manager
+function xcombat.install_takeover(npc, spec)
+    if not npc or not spec then return false end
+    _takeover_spec = spec
+    local id = npc:id()
+    if _takeover_installed[id] then return true end
+    local manager = npc:motivation_action_manager()
+    if not manager then return false end
+    _takeover_installed[id] = true
+
+    manager:add_evaluator(TAKEOVER_ID, xcombat_takeover_evaluator("eva_xcombat_takeover"))
+
+    local action = xcombat_takeover_action("act_xcombat_takeover")
+    action:add_precondition(world_property(stalker_ids.property_alive, true))
+    action:add_precondition(world_property(xr_evaluators_id.sidor_wounded_base, false))
+    action:add_precondition(world_property(TAKEOVER_ID, true))
+    action:add_effect(world_property(TAKEOVER_ID, false))
+    manager:add_action(TAKEOVER_ID, action)
+
+    local blocked = xcombat.get_blocked_planners()
+    for i = 1, #blocked do
+        local act = manager:action(blocked[i])
+        if act then act:add_precondition(world_property(TAKEOVER_ID, false)) end
+    end
+    return true
+end
+
+--- Drop the install-tracking for an NPC so a respawned id re-grafts; call on net_destroy.
+--- The graft and block preconditions cannot be unwired from a live manager and persist for the game_object's
+--- life; a respawn builds a fresh manager, so clearing the guard lets the next install re-graft. Per-transaction
+--- release is the consumer lowering its gate (the evaluator then returns false), not this.
+--- @safety SAFE - nil guarded
+--- @cost O(1) | 1 luabind trivial (id) + table clear
+--- @param npc game_object
+function xcombat.release_takeover(npc)
+    if not npc then return end
+    _takeover_installed[npc:id()] = nil
+end
+
 -- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
 local _operators = nil
 
@@ -675,6 +775,21 @@ function xcombat.send_to(npc, vid)
     end
     npc:set_dest_level_vertex_id(vid)
     return vid
+end
+
+--- True when the NPC has reached its movement destination - the committed-maneuver arrival check.
+--- Wraps path_completed() = (m_path_state == ePathStatePathCompleted) && actual(); the actual() term self-guards
+--- the new-destination race - set_dest_level_vertex_id drops path actuality, so this stays false until the new
+--- path is built and walked, never a stale true on the first tick after a send_to. The engine's stricter
+--- actual_all() pairing is not script-bound, so this is the full arrival truth available. Meaningless for a hold
+--- maneuver (dest == own node makes it trivially true); a hold ends on its time cap, not on arrival.
+--- @safety SAFE - path_completed is SAFE_WRAPped, returns false on a torn-down object
+--- @cost O(1) | 1 luabind trivial (path_completed: m_path_state compare + actual flag read)
+--- @src xray/script_game_object_script3.cpp:63 (binding), xray/movement_manager_inline.h:32 (m_path_state==ePathStatePathCompleted && actual)
+--- @param npc game_object
+--- @return boolean true when the path is complete and current
+function xcombat.is_arrived(npc)
+    return npc:path_completed()
 end
 
 -- =========================================================================
