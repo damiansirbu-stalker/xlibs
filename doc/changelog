@@ -1,5 +1,5 @@
-next
-  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire, xinventory get_rank_chance and release_item_id, xsquad get_community
+1.8.0
+  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire, xinventory get_rank_chance, release_item_id, create_item cond fix, xsquad get_community
 
   xcreature
     - Fixed get_clsid misclassifying low entity IDs. It short-circuited any number in [1,999] as an
@@ -22,6 +22,10 @@ next
       AlifePlus faction market.
     - Added release_item_id(id): id-based sibling of release_item that releases offline items too
       (no game_object required).
+    - Fixed create_item dropping the cond value on non-degradable items.
+      alife_create_item registers the deferred set_condition only for use_condition sections, so
+      weapons, outfits, and helmets spawned at full condition.
+      create_item now applies the requested condition through alife_process_item for those sections.
 
   xsquad
     - Added get_community(squad): raw community id (faction key), the untranslated sibling of

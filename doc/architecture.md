@@ -208,7 +208,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 
 **Item lifecycle**:
 - `iterate_inventory(npc_id, callback)` - online-only inventory walk (engine has no offline iteration API). Replaces `xobject.iterate_online_inventory`.
-- `create_item(section, npc_id, t)` - spawn item on any NPC (online / offline / cross-map via smart-terrain fallback). Replaces `xobject.create_item`.
+- `create_item(section, npc_id, t)` - spawn item on any NPC (online / offline / cross-map via smart-terrain fallback). A requested `cond` is applied even on non-degradable sections (weapons, outfits) that itms_manager skips. Replaces `xobject.create_item`.
 - `transfer_item(from_npc, item, to_npc)` - move item between owners.
 - `release_item(item)` - alife_release_id wrapper (needs a live game_object).
 - `release_item_id(id)` - id-based release sibling; works offline (no game_object required).
