@@ -723,6 +723,20 @@ function iterate_inventory(npc_id, callback)
     return npc_go
 end
 
+--- Force a requested condition onto a freshly created item that itms_manager.create_item ignored.
+--- The engine cond path only registers a condition for sections flagged use_condition (consumables,
+--- itms_manager.script:1367); weapons/outfits/helmets carry a condition value but no use_condition
+--- flag, so { cond = x } is silently dropped. alife_process_item registers the condition with no
+--- degradability gate (itms_manager.script:1403), and set_condition applies to any inventory item.
+--- Gated on not is_degradable so the degradable path (including cond_r/cond_cr) is left untouched.
+--- @safety SAFE - skips nil se, table (ammo) returns without an id, and missing/zero cond
+local function _apply_cond(se, section, t)
+    if se and t and t.cond and se.id and not utils_item.is_degradable(nil, section) then
+        alife_process_item(section, se.id, { cond = t.cond })
+    end
+    return se
+end
+
 --- Create an item on any NPC (online, offline, any map)
 --- Three branches all route through alife_create_item for uniform property handling:
 ---   (1) online NPC + valid lvid -> game_object owner
@@ -741,14 +755,14 @@ function create_item(section, npc_id, t)
 
     if level.present() then
         local npc = level.object_by_id(npc_id)
-        if npc then return alife_create_item(section, npc, t) end
+        if npc then return _apply_cond(alife_create_item(section, npc, t), section, t) end
     end
 
     local se_npc = alife_object(npc_id)
     if not se_npc then return nil end
 
     if xlevel.is_valid_lvid(se_npc) then
-        return alife_create_item(section, se_npc, t)
+        return _apply_cond(alife_create_item(section, se_npc, t), section, t)
     end
 
     local smart_id = se_npc.m_smart_terrain_id
@@ -756,9 +770,9 @@ function create_item(section, npc_id, t)
     local smart = alife_object(smart_id)
     if not smart or not xlevel.is_valid_lvid(smart) then return nil end
 
-    return alife_create_item(section, {
+    return _apply_cond(alife_create_item(section, {
         smart.position, smart.m_level_vertex_id, smart.m_game_vertex_id, npc_id
-    }, t)
+    }, t), section, t)
 end
 
 --- Transfer an item from one NPC to another
