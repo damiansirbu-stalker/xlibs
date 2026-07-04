@@ -44,14 +44,23 @@ xcombat.WEAPON_RANGES = {
     w_explosive = { min = 10, max = 100 },
 }
 
+-- Weapon kinds an NPC can hold and fight with. A thrown grenade reads kind w_explosive; it is excluded here so
+-- a mid-throw NPC classifies by its slotted firearm (its real range band), not a 10m explosive band.
+local HELD_WEAPON_KINDS = {
+    w_pistol = true, w_shotgun = true, w_smg = true, w_rifle = true, w_sniper = true, w_melee = true,
+}
+
 local WEAPON_TTL_MS = 2000
 local _weapon_kind_cache = {}
 
---- Active weapon kind string for an NPC (w_rifle / w_pistol / w_sniper / ...), TTL-cached per id.
---- Caches 2s because active_item briefly returns nil across animation transitions; the cache holds the kind stable.
---- @safety SAFE - nil-guarded section read, returns nil when no weapon resolves
---- @cost O(1) | 0 luabind cached, 3-4 luabind on miss (xinventory getters + section heavy + r_string_ex ini parse)
---- @src anomaly/configs/items/weapons/w_*.ltx (kind field), xray/script_ini_file.cpp
+--- Kind string for the weapon an NPC is fighting with (w_rifle / w_pistol / w_sniper / ...), TTL-cached per id.
+--- Reads the ACTIVE (in-hand) item's kind first, accepting only a held-and-fightable kind; a thrown grenade reads
+--- w_explosive and is excluded, so a thrower classifies by its slotted firearm rather than a 10m explosive band.
+--- Falls back to the slot-priority scan (rifle, then pistol, then knife) when the active item is not a fightable
+--- weapon or is briefly nil across an animation transition. Caches 2s so the kind holds stable through those.
+--- @safety SAFE - nil-guarded section reads, returns nil when no weapon resolves
+--- @cost O(1) | 0 luabind cached; on miss 1 luabind active_item + r_string_ex, else the slot-scan getters + r_string_ex
+--- @src anomaly/configs/items/weapons/w_*.ltx (kind field), xray/script_ini_file.cpp, xray/script_game_object.cpp (active_item)
 --- @param npc game_object
 --- @return string|nil weapon kind, or nil when unarmed/unresolved
 function xcombat.get_weapon_kind(npc)
@@ -59,13 +68,20 @@ function xcombat.get_weapon_kind(npc)
     local tg = time_global()
     local entry = _weapon_kind_cache[id]
     if entry and tg < entry.expires then return entry.kind end
-    local wpn = xinventory.get_equipped_rifle(npc)
-             or xinventory.get_equipped_pistol(npc)
-             or xinventory.get_equipped_knife(npc)
     local kind = nil
-    if wpn then
-        local section = wpn:section()
-        if section then kind = ini_sys:r_string_ex(section, "kind") end
+    local active = npc:active_item()
+    if active then
+        local k = ini_sys:r_string_ex(active:section(), "kind")
+        if k and HELD_WEAPON_KINDS[k] then kind = k end
+    end
+    if not kind then
+        local wpn = xinventory.get_equipped_rifle(npc)
+                 or xinventory.get_equipped_pistol(npc)
+                 or xinventory.get_equipped_knife(npc)
+        if wpn then
+            local section = wpn:section()
+            if section then kind = ini_sys:r_string_ex(section, "kind") end
+        end
     end
     _weapon_kind_cache[id] = { kind = kind, expires = tg + WEAPON_TTL_MS }
     return kind
