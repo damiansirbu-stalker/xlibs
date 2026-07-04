@@ -4,6 +4,12 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 
 ---
 
+## Invariants
+
+- **No steady-state per-frame work.** Ongoing work runs on a throttled tick (a fixed interval) or on a discrete engine event (hit, shot, spawn, option change); it never runs continuously every frame. A per-frame engine callback (`npc_on_update`) is used only as a carrier that throttles before doing anything, and we never place our code on a path the engine runs every frame (a visibility or fire functor). Frame-spreading a bounded one-off batch (xslice, 1 item per frame) to avoid a single-frame spike is the one allowed use of the frame; it completes and stops. Full rule and rationale: `doc/standards/code-standards.md` "No Per-Frame Work".
+
+---
+
 ## Module Overview
 
 ```
@@ -140,6 +146,39 @@ xsquad.release_squad(squad)
 - `iter_squads()` - Iterator over all SIMBOARD squads
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
 - `dump_squads()` - Diagnostic string of all SIMBOARD squads
+
+### xcombat.script - Combat AI Primitives
+
+```lua
+xcombat.set_combat(npc, { fire = xcombat.FIRE, posture = xcombat.CROUCH, movement = xcombat.STILL, aim = enemy })
+xcombat.send_to(npc, xcombat.find_cover(npc, enemy_pos))
+if xcombat.fire_make_sense(npc, enemy) then ... end
+```
+
+Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over the per-NPC combat-AI engine binds. Registers no callbacks and holds no game state; caches are transient (TTL, level-key) or session-stable exe probes.
+
+- `get_weapon_kind(npc)`, `get_weapon_range(kind)` - Active weapon kind (TTL-cached) and its engagement range band
+- `get_unseen_ms(npc, enemy, tg)`, `get_track_pos(npc, enemy, sees)` - Enemy-memory reads: any-sense recency, live-or-last-known position
+- `disclose_enemy(npc, enemy)` - Inject a known enemy into NPC memory and register in combat, relation-clean
+- `install_takeover(npc, spec)`, `release_takeover(npc)` - Graft the GOAP gate evaluator + action per stalker; the consumer owns policy via spec { gate, on_begin }
+- `register_in_combat(npc)`, `unregister_in_combat(npc)` - Squad memory-sharing bookkeeping the blocked combat planner no longer performs
+- `get_blocked_planners()`, `get_operator(npc)`, `get_facing_offset(npc, pos)` - Blocked planner-id list, current brain operator, body-facing offset
+- `set_combat(npc, opts)`, `resolve_stance(fire, posture, movement)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
+- `has_occluder_between(a, b)`, `has_obstacle_between(a, b)`, `has_friendly_in_line(npc, a, b, thresh)` - Chest-height static/object rays and the squad firing-lane check
+- `find_point(npc, dir, m)`, `find_cover(npc, enemy_pos, search_pos)`, `find_shot(npc, enemy_pos)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders (decreasing-step search, ring sweeps, clear-lane fans)
+- `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
+- `is_indoor(pos)` - Indoor-level table plus surge-shelter proximity
+- `claim_cover(lvid, owner_id)`, `release_cover(lvid, owner_id)` - Ownership-checked cover-vertex reservation over db.used_level_vertex_ids
+- `get_squad_ordinal(squad_id, npc_id)` - Stable per-member spread bucket
+
+Engine fire-gate wrappers (themrdemonized/xray-monolith PRs #594 aim+vision, #595 switch veto, #596 fire gates). Each probes its bind once on first call (`type(npc.<bind>) == "function"`, cached module-local, never a version compare) and carries a defined floor fallback, so consumers call unconditionally and the engine geometry switches on by itself when the exe has the merged PRs:
+
+- `set_aim_params(npc, max_angle, min_angle, min_speed, predict_time)` - Per-NPC sight swing/lead; negative component reverts to the global ai_aim_* cvar. Floor: no-op, vanilla aim is the fallback
+- `set_vision_speed(npc, factor)` - Per-NPC vision acquisition factor composing with g_ai_vision_speed_boost. Floor: no-op by design; the only script substitute is a per-frame functor wrap, banned by code-standards "No Per-Frame Work"
+- `can_kill_enemy(npc, enemy)` - Engine shot clearance (5-ray safety fan, frame-cached). Floor: one capped rqtBoth ray from the weapon-hand bone, stopped short of the enemy body
+- `can_kill_member(npc, enemy_pos)` - Non-enemy in the fire lane; a repositioning hint, never a hold-fire gate (the engine's CObjectActionFire hold survives a combat-planner block). Floor: living squadmates only via has_friendly_in_line
+- `fire_make_sense(npc, enemy)` - The engine fire-discipline gate. Floor: the engine gate order from floor primitives (height gap, capped clearance ray, see-now, 10s unseen window with an automatic weapon), constants tracking the ai_fire_* cvars when the exe has them
+- `on_action_switch(fn)` - Register fn on the npc_on_combat_action_switch veto; registers only when the seam exists and returns whether it did. Enhancement-only, no floor imitation possible
 
 ### xobject.script - Generic Object Lookup
 
