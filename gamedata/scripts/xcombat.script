@@ -255,6 +255,9 @@ function xcombat_takeover_action:initialize()
     npc:set_desired_direction()
     npc:set_path_type(game_object.level_path)
     npc:set_mental_state(anim.danger)
+    -- Squad combat-mask bit: the blocked CStalkerCombatPlanner::initialize no longer sets it, so the graft
+    -- does. The disclosure leaf (AT at_hitresponse -> disclose_enemy) writes the same bit for a different
+    -- reason (make a shooter an enemy); two leaves, one engine bit, neither redundant.
     npc:register_in_combat()
     if _takeover_spec and _takeover_spec.on_begin then _takeover_spec.on_begin(npc) end
 end
@@ -476,72 +479,68 @@ end
 -- =========================================================================
 
 local CHEST_OFFSET_Y = 1.2
--- collide flags (numeric for cross-fork portability, xrCDB/xr_collide_defs.h:69-77): rqtStatic = the baked
--- level-geometry CDB only (walls, floors, terrain); rqtBoth = that PLUS game objects (crates, barrels, doors,
--- NPCs, the actor) - props that never move are still rqtObject, not rqtStatic, so a static-only ray passes
--- straight through them.
-local RQ_STATIC = 2
-local RQ_BOTH   = 3
--- start an object ray this far forward so the casting NPC's own CForm (the ray begins inside it) is never the
--- hit; the first metre is where the NPC already stands, so skipping it loses nothing.
-local SELF_CLEARANCE_M = 1.0
+-- Every combat ray is object-aware: rqtBoth (xrCDB/xr_collide_defs.h:72-76) = the baked level-geometry CDB
+-- (walls, floors, terrain) PLUS game objects (crates, barrels, doors, NPCs). In STALKER a crate or barrel is a
+-- permanent rqtObject that stops a bullet exactly like a wall - nothing here is "transient" except a moving NPC,
+-- and a flag cannot separate an NPC from a prop, so a static-only ray (which passes straight through cover a
+-- bullet cannot) is never the right combat test. The caster's own body is skipped by SELF_CLEARANCE_M; a shot
+-- target's body by ENEMY_BODY_CLEARANCE_M - the two genuinely-unwanted hits (self, target), excluded by range.
+local RQ_BOTH = 3
+local SELF_CLEARANCE_M       = 1.0
+local ENEMY_BODY_CLEARANCE_M = 0.75
 
--- Shared chest-height ray. True if anything matching `flags` blocks the straight line. `start_clearance`
--- (or nil) moves the start that far forward before casting, to skip the caster's own body for object rays.
-local function _ray_blocked(start_pos, end_pos, flags, start_clearance)
-    local sx = start_pos.x
+-- Shared chest-height object-aware ray (rqtBoth). True if anything blocks the straight line. start_clearance
+-- moves the start that far forward to skip the caster's body; end_clearance stops the ray that far short of the
+-- end so a shot target's own body is never counted. Both default to 0.
+local function _ray_blocked(start_pos, end_pos, start_clearance, end_clearance)
+    local sc, ec = start_clearance or 0, end_clearance or 0
     local sy = start_pos.y + CHEST_OFFSET_Y
-    local sz = start_pos.z
-    local dx = end_pos.x - sx
+    local dx = end_pos.x - start_pos.x
     local dy = (end_pos.y + CHEST_OFFSET_Y) - sy
-    local dz = end_pos.z - sz
+    local dz = end_pos.z - start_pos.z
     local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
-    if dist < 1 then return false end
+    local range = dist - sc - ec
+    if range < 1 then return false end
     local ux, uy, uz = dx/dist, dy/dist, dz/dist
-    if start_clearance then
-        if dist <= start_clearance + 1 then return false end
-        sx, sy, sz = sx + ux*start_clearance, sy + uy*start_clearance, sz + uz*start_clearance
-        dist = dist - start_clearance
-    end
     local ray = ray_pick()
-    ray:set_flags(flags)
-    ray:set_position(vector():set(sx, sy, sz))
+    ray:set_flags(RQ_BOTH)
+    ray:set_position(vector():set(start_pos.x + ux*sc, sy + uy*sc, start_pos.z + uz*sc))
     ray:set_direction(vector():set(ux, uy, uz))
-    ray:set_range(dist)
+    ray:set_range(range)
     ray:query()
     local hit = ray:get_distance()
-    return hit > 0 and hit < dist - 1.0
+    return hit > 0 and hit < range - 1.0
 end
 
---- True if a WALL (baked level geometry) blocks the straight line between the two points.
---- Casts a ray with the rqtStatic flag, so it hits ONLY static world collision - never objects,
---- crates, doors, NPCs, or the actor, and it has no notion of FOV. This is the pure "is there a wall"
---- test. For "can the NPC actually perceive/shoot the enemy" use npc:see(enemy), which adds FOV plus
---- dynamic occlusion. Both endpoints are lifted a fixed chest height (CHEST_OFFSET_Y), so it is
---- posture-coarse: it does not model a crouched muzzle clearing a low wall a standing one would not.
+--- True if a wall OR a game object (crate, barrel, door, NPC) blocks the full straight line between two points.
+--- Object-aware (rqtBoth): props that are level objects and not baked geometry block it too, so a movement
+--- destination on open ground is only accepted when nothing stands in the run lane. Starts SELF_CLEARANCE_M
+--- forward so the caster's own body is not the hit. Both endpoints are lifted a fixed chest height, so it is
+--- posture-coarse (it does not model a crouched body clearing a low wall a standing one would not). This is the
+--- MOVEMENT-line test; for a shot at an enemy use has_obstacle_to_target, which stops short of the target body.
 --- @safety SAFE - get_distance returns 0 when nothing is hit
 --- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
---- @src xray/level_script.cpp:2633 (CRayPick binding), xray/xrCDB/xr_collide_defs.h:73 (rqtStatic = static geometry only)
---- @param start_pos vector NPC position (chest offset added internally)
---- @param end_pos vector enemy position (chest offset added internally)
---- @return boolean true if a static wall blocks the line
-function xcombat.has_occluder_between(start_pos, end_pos)
-    return _ray_blocked(start_pos, end_pos, RQ_STATIC, nil)
-end
-
---- True if a WALL or a game OBJECT (crate, barrel, door, NPC, the actor) blocks the straight line. Same
---- chest-height ray as has_occluder_between but rqtBoth, so it sees props that are level objects and not
---- baked geometry - a flee lane must avoid a crate the static-only ray runs the NPC straight into. Starts
---- SELF_CLEARANCE_M forward so the caster's own body is not the hit. Catches NPCs/items on the line too
---- (a flee then fans to another heading), which is acceptable for choosing a clear escape lane.
---- @safety SAFE - get_distance returns 0 when nothing is hit
---- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
---- @src xray/xrCDB/xr_collide_defs.h:69-77 (rqtBoth = rqtObject | rqtStatic)
+--- @src xray/level_script.cpp:2633 (CRayPick binding), xray/xrCDB/xr_collide_defs.h:72-76 (rqtBoth = rqtObject | rqtStatic)
 --- @param start_pos vector start (chest offset added internally)
---- @param end_pos vector end (chest offset added internally)
+--- @param end_pos vector destination (chest offset added internally)
 --- @return boolean true if a wall or object blocks the line
 function xcombat.has_obstacle_between(start_pos, end_pos)
-    return _ray_blocked(start_pos, end_pos, RQ_BOTH, SELF_CLEARANCE_M)
+    return _ray_blocked(start_pos, end_pos, SELF_CLEARANCE_M, nil)
+end
+
+--- True if a wall or game object blocks the SHOT line from a firing position to a target - the same object-aware
+--- ray as has_obstacle_between but capped ENEMY_BODY_CLEARANCE_M short of the target, so the target's own body
+--- and the cover it hugs are never the blocker (an uncapped ray toward an enemy always hits the enemy). A crate
+--- or barrel BETWEEN the shooter and the target does block it - the whole point, since those stop a bullet. Use
+--- this to pick a firing vertex with a genuinely clear shot; use has_obstacle_between for a movement destination.
+--- @safety SAFE - get_distance returns 0 when nothing is hit
+--- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
+--- @src xray/xrCDB/xr_collide_defs.h:72-76 (rqtBoth = rqtObject | rqtStatic)
+--- @param start_pos vector firing position (chest offset added internally)
+--- @param target_pos vector target position (chest offset added internally); the ray stops short of its body
+--- @return boolean true if a wall or object blocks the shot before it reaches the target
+function xcombat.has_obstacle_to_target(start_pos, target_pos)
+    return _ray_blocked(start_pos, target_pos, SELF_CLEARANCE_M, ENEMY_BODY_CLEARANCE_M)
 end
 
 -- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
@@ -661,10 +660,8 @@ end
 local FIRE_BONE = "bip01_r_finger02"
 -- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
 local INVALID_BONE_ID = 65535
--- Stop a fire-clearance ray this far short of the enemy so the enemy's own body is never the hit:
--- uncapped, an rqtBoth ray toward the enemy ALWAYS hits the enemy. The cap is what makes rqtBoth usable
--- for fire clearance (the v1 takeover fire gate had to stay rqtStatic and shot through crates).
-local ENEMY_BODY_CLEARANCE_M = 0.75
+-- ENEMY_BODY_CLEARANCE_M (the fire-clearance short-stop, shared with has_obstacle_to_target) is defined with the
+-- geometry rays above.
 -- Lateral half-width of the friendly firing lane for the can_kill_member fallback (the proven v1
 -- doctrine value, combat_takeover at_combat_doctrine.script:91).
 local FRIENDLY_LANE_THRESH_M = 1.5
@@ -887,13 +884,14 @@ function xcombat.find_point(npc, dir, distance_m)
     return _find_toward(npc, npc:level_vertex_id(), dir, distance_m)
 end
 
--- One probe: a free reachable vertex `step` from `from_lvid` along `dir` with a clear static line to the
--- enemy, or nil.
+-- One probe: a free reachable vertex `step` from `from_lvid` along `dir` with a clear SHOT line to the enemy -
+-- object-aware, so a crate or barrel between the vertex and the enemy disqualifies it (it would stop the shot),
+-- while the enemy's own body/cover does not (the ray stops short of it). Returns the vertex or nil.
 -- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
 local function _probe_firing_vid(npc, from_lvid, dir, step, enemy_pos)
     local vid = level.vertex_in_direction(from_lvid, dir, step)
     if not vid or vid >= INVALID_LVID or vid == from_lvid or not _is_free(npc, vid) then return nil end
-    if xcombat.has_occluder_between(level.vertex_position(vid), enemy_pos) then return nil end
+    if xcombat.has_obstacle_to_target(level.vertex_position(vid), enemy_pos) then return nil end
     return vid
 end
 
