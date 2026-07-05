@@ -319,6 +319,7 @@ Smart finders:
 SIMBOARD roster (sim-intent membership, NOT physical occupancy):
 - `get_smart_squads(smart_id)` - Raw SIMBOARD.smarts[id].squads hash
 - `assign_squad_to_smart(squad, smart_id)` - Wrap SIMBOARD:assign_squad_to_smart; nil to detach
+- `reconcile_squad_roster(squad, from_smart_id)` - Sync SIMBOARD.smarts rosters after a squad changed smart via the roster-blind vanilla `sim_squad_scripted:assign_smart` (called from specific_update / generic_update, which never update the squads table or population). Drops the stale `from` entry, adds the current `smart_id` entry, recomputes both populations via `smart_terrain_squad_count`, fires leave/enter callbacks. Idempotent (table-state gated), so it is a no-op on a base that already syncs. Consumed by AlifePlus `ap_core_anomaly_fixes`
 - `iter_stationed_squads(smart_id, exclude_id, cap)` - Closure iterator yielding se for squads with current_action=1 AND current_target_id=smart_id (xsquad.is_stationed). Skips in-transit. Cap default 5
 - `has_squad_of_faction(smart_id, faction, exclude_id)` - True if any stationed squad of given faction
 - `has_enemy_squad(smart_id, community, exclude_id)` - True if any stationed squad is faction-enemy of community

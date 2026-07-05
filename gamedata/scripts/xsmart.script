@@ -704,6 +704,41 @@ function assign_squad_to_smart(squad, smart_id)
     return true
 end
 
+--- Reconcile the SIMBOARD roster after a squad's smart changed outside the roster-synced path.
+--- Vanilla sim_squad_scripted:assign_smart (invoked from specific_update / generic_update) sets
+--- squad.smart_id and re-registers NPC jobs but never updates SIMBOARD.smarts[id].squads /
+--- population, so capacity reads (has_capacity, is_smart_empty) drift. Given the smart id captured
+--- before the move, this syncs the roster to the current squad.smart_id: drops the stale source
+--- entry, adds the destination entry, recomputes each population via the engine's own
+--- smart_terrain_squad_count, and fires the leave/enter callbacks the blind path skipped. Every
+--- write is gated on table state, so on a base that already synced (e.g. a fixed overlay) it is a
+--- no-op; safe to run on top of any update-method wrapper chain.
+--- @safety SAFE - pure SIMBOARD table writes; nil-guarded; mutates no engine object
+--- @complexity O(n) squads per affected smart (population recount) | up to 2n luabind (alife_object per counted squad), 0-2 callback emits
+--- @src anomaly/sim_board.script(237-265) the synced path this mirrors
+--- @src anomaly/sim_squad_scripted.script(289,356) the roster-blind assign_smart calls
+--- @src anomaly/smart_terrain.script(1487-1496) smart_terrain_squad_count
+--- @param squad se_squad Squad whose smart_id may have changed
+--- @param from_smart_id number|nil Smart id captured before the vanilla update ran
+function reconcile_squad_roster(squad, from_smart_id)
+    if not squad or not SIMBOARD or not SIMBOARD.smarts then return end
+    local to_smart_id = squad.smart_id
+    if to_smart_id == from_smart_id then return end
+    local id = squad.id
+    local from = from_smart_id and SIMBOARD.smarts[from_smart_id]
+    if from and from.squads[id] then
+        from.squads[id] = nil
+        from.population = smart_terrain.smart_terrain_squad_count(from.squads)
+        SendScriptCallback("squad_on_leave_smart", squad, from.smrt)
+    end
+    local to = to_smart_id and SIMBOARD.smarts[to_smart_id]
+    if to and not to.squads[id] then
+        to.squads[id] = true
+        to.population = smart_terrain.smart_terrain_squad_count(to.squads)
+        SendScriptCallback("squad_on_enter_smart", squad, to.smrt)
+    end
+end
+
 -- Any-of acceptance check used by find_smart / find_first_smart when opts.factions is a set.
 -- @cost O(k) factions | 0 luabind (pure Lua pairs); short-circuits on first accept
 local function _accepts_any_faction(smart, fset)
@@ -806,17 +841,35 @@ end
 --- smarts declare none, so an accepts_faction filter matches nothing). nil when no base qualifies - the caller
 --- then flees in place rather than running to a non-base edge smart. Same find_smart + is_base reuse as
 --- AlifePlus's flee (ap_ext_consequences_basekill), with an occupancy gate instead of a fixed own-faction.
---- @safety SAFE - nil when no non-enemy-held base on the level
---- @cost O(n smarts x min(5,squads)) per find_smart, run at a maneuver commit (not per tick)
+--- With away_from_pos (a threat position), keeps only bases in the REAR hemisphere (bearing from pos points away
+--- from the threat), so a rout increases distance instead of curving back past it. The direction gate is a
+--- sign-only flat-XZ dot product (no sqrt/normalize) reusing the position delta, placed before the has_enemy_squad
+--- occupancy scan so a wrong-direction base is rejected before the expensive check. A threat sitting on pos drops
+--- the bias; nil then means no rear-hemisphere base qualifies, and the caller falls back to a lane.
+--- @safety SAFE - nil when no non-enemy-held base (in the rear hemisphere, when away_from_pos is given)
+--- @cost O(n smarts x min(5,squads)) per find_smart, run at a maneuver commit (not per tick); +1 dot per candidate
 --- @see find_smart, is_base, has_enemy_squad
 --- @param community string the NPC's community
 --- @param pos vector the NPC's position
 --- @param level_id number the level to search (online NPCs are on the actor's level)
+--- @param away_from_pos vector|nil threat position; when set, only bases in the rear hemisphere from pos qualify
 --- @return smart_terrain|nil nearest non-enemy-held base, or nil
-function find_friendly_base(community, pos, level_id)
+function find_friendly_base(community, pos, level_id, away_from_pos)
     if not community or not pos then return nil end
+    local ax, az
+    if away_from_pos then
+        ax, az = pos.x - away_from_pos.x, pos.z - away_from_pos.z
+        if (ax * ax + az * az) < 1 then ax = nil end
+    end
     return find_smart(pos, { level_id = level_id,
-        filter = function(smart) return is_base(smart) and not has_enemy_squad(smart.id, community) end })
+        filter = function(smart)
+            if not is_base(smart) then return false end
+            if ax then
+                local sp = smart.position
+                if (sp.x - pos.x) * ax + (sp.z - pos.z) * az <= 0 then return false end
+            end
+            return not has_enemy_squad(smart.id, community)
+        end })
 end
 
 -- Any section in recipe.squads has section_faction equal to faction? Short-circuits on match.

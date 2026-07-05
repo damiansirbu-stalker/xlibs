@@ -1,11 +1,16 @@
 next
-  Summary: xcombat engine fire-gate wrappers
+  Summary: xcombat engine fire-gate wrappers, xsmart roster reconcile
 
   xcombat
     - Added wrappers over the per-NPC combat-AI engine binds from themrdemonized/xray-monolith
       PRs #594, #595, #596: set_aim_params, set_vision_speed, can_kill_enemy, can_kill_member,
       fire_make_sense, on_action_switch. Each wrapper probes its engine bind on the first call.
       Below the bind each degrades to a defined fallback, so consumers never touch a raw bind.
+
+  xsmart
+    - Added reconcile_squad_roster(squad, from_smart_id): syncs SIMBOARD.smarts rosters after a
+      squad changed smart through the roster-blind vanilla assign_smart, so has_capacity /
+      is_smart_empty read truth. Idempotent, a no-op on a base that already syncs.
 
 1.8.0
   Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire, xinventory get_rank_chance, release_item_id, create_item cond fix, xsquad get_community
