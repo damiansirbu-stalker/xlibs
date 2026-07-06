@@ -1,0 +1,233 @@
+--- xcallbacks: Synthetic engine callbacks -- the events the engine should have shipped.
+--- Lineage: the modded-exes overlay's callbacks_gameobject.script (AddScriptCallback plus
+--- fire sites for engine events vanilla never exposed); xcallbacks is the same file one
+--- layer up, shipped by the library so every mod shares one detection mechanism per event.
+---
+--- Dormant by contract: xlibs has no intrinsic behavior. Module load only DECLARES the
+--- callback names (AddScriptCallback is passive registry bookkeeping); no timer runs and
+--- no hook installs until a consumer calls start(name). Multiple consumers may start the
+--- same event; the first start installs, later starts are no-ops.
+---
+--- Catalog:
+---   x_squad_on_change (squad, changed|nil, prev, curr)
+---     Sweep-driven replacement for the vanilla squad_on_update firehose (~6,600 calls/min
+---     leaking the engine update iterator, online squads at frame rate, no meaning per
+---     fire). Fires only when a squad's observable state changed, or as a keepalive when
+---     nothing changed for the silence window. changed names the differing fields
+---     ("gvid", "online", "smart_id", "action"); nil = keepalive. prev/curr are the last
+---     and current 4-field snapshots; all three tables are reused between fires --
+---     read-only during the callback, never retain references.
+---     Options (start/configure): keepalive_sec (default 3600 game-sec).
+---   x_npc_medkit_use (npc, medkit, kind)
+---     Hook-driven heal detection: xevent.hook on xr_eat_medkit.consume_medkit, fired
+---     before the original runs. No options.
+local type = type
+local clock, math_random = os.clock, math.random
+local RegisterScriptCallback, SendScriptCallback, AddScriptCallback =
+    RegisterScriptCallback, SendScriptCallback, AddScriptCallback
+local xevent, xobject, xsquad, xtime = xevent, xobject, xsquad, xtime
+
+local X_SQUAD_ON_CHANGE = "x_squad_on_change"
+local X_NPC_MEDKIT_USE = "x_npc_medkit_use"
+local CLSID_SQUAD = clsid.online_offline_group_s
+
+-- Declare every catalog event at module load (phase 0), before any on_game_start
+-- subscriber can reference the names. Declaration is passive; nothing runs.
+AddScriptCallback(X_SQUAD_ON_CHANGE)
+AddScriptCallback(X_NPC_MEDKIT_USE)
+
+--------------------------------------------------------------------------------
+--- x_squad_on_change: staggered squad sweep.
+--- SWEEP_BATCH squads per SWEEP_TICK_SEC tick, circular cursor over an id snapshot
+--- from xsquad.collect_squad_ids; per-tick cost is O(batch), independent of total
+--- squad count (more squads only lengthen the full pass, ~776 -> ~40s). Mirrors the
+--- engine A-Life scheduler shape (20 objects per tick round-robin,
+--- alife_schedule_registry.h:25-51), one level up.
+--- Fire discipline: per-tick publish cap (excess defers by not advancing the snapshot,
+--- so the change re-detects next visit), per-squad refractory on os.clock (CPU guard
+--- against graph-vertex churn of in-transit squads), keepalive on xtime.game_sec with
+--- per-squad jittered deadlines reset on any fire (game clock: silence windows mature
+--- through sleep / time-skip). The keepalive carries idle squads whose fields never
+--- change (offline-idle early return, sim_squad_scripted.script:367-374).
+--------------------------------------------------------------------------------
+
+local SWEEP_TICK_SEC = 1
+local SWEEP_BATCH = 20
+local SWEEP_REFRACTORY_SEC = 60
+local SWEEP_PUBLISH_CAP = 3
+local SWEEP_DEFAULT_KEEPALIVE_SEC = 3600
+
+--- Per-squad last-seen field snapshot: [squad_id] = { gvid, online, smart_id, action }.
+--- gvid stands in for position: the engine advances m_game_vertex_id as the squad walks,
+--- so it is a pre-quantized movement signal with no vector userdata allocation.
+local _sq_snapshots = {}
+--- Per-squad fire bookkeeping: [squad_id] = { fired_at (os.clock), keepalive_at (game_sec) }.
+local _sq_meta = {}
+-- Pass snapshot of squad ids from xsquad.collect_squad_ids (ids, never refs).
+local _sq_ids = nil
+local _sq_pos = 0
+-- Reused changed-fields array, trimmed per fire.
+local _sq_changed = {}
+-- Reused current-snapshot DTO passed to subscribers.
+local _sq_curr = {}
+-- Keepalive silence window (game-sec); consumer policy via start/configure opts.
+local _sq_keepalive_sec = SWEEP_DEFAULT_KEEPALIVE_SEC
+
+-- Visit one squad: resolve by id, diff the 4 tracked fields, fire change or keepalive.
+-- Returns true when it published (caller decrements the per-tick budget).
+-- Deferral contract: when blocked (publish cap or refractory) the stored snapshot is NOT
+-- advanced, so the same diff re-detects on the next visit; nothing is lost, only delayed.
+-- First sight baselines silently (spawn already has engine callbacks:
+-- server_entity_on_register / squad_on_npc_creation), with a jittered keepalive deadline
+-- so a fresh session never synchronizes into a fire burst.
+-- @cost O(1) | 1 medium (alife_object via xobject.se) + 2 trivial reads (m_game_vertex_id,
+--       online); smart_id / current_action are Lua-side fields. No allocation steady-state.
+local function _sq_visit(id, now_clock, now_game, publish_budget)
+    local squad = xobject.se(id)
+    if not squad then
+        _sq_snapshots[id] = nil
+        _sq_meta[id] = nil
+        return false
+    end
+    local gvid = squad.m_game_vertex_id
+    local online = squad.online == true
+    local smart_id = squad.smart_id
+    local action = squad.current_action
+    local snap = _sq_snapshots[id]
+    if not snap then
+        _sq_snapshots[id] = { gvid = gvid, online = online, smart_id = smart_id, action = action }
+        _sq_meta[id] = { fired_at = 0, keepalive_at = now_game + math_random(_sq_keepalive_sec) }
+        return false
+    end
+    local nc = 0
+    if snap.gvid ~= gvid then nc = nc + 1; _sq_changed[nc] = "gvid" end
+    if snap.online ~= online then nc = nc + 1; _sq_changed[nc] = "online" end
+    if snap.smart_id ~= smart_id then nc = nc + 1; _sq_changed[nc] = "smart_id" end
+    if snap.action ~= action then nc = nc + 1; _sq_changed[nc] = "action" end
+    local meta = _sq_meta[id]
+    if nc > 0 then
+        if publish_budget < 1 or (now_clock - meta.fired_at) < SWEEP_REFRACTORY_SEC then
+            return false
+        end
+        for idx = nc + 1, #_sq_changed do _sq_changed[idx] = nil end
+        _sq_curr.gvid, _sq_curr.online, _sq_curr.smart_id, _sq_curr.action = gvid, online, smart_id, action
+        SendScriptCallback(X_SQUAD_ON_CHANGE, squad, _sq_changed, snap, _sq_curr)
+        snap.gvid, snap.online, snap.smart_id, snap.action = gvid, online, smart_id, action
+        meta.fired_at = now_clock
+        meta.keepalive_at = now_game + _sq_keepalive_sec
+        return true
+    end
+    if now_game >= meta.keepalive_at then
+        if publish_budget < 1 then return false end
+        _sq_curr.gvid, _sq_curr.online, _sq_curr.smart_id, _sq_curr.action = gvid, online, smart_id, action
+        SendScriptCallback(X_SQUAD_ON_CHANGE, squad, nil, snap, _sq_curr)
+        meta.fired_at = now_clock
+        meta.keepalive_at = now_game + _sq_keepalive_sec
+        return true
+    end
+    return false
+end
+
+-- One sweep tick: re-arm the timer, rebuild the id snapshot at cursor wrap, process one batch.
+-- The id array is rebuilt once per full pass (squads spawned mid-pass are picked up next pass,
+-- <= one pass period later); iteration never touches the live SIMBOARD table, so mid-tick
+-- spawn/despawn cannot invalidate the walk.
+local function _sq_tick()
+    ResetTimeEvent("xcallbacks", "squad_sweep", SWEEP_TICK_SEC)
+    if not _sq_ids or _sq_pos >= #_sq_ids then
+        local ids, count = xsquad.collect_squad_ids(_sq_ids)
+        _sq_ids = ids
+        _sq_pos = 0
+        if count == 0 then return end
+    end
+    local now_clock = clock()
+    local now_game = xtime.game_sec()
+    local budget = SWEEP_PUBLISH_CAP
+    local ids = _sq_ids
+    local last = _sq_pos + SWEEP_BATCH
+    if last > #ids then last = #ids end
+    for i = _sq_pos + 1, last do
+        if _sq_visit(ids[i], now_clock, now_game, budget) then
+            budget = budget - 1
+        end
+    end
+    _sq_pos = last
+end
+
+-- Evict sweep state on squad despawn. The visit-time nil resolve catches paths that bypass
+-- unregister (alife_object_registry_inline.h:24-34); this handler is the prompt path.
+-- @complexity O(1) | 1 luabind (clsid)
+local function _sq_on_entity_unregister(se_obj)
+    if not se_obj then return end
+    if se_obj:clsid() == CLSID_SQUAD then
+        local id = se_obj.id
+        _sq_snapshots[id] = nil
+        _sq_meta[id] = nil
+    end
+end
+
+-- Install the sweep: eviction subscription + the 1s tick time event.
+-- @complexity O(1) | callback + time-event registration only
+local function _sq_install()
+    RegisterScriptCallback("server_entity_on_unregister", _sq_on_entity_unregister)
+    CreateTimeEvent("xcallbacks", "squad_sweep", SWEEP_TICK_SEC, _sq_tick)
+    return true
+end
+
+local function _sq_configure(opts)
+    local keepalive_sec = opts and opts.keepalive_sec
+    if type(keepalive_sec) == "number" and keepalive_sec >= 60 then
+        _sq_keepalive_sec = keepalive_sec
+    end
+    return true
+end
+
+--------------------------------------------------------------------------------
+--- x_npc_medkit_use: heal-consumption hook.
+--------------------------------------------------------------------------------
+
+-- Install the heal-consumption hook; fires the callback before the original runs.
+-- @complexity O(1) install | per heal: 1 SendScriptCallback + original consume_medkit
+local function _medkit_install()
+    return xevent.hook("xr_eat_medkit", "consume_medkit", function(orig, npc, medkit, kind)
+        SendScriptCallback(X_NPC_MEDKIT_USE, npc, medkit, kind)
+        return orig(npc, medkit, kind)
+    end)
+end
+
+--------------------------------------------------------------------------------
+--- Catalog registry + public API.
+--------------------------------------------------------------------------------
+
+local _events = {
+    [X_SQUAD_ON_CHANGE] = { install = _sq_install, configure = _sq_configure, started = false },
+    [X_NPC_MEDKIT_USE] = { install = _medkit_install, started = false },
+}
+
+--- Start a catalog event: apply opts, then install its detection (timer or hook).
+--- Idempotent: the first start installs, later starts only re-apply opts.
+--- @safety SAFE - unknown names return false; install functions are nil-guarded
+--- @cost O(1) | install cost paid once (timer registration or xevent.hook)
+--- @param name string Catalog event name ("x_squad_on_change", "x_npc_medkit_use")
+--- @param opts table|nil Event-specific options (see catalog header)
+--- @return boolean True when the event is running
+function start(name, opts)
+    local entry = _events[name]
+    if not entry then return false end
+    if opts and entry.configure then entry.configure(opts) end
+    if entry.started then return true end
+    entry.started = entry.install() == true
+    return entry.started
+end
+
+--- Push option changes into a catalog event (started or not).
+--- @safety SAFE - unknown names and option-less events return false
+--- @cost O(1) | 0 luabind
+--- @param name string Catalog event name
+--- @param opts table Event-specific options
+--- @return boolean True when applied
+function configure(name, opts)
+    local entry = _events[name]
+    if not entry or not entry.configure then return false end
+    return entry.configure(opts) == true
+end

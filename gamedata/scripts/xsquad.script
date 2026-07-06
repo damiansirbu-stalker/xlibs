@@ -411,6 +411,29 @@ function iter_squads()
     end
 end
 
+--- Snapshot all SIMBOARD squad ids into an array (id-only, no server-object resolution)
+--- SIMBOARD.squads is an id set (sim_board.script:84), registered/unregistered at
+--- sim_squad_scripted.script:1010/:1019. The snapshot decouples iteration from the live
+--- table, so callers spreading a walk across ticks (AlifePlus squad_on_change sweep) are
+--- immune to mid-walk spawn/despawn mutation. Pass the previous array back in to reuse it
+--- (cleared past the new count; no allocation steady-state).
+--- @safety SAFE - pure Lua table iteration, nil-guarded
+--- @cost O(n) squads | 0 luabind
+--- @param out table|nil Reused output array; allocated when nil
+--- @return table ids, number count
+function collect_squad_ids(out)
+    out = out or {}
+    local count = 0
+    if SIMBOARD and SIMBOARD.squads then
+        for id in pairs(SIMBOARD.squads) do
+            count = count + 1
+            out[count] = id
+        end
+    end
+    for idx = count + 1, #out do out[idx] = nil end
+    return out, count
+end
+
 --- Iterate squad member IDs as plain numbers
 --- Wraps engine member iterator with nil/empty guard, yields k.id per member
 --- @safety SAFE - nil-guarded, engine iterator yields nil on empty squad

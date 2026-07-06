@@ -58,7 +58,7 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 
 ### Note: Derived Events via xevent Hooks
 
-The derived event pattern uses `xevent.hook` to intercept game functions and emit synthetic callbacks. Currently used inline in `ap_cause_wounded.script` (hooks `xr_eat_medkit.consume_medkit` -> `x_npc_medkit_use` callback). The pattern is reusable: any game function that lacks a callback can be hooked the same way. See AlifePlus `architecture.md` Synthetic Callbacks section for details.
+The derived event pattern uses `xevent.hook` to intercept game functions and emit synthetic callbacks. The shipped catalog of such events lives in `xcallbacks.script` (`x_npc_medkit_use` hooks `xr_eat_medkit.consume_medkit`; `x_squad_on_change` is sweep-driven rather than hook-driven). The pattern stays reusable: any game function that lacks a callback can be hooked the same way.
 
 ### xlog.script - Logging
 
@@ -503,9 +503,18 @@ end)
 - `is_hooked(module, func)` - Check if hooked
 - `list_hooks()` - Active hooks
 
-**Naming convention:** `x_` prefix for synthetic events (e.g., `x_npc_medkit_use`)
+**Naming convention:** `x_` prefix for synthetic events (e.g., `x_npc_medkit_use`, `x_squad_on_change`)
 
 **How it works:** Lua functions are table entries. We save the original, replace with wrapper that calls original + emits callback. Zero engine modification.
+
+### xcallbacks.script - Synthetic Event Catalog
+
+The events the engine should have shipped, as a dormant catalog (xlibs has no intrinsic behavior: module load only declares the callback names via AddScriptCallback; nothing runs until a consumer calls start). Lineage: the modded-exes overlay's `callbacks_gameobject.script`.
+
+- `start(name, opts)` - Apply opts, install the event's detection (timer or hook); idempotent
+- `configure(name, opts)` - Push option changes (e.g. keepalive) into an event
+
+Catalog: `x_squad_on_change(squad, changed|nil, prev, curr)` (staggered squad sweep: change fires on gvid/online/smart_id/action transitions, keepalive fires after a configurable silence window; payload tables reused, read-only during the callback) and `x_npc_medkit_use(npc, medkit, kind)` (heal-consumption hook).
 
 ### xpda.script - PDA/Map
 

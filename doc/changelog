@@ -1,5 +1,19 @@
 next
-  Summary: xcombat engine fire-gate wrappers, xsmart roster reconcile
+  Summary: xcallbacks synthetic events, xcombat engine fire-gate wrappers, xsmart roster reconcile, xsquad id snapshot
+
+  xcallbacks
+    - New module: a catalog of synthetic engine callbacks, dormant until a consumer calls
+      start(name, opts). Lineage: the modded-exes callbacks_gameobject.script, one layer up.
+    - Added x_squad_on_change: real squad state transitions (graph vertex, online, smart,
+      action) plus a keepalive after a configurable silence window, from a staggered sweep
+      with constant per-tick cost. Replaces polling squad_on_update.
+    - Added x_npc_medkit_use (moved from AlifePlus): NPC heal detection via a hook on
+      xr_eat_medkit.consume_medkit, installed on start.
+
+  xsquad
+    - Added collect_squad_ids(out): snapshots all SIMBOARD squad ids into a reusable array,
+      id-only with zero luabind cost, so a caller can spread a squad walk across ticks without
+      touching the live table mid-iteration.
 
   xcombat
     - Added wrappers over the per-NPC combat-AI engine binds from themrdemonized/xray-monolith
