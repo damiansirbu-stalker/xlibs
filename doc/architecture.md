@@ -509,12 +509,12 @@ end)
 
 ### xcallbacks.script - Synthetic Event Catalog
 
-The events the engine should have shipped, as a dormant catalog (xlibs has no intrinsic behavior: module load only declares the callback names via AddScriptCallback; nothing runs until a consumer calls start). Lineage: the modded-exes overlay's `callbacks_gameobject.script`.
+The events the engine should have shipped, as a dormant catalog (xlibs has no intrinsic behavior: module load only declares the callback names via AddScriptCallback; nothing runs until a consumer calls start). Lineage: the modded-exes overlay's `callbacks_gameobject.script`. Silent by contract: instrumentation runs only through a consumer-injected logger handle (`opts.logger` exposing `enabled()` + `debug()`; the xttltable `opts.clock` injection precedent applied to diagnostics), timing ticks via xprofiler and emitting a per-pass summary line only while that handle reports enabled.
 
 - `start(name, opts)` - Apply opts, install the event's detection (timer or hook); idempotent
-- `configure(name, opts)` - Push option changes (e.g. keepalive) into an event
+- `configure(name, opts)` - Push option changes into an event
 
-Catalog: `x_squad_on_change(squad, changed|nil, prev, curr)` (staggered squad sweep: change fires on gvid/online/smart_id/action transitions, keepalive fires after a configurable silence window; payload tables reused, read-only during the callback) and `x_npc_medkit_use(npc, medkit, kind)` (heal-consumption hook).
+Catalog: `x_squad_on_change(squad, changed|nil, prev, curr)` — production-controlled squad heartbeat. Detection: one staggered walk (20 squads per 1s tick, constant per-tick cost independent of squad count) diffs gvid/online/smart_id/action per squad and queues transitions. Production: a credit accumulator emits exactly `opts.rate_per_min` fires per minute; each credit picks a lane by `opts.level_bias` (Bresenham, actor's current level vs background), fires the lane's oldest queued change, else the lane's next squad round-robin (the implicit keepalive that guarantees every squad its turn). One clamp: 60s per-squad refractory. Payload tables reused, read-only during the callback. `x_npc_medkit_use(npc, medkit, kind)` — heal-consumption hook on `xr_eat_medkit.consume_medkit`.
 
 ### xpda.script - PDA/Map
 

@@ -4,9 +4,12 @@ next
   xcallbacks
     - New module: a catalog of synthetic engine callbacks, dormant until a consumer calls
       start(name, opts). Lineage: the modded-exes callbacks_gameobject.script, one layer up.
-    - Added x_squad_on_change: real squad state transitions (graph vertex, online, smart,
-      action) plus a keepalive after a configurable silence window, from a staggered sweep
-      with constant per-tick cost. Replaces polling squad_on_update.
+    - Added x_squad_on_change: a rate-controlled squad heartbeat replacing polling squad_on_update.
+      A staggered walk with constant per-tick cost detects real transitions (graph vertex, online,
+      smart, action) and the fire engine emits exactly rate_per_min events per minute, split between
+      the actor's level and background maps by level_bias, changed squads first, quiet squads round-robin.
+    - Consumers may inject a logger (opts.logger with enabled and debug) to get per-pass summaries
+      and tick timings; without one the module stays silent at zero overhead.
     - Added x_npc_medkit_use (moved from AlifePlus): NPC heal detection via a hook on
       xr_eat_medkit.consume_medkit, installed on start.
 

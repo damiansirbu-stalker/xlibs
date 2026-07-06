@@ -9,5 +9,9 @@ INVALID_LEVEL_VERTEX_ID = 4294967295
 --- Invalid game vertex ID (u16 MAX, GameGraph::_GRAPH_ID(-1) at xrServer_Objects_ALife.cpp:369)
 INVALID_GAME_VERTEX_ID = 65535
 
+--- Invalid bone ID (u16 MAX; game_object:get_bone_id returns it for a bone name the
+--- skeleton does not have, the sentinel vanilla utils_obj.safe_bone_pos tests against)
+INVALID_BONE_ID = 65535
+
 --- Actor entity ID (engine convention: actor allocated as first server slot, db.actor:id() == 0)
 ACTOR_ENTITY_ID = 0
