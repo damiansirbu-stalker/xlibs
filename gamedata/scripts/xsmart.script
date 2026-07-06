@@ -845,23 +845,25 @@ end
 --- from the threat), so a rout increases distance instead of curving back past it. The direction gate is a
 --- sign-only flat-XZ dot product (no sqrt/normalize) reusing the position delta, placed before the has_enemy_squad
 --- occupancy scan so a wrong-direction base is rejected before the expensive check. A threat sitting on pos drops
---- the bias; nil then means no rear-hemisphere base qualifies, and the caller falls back to a lane.
+--- the bias; nil then means no rear-hemisphere base qualifies, and the caller declines.
 --- @safety SAFE - nil when no non-enemy-held base (in the rear hemisphere, when away_from_pos is given)
 --- @cost O(n smarts x min(5,squads)) per find_smart, run at a maneuver commit (not per tick); +1 dot per candidate
 --- @see find_smart, is_base, has_enemy_squad
 --- @param community string the NPC's community
 --- @param pos vector the NPC's position
---- @param level_id number the level to search (online NPCs are on the actor's level)
---- @param away_from_pos vector|nil threat position; when set, only bases in the rear hemisphere from pos qualify
---- @return smart_terrain|nil nearest non-enemy-held base, or nil
-function find_friendly_base(community, pos, level_id, away_from_pos)
+--- @param opts table { level_id = number the level to search, away_from_pos = vector|nil threat position for
+---   rear-hemisphere bias, min_distance = number|nil metres floor so only bases at least that far qualify }
+--- @return smart_terrain|nil nearest qualifying non-enemy-held base, or nil
+function find_friendly_base(community, pos, opts)
     if not community or not pos then return nil end
+    opts = opts or {}
+    local away_from_pos = opts.away_from_pos
     local ax, az
     if away_from_pos then
         ax, az = pos.x - away_from_pos.x, pos.z - away_from_pos.z
         if (ax * ax + az * az) < 1 then ax = nil end
     end
-    return find_smart(pos, { level_id = level_id,
+    return find_smart(pos, { level_id = opts.level_id, min_distance = opts.min_distance,
         filter = function(smart)
             if not is_base(smart) then return false end
             if ax then
