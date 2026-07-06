@@ -251,6 +251,11 @@ function xcombat_takeover_action:__init(name) super(nil, name) end
 function xcombat_takeover_action:initialize()
     action_base.initialize(self)
     local npc = self.object
+    -- Clear any leftover script animation overlay (at_health's limp, an idle pose) before AT drives the NPC: a
+    -- stationary overlay left playing pins the body while the maneuver's movement slides it (the mid-air-slide bug
+    -- seen when a hurt NPC flees mid-limp). demonized's panic clears the same way on takeover
+    -- (demonized_stalker_aoe_panic.script:345).
+    npc:clear_animations()
     npc:set_desired_position()
     npc:set_desired_direction()
     npc:set_path_type(game_object.level_path)
