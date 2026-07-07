@@ -155,6 +155,41 @@ function xcombat.disclose_enemy(npc, enemy)
     return true
 end
 
+-- Danger types that mean "a shooter is engaging me": I was hit (attacked), a bullet landed near
+-- (bullet_ricochet), or I heard the shot (attack_sound). Built lazily - danger_object is an engine
+-- global absent at file body in the validator stub.
+local _under_fire_types = nil
+
+--- True when the NPC's own danger memory says `enemy` shot at it within the last `window_ms`.
+--- Reads best_danger(): an attacked / bullet_ricochet / attack_sound danger whose source resolves to the
+--- enemy (dependent_object first, else object - the vanilla xr_danger source rule), stamped inside the
+--- window. The engine perceives these during combat (the same read a grenade trigger makes), so this is the
+--- lightweight "is he shooting at me" - no callback, no state, any shooter (NPC or actor). A landed hit the
+--- NPC did not perceive as danger is NOT covered; pair with the consumer's own hit stamp for that.
+--- @safety SAFE - nil-guarded; false when no danger, a stale one, or a different source
+--- @cost O(1) | 2-5 luabind trivial (best_danger, type, time, dependent_object/object, id - field reads)
+--- @src xray/memory_space_script.cpp:130-147 (danger type enum), anomaly/xr_danger.script:59-70 (source = dependent_object else object)
+--- @param npc game_object the NPC under consideration
+--- @param enemy game_object the suspected shooter
+--- @param tg number time_global() snapshot
+--- @param window_ms number freshness window in ms
+--- @return boolean true when the enemy shot at the NPC within the window
+function xcombat.is_under_fire(npc, enemy, tg, window_ms)
+    if not (npc and enemy) then return false end
+    if not _under_fire_types then
+        _under_fire_types = {
+            [danger_object.attacked]        = true,
+            [danger_object.bullet_ricochet] = true,
+            [danger_object.attack_sound]    = true,
+        }
+    end
+    local danger = npc:best_danger()
+    if not danger or not _under_fire_types[danger:type()] then return false end
+    if (tg - danger:time()) > window_ms then return false end
+    local source = danger:dependent_object() or danger:object()
+    return source ~= nil and source:id() == enemy:id()
+end
+
 -- =========================================================================
 -- GOAP takeover - the planner block list and the squad combat-mask lifecycle. The takeover grafts one
 -- evaluator + one action per stalker (the AT policy half) and adds world_property(EVAL_ID, false) as a
@@ -713,6 +748,11 @@ end
 --- shared with the engine's own friendly-fire gate. Floor fallback: one rqtBoth ray from the weapon-hand
 --- bone toward the enemy chest, capped short of the enemy body - posture-coarse, transparency-blind
 --- (glass/bushes block it), and aimed at `enemy` rather than the live fire direction.
+--- WHEN/WHERE/WHY: this answers the same "is my shot to the enemy clear" that fire_make_sense already gates
+--- with its occlusion check, so do NOT stack it on a takeover fire gate - fire_make_sense owns that decision.
+--- It reads the NPC's CURRENT position (can_kill_at(vertex) is intentionally unbound), so it cannot score a
+--- resolver's candidate destination either. Use only for a current-position clearance read that must exclude
+--- fire_make_sense's other conditions (floor gap / point-blank / unseen window).
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) | engine: 1 luabind (frame-cached recompute) | fallback: ~9 luabind (bone origin + ray)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:744-777 (safety fan), :802-823 (update_can_kill_info)
@@ -732,6 +772,11 @@ end
 --- went away. Engine path (npc:can_kill_member(), PR #596): ANY non-enemy CEntityAlive on the safety
 --- fan. Floor fallback: living SQUADMATES only (has_friendly_in_line from the weapon-hand bone) - the
 --- squad-only scope means non-squad neutrals on the lane are not seen below the bind.
+--- WHEN/WHERE/WHY: consult at maneuver SELECTION, not per shot. It reports a friendly in the NPC->enemy fire
+--- lane (true while kiting or any forward-firing maneuver when a squadmate stands between the NPC and its
+--- enemy) so a caller can decide to REPOSITION for a clear line. It is NOT a trigger hold: the engine's own
+--- friendly-fire hold (CObjectActionFire) survives a combat-planner block and already stops the shot, so
+--- reading this to gate fire duplicates that. Positional use only.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) engine (frame-cached) | O(m) members fallback (has_friendly_in_line)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:728-731 (any non-enemy flags member); xray/object_actions.cpp:244-265 (the surviving engine hold)
@@ -786,7 +831,13 @@ end
 --- now = true, else the unseen suppression window with an automatic weapon. Two documented gaps vs the
 --- engine: the ray has no transparency accumulation (glass/bushes block), and the window uses
 --- memory_time - ANY sense (sight, sound, hit) - where the engine counts sight only, so the fallback
---- suppresses more permissively. Consult at the DECISION POINT (choosing FIRE vs READY), not per shot.
+--- suppresses more permissively.
+--- WHEN/WHERE/WHY: the BLIND-fire gate for a planner-blocking takeover. Consult it only when the enemy is NOT
+--- seen right now - check see() first and fire unconditionally on seen, the vanilla kill_enemy order
+--- (stalker_combat_actions.cpp:483-494). Its 2.5m point-blank bail (ai_stalker_fire.cpp:907) is a smart-cover
+--- loophole rule (its only vanilla consumer), wrong for open combat, so never let it gate a seen enemy. On the
+--- blind path it owns occlusion at last-known and the 10s auto-weapon suppression window; consult it at maneuver
+--- start or on a throttled tick, never per frame, and do not stack can_kill_enemy on the same decision.
 --- @safety SAFE - nil-guarded; enemy must be a remembered object (a best_enemy is), per get_unseen_ms
 --- @cost O(1) | engine: 1 luabind (internal frame cache) | fallback: ~15 luabind on the full path (positions + bone origin + ray + see + memory + weapon ini)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:894-930 (gate order), :65-68 (vanilla values)
