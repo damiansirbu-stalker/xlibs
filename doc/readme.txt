@@ -45,7 +45,6 @@ Effects:
 Integration:
   xbus         Pub/sub event bus with pcall-wrapped delivery and diagnostics
   xevent       Runtime function hooking for synthetic callbacks
-  xcallbacks   Synthetic engine callback catalog (x_squad_on_change rate-controlled squad heartbeat, x_npc_medkit_use heal hook); dormant until a consumer starts an event
   xpda         PDA messages and map markers (squad and entity)
   xmcm         MCM config getters and loaders with defaults extraction
   xchange      Liquibase-style save data migration registry; each changeset runs once per save

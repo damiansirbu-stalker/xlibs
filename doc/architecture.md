@@ -58,7 +58,7 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 
 ### Note: Derived Events via xevent Hooks
 
-The derived event pattern uses `xevent.hook` to intercept game functions and emit synthetic callbacks. The shipped catalog of such events lives in `xcallbacks.script` (`x_npc_medkit_use` hooks `xr_eat_medkit.consume_medkit`; `x_squad_on_change` is sweep-driven rather than hook-driven). The pattern stays reusable: any game function that lacks a callback can be hooked the same way.
+The derived event pattern uses `xevent.hook` to intercept game functions and emit synthetic callbacks: any game function that lacks a callback can be hooked, the wrapper emitting via `SendScriptCallback`. xlibs ships the `xevent` primitive only; consumers declare (`AddScriptCallback`) and fire their own events with it.
 
 ### xlog.script - Logging
 
@@ -491,8 +491,10 @@ Source: xray-monolith/src/xrServerEntities/script_engine_script.cpp:127-196
 Runtime function hooking. Intercept any Lua function, emit callbacks from systems that don't have them.
 
 ```lua
+-- consumer declares its event once (AddScriptCallback), then hooks a game function to fire it
+AddScriptCallback("my_synthetic_event")
 xevent.hook("xr_eat_medkit", "consume_medkit", function(orig, npc, medkit, kind)
-    xevent.emit("x_npc_medkit_use", npc, medkit, kind)
+    xevent.emit("my_synthetic_event", npc, medkit, kind)
     return orig(npc, medkit, kind)
 end)
 ```
@@ -503,18 +505,9 @@ end)
 - `is_hooked(module, func)` - Check if hooked
 - `list_hooks()` - Active hooks
 
-**Naming convention:** `x_` prefix for synthetic events (e.g., `x_npc_medkit_use`, `x_squad_on_change`)
+**Naming convention:** prefix synthetic event names by owner to avoid collision with engine callbacks (AlifePlus uses `ap_`, e.g. `ap_npc_medkit_use`).
 
 **How it works:** Lua functions are table entries. We save the original, replace with wrapper that calls original + emits callback. Zero engine modification.
-
-### xcallbacks.script - Synthetic Event Catalog
-
-The events the engine should have shipped, as a dormant catalog (xlibs has no intrinsic behavior: module load only declares the callback names via AddScriptCallback; nothing runs until a consumer calls start). Lineage: the modded-exes overlay's `callbacks_gameobject.script`. Silent by contract: instrumentation runs only through a consumer-injected logger handle (`opts.logger` exposing `enabled()` + `debug()`; the xttltable `opts.clock` injection precedent applied to diagnostics), timing ticks via xprofiler and emitting a per-pass summary line only while that handle reports enabled.
-
-- `start(name, opts)` - Apply opts, install the event's detection (timer or hook); idempotent
-- `configure(name, opts)` - Push option changes into an event
-
-Catalog: `x_squad_on_change(squad, changed|nil, prev, curr)` — production-controlled squad heartbeat. Detection: one staggered walk (20 squads per 1s tick, constant per-tick cost independent of squad count) diffs gvid/online/smart_id/action per squad and queues transitions. Production: a credit accumulator emits exactly `opts.rate_per_min` fires per minute; each credit picks a lane by `opts.level_bias` (Bresenham, actor's current level vs background), fires the lane's oldest queued change, else the lane's next squad round-robin (the implicit keepalive that guarantees every squad its turn). One clamp: 60s per-squad refractory. Payload tables reused, read-only during the callback. `x_npc_medkit_use(npc, medkit, kind)` — heal-consumption hook on `xr_eat_medkit.consume_medkit`.
 
 ### xpda.script - PDA/Map
 
