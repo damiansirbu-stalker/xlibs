@@ -11,6 +11,11 @@ next
       PRs #594, #595, #596: set_aim_params, set_vision_speed, can_kill_enemy, can_kill_member,
       fire_make_sense, on_action_switch. Each wrapper probes its engine bind on the first call.
       Below the bind each degrades to a defined fallback, so consumers never touch a raw bind.
+    - Added release_takeover_id(id): id-keyed sibling of release_takeover for server-side
+      unregister, so a recycled NPC id re-grafts cleanly.
+    - Changed install_takeover to assert on a second differing takeover spec instead of silently
+      replacing the first consumer's policy. A failed install no longer writes the spec.
+    - Removed resolve_stance, find_point, AGGRESSOR_KINDS. Zero consumers existed.
 
   xsmart
     - Added reconcile_squad_roster(squad, from_smart_id): syncs SIMBOARD.smarts rosters after a

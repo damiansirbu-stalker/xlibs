@@ -160,12 +160,12 @@ Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over
 - `get_weapon_kind(npc)`, `get_weapon_range(kind)` - Active weapon kind (TTL-cached) and its engagement range band
 - `get_unseen_ms(npc, enemy, tg)`, `get_track_pos(npc, enemy, sees)` - Enemy-memory reads: any-sense recency, live-or-last-known position
 - `disclose_enemy(npc, enemy)` - Inject a known enemy into NPC memory and register in combat, relation-clean
-- `install_takeover(npc, spec)`, `release_takeover(npc)` - Graft the GOAP gate evaluator + action per stalker; the consumer owns policy via spec { gate, on_begin }
+- `install_takeover(npc, spec)`, `release_takeover(npc)`, `release_takeover_id(id)` - Graft the GOAP gate evaluator + action per stalker; the consumer owns policy via spec { gate, on_begin }. Single-consumer: a second differing spec asserts. release_takeover_id is the id-keyed release for server-side unregister
 - `register_in_combat(npc)`, `unregister_in_combat(npc)` - Squad memory-sharing bookkeeping the blocked combat planner no longer performs
 - `get_blocked_planners()`, `get_operator(npc)`, `get_facing_offset(npc, pos)` - Blocked planner-id list, current brain operator, body-facing offset
-- `set_combat(npc, opts)`, `resolve_stance(fire, posture, movement)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
-- `has_occluder_between(a, b)`, `has_obstacle_between(a, b)`, `has_friendly_in_line(npc, a, b, thresh)` - Chest-height static/object rays and the squad firing-lane check
-- `find_point(npc, dir, m)`, `find_cover(npc, enemy_pos, search_pos)`, `find_shot(npc, enemy_pos)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders (decreasing-step search, ring sweeps, clear-lane fans)
+- `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
+- `has_obstacle_between(a, b)`, `has_obstacle_to_target(a, b)`, `has_friendly_in_line(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
+- `find_cover(npc, enemy_pos, search_pos)`, `find_shot(npc, enemy_pos)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders (ring sweeps, clear-lane fans)
 - `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
 - `is_indoor(pos)` - Indoor-level table plus surge-shelter proximity
 - `claim_cover(lvid, owner_id)`, `release_cover(lvid, owner_id)` - Ownership-checked cover-vertex reservation over db.used_level_vertex_ids

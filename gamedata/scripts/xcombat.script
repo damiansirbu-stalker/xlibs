@@ -3,7 +3,7 @@
 local pairs, math_sqrt, math_cos, math_sin, math_abs = pairs, math.sqrt, math.cos, math.sin, math.abs
 local math_acos, math_deg = math.acos, math.deg
 local time_global, tostring, tonumber = time_global, tostring, tonumber
-local type, rawget = type, rawget
+local type, rawget, assert = type, rawget, assert
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
 local move, state_mgr = move, state_mgr
@@ -26,10 +26,8 @@ xcombat.STILL, xcombat.WALK,   xcombat.RUN  = "STILL", "WALK", "RUN"
 -- Weapon classification
 -- =========================================================================
 
-xcombat.AGGRESSOR_KINDS = {
-    w_pistol = true, w_shotgun = true, w_smg = true, w_melee = true,
-}
-
+-- The w_sniper palette classifier. Consumer: t92 LONG_RANGE_SNIPER_ENGAGEMENT
+-- (todo-alifetactics-next.md) - the doctrine weapon palette keys on it.
 xcombat.SNIPER_KINDS = {
     w_sniper = true,
 }
@@ -124,6 +122,7 @@ end
 --- position from memory (memory_position, memory_manager.cpp:279). Mirrors the reference graft mod rx_combat
 --- (live on see, memory_position when not - rx_combat.script:230,298). Pursuing the last-known spot lets a
 --- chase end where the enemy was lost instead of trailing the live, fleeing target.
+--- Consumer: t136 suppress at the remembered position (todo-combat-takeover-v2.md).
 --- @safety SAFE - enemy is a remembered object (guaranteed when it is the NPC's best_enemy)
 --- @cost O(1) | 1 luabind
 --- @param npc game_object the perceiving NPC
@@ -225,7 +224,7 @@ function xcombat.get_blocked_planners()
 end
 
 --- Set the NPC's squad combat-mask bit - join the squad memory-sharing group.
---- The grafted action calls this in its initialize because the blocked CStalkerCombatPlanner::initialize (its
+--- The grafted action's initialize calls this because the blocked CStalkerCombatPlanner::initialize (its
 --- last act) no longer runs; without it an AT NPC stays out of agent memory propagation. Idempotent (the engine
 --- ORs the bit); alive-gated because the bound call reaches agent_manager().member(), valid only on a live stalker.
 --- @safety SAFE - nil/alive-guarded; register_in_combat is SAFE_WRAPped and a no-op on a non-stalker
@@ -238,7 +237,7 @@ function xcombat.register_in_combat(npc)
 end
 
 --- Clear the NPC's squad combat-mask bit - leave the squad memory-sharing group.
---- The grafted action calls this in its finalize because the blocked CStalkerCombatPlanner::finalize (its
+--- The grafted action's finalize calls this because the blocked CStalkerCombatPlanner::finalize (its
 --- guarded unregister) no longer runs. Idempotent (clears an already-clear bit harmlessly); alive-gated because
 --- finalize also fires on death, where the agent member state is torn down and the bound call faults on the
 --- stale object (the engine smart_cast guards type, not liveness).
@@ -296,9 +295,10 @@ function xcombat_takeover_action:initialize()
     npc:set_path_type(game_object.level_path)
     npc:set_mental_state(anim.danger)
     -- Squad combat-mask bit: the blocked CStalkerCombatPlanner::initialize no longer sets it, so the graft
-    -- does. The disclosure leaf (AT at_hitresponse -> disclose_enemy) writes the same bit for a different
-    -- reason (make a shooter an enemy); two leaves, one engine bit, neither redundant.
-    npc:register_in_combat()
+    -- does, through the module's guarded wrapper. The disclosure leaf (AT at_hitresponse -> disclose_enemy)
+    -- writes the same bit for a different reason (make a shooter an enemy); two leaves, one engine bit,
+    -- neither redundant.
+    xcombat.register_in_combat(npc)
     if _takeover_spec and _takeover_spec.on_begin then _takeover_spec.on_begin(npc) end
 end
 function xcombat_takeover_action:execute()
@@ -307,7 +307,7 @@ end
 function xcombat_takeover_action:finalize()
     action_base.finalize(self)
     local npc = self.object
-    if npc:alive() then npc:unregister_in_combat() end
+    xcombat.unregister_in_combat(npc)
     npc:sniper_fire_mode(false)
 end
 
@@ -315,7 +315,11 @@ end
 --- vanilla combat chain on the gate. Idempotent per NPC; the graft is permanent for the NPC's life, so a
 --- transaction is the gate raising then lowering. The spec is the consumer policy, shared across NPCs - the
 --- per-NPC gate flag and maneuver state live in the consumer, read by npc:id() inside the gate/body callbacks.
---- @safety SAFE - nil/manager guarded; returns false (no-op) without a motivation_action_manager
+--- SINGLE-CONSUMER: one spec drives every grafted NPC, so a second consumer installing a differing spec would
+--- silently replace the first consumer's gate/on_begin for EVERY NPC - that call asserts instead. A keyed
+--- multi-consumer registry is deliberate future work for the first Behaviors graft, not an overwrite.
+--- @safety SAFE for the single consumer - nil/manager guarded, returns false (no-op, no spec written) without
+--- a motivation_action_manager; ASSERTS on a second differing spec (a consumer conflict is a setup error)
 --- @cost O(b) blocked planners | add_evaluator + add_action + b*(action lookup + add_precondition), one-time at install
 --- @src anomaly/xr_actions_id.script, anomaly/xr_evaluators_id.script:17 (sidor_wounded_base); xray/stalker_planner.cpp:68-69,128,149-163 (the goal chain the gate exploits)
 --- @param npc game_object stalker
@@ -323,11 +327,13 @@ end
 --- @return boolean true when grafted or already grafted, false when the NPC has no action manager
 function xcombat.install_takeover(npc, spec)
     if not npc or not spec then return false end
-    _takeover_spec = spec
+    assert(_takeover_spec == nil or _takeover_spec == spec,
+        "xcombat.install_takeover: a second differing takeover spec - the takeover is single-consumer")
     local id = npc:id()
     if _takeover_installed[id] then return true end
     local manager = npc:motivation_action_manager()
     if not manager then return false end
+    _takeover_spec = spec
     _takeover_installed[id] = true
 
     manager:add_evaluator(TAKEOVER_ID, xcombat_takeover_evaluator("eva_xcombat_takeover"))
@@ -357,6 +363,18 @@ end
 function xcombat.release_takeover(npc)
     if not npc then return end
     _takeover_installed[npc:id()] = nil
+end
+
+--- Id-keyed sibling of release_takeover for callers holding no game_object (server-side unregister).
+--- Same contract: drops the install-tracking so a recycled id re-grafts on its next install. An id
+--- unregistered WITHOUT a prior net_destroy would otherwise keep a stale guard and silently skip the
+--- next re-graft; calling this from the unregister handler makes id recycling provably safe.
+--- @safety SAFE - nil guarded
+--- @cost O(1) | 0 luabind (table clear)
+--- @param id number NPC id
+function xcombat.release_takeover_id(id)
+    if not id then return end
+    _takeover_installed[id] = nil
 end
 
 -- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
@@ -474,44 +492,6 @@ function xcombat.set_combat(npc, opts)
     end
     npc:sniper_fire_mode(opts.fire == "SNIPE")
     return true
-end
-
--- Movement speed order for nearest-cell clamping (STILL < WALK < RUN).
-local MOVE_ORDER = { [xcombat.STILL] = 0, [xcombat.WALK] = 1, [xcombat.RUN] = 2 }
-
--- Nearest movement the posture row actually ships to the requested one: exact when present, else the
--- available movement closest in speed (so STOW's only sprint, or SNIPE's only still, satisfies any request).
-local function _nearest_movement(by_post, movement)
-    if by_post[movement] then return movement end
-    local want = MOVE_ORDER[movement] or 0
-    local best, best_delta
-    for move_name in pairs(by_post) do
-        local delta = math_abs((MOVE_ORDER[move_name] or 0) - want)
-        if not best_delta or delta < best_delta then best, best_delta = move_name, delta end
-    end
-    return best
-end
-
---- Clamp a desired (posture, movement) to a combo the engine actually ships for this fire mode.
---- COMBAT_STATES is the single source of which stances exist; callers express a preference (crouch or stand,
---- still/walk/run) and this returns the nearest real cell, so no caller hardcodes "crouch+run+fire has no
---- state" or "stow only sprints". Tries the requested posture first, falls back to the other when its row is
---- absent (only STOW, which is stand-only), then snaps movement to the nearest the row ships.
---- @safety SAFE - returns the inputs unchanged when fire has no matrix entry (set_combat then returns false)
---- @cost O(1) | 0 luabind (table lookups)
---- @param fire string FIRE/SNIPE/READY/STOW
---- @param posture string STAND/CROUCH preference
---- @param movement string STILL/WALK/RUN preference
---- @return string, string a (posture, movement) pair that resolves to a real state_lib state
-function xcombat.resolve_stance(fire, posture, movement)
-    local by_fire = COMBAT_STATES[fire]
-    if not by_fire then return posture, movement end
-    local order = (posture == xcombat.CROUCH) and { xcombat.CROUCH, xcombat.STAND } or { xcombat.STAND, xcombat.CROUCH }
-    for i = 1, 2 do
-        local by_post = by_fire[order[i]]
-        if by_post then return order[i], _nearest_movement(by_post, movement) end
-    end
-    return posture, movement
 end
 
 -- =========================================================================
@@ -663,6 +643,7 @@ end
 --- components follow the live ai_aim_* cvars, so a negative value reverts that component to the global.
 --- Floor fallback: NO-OP - vanilla aim IS the fallback, the caller's tuning degrades to nothing.
 --- Not serialized: the game object is reconstructed on re-online, re-set on npc_on_net_spawn.
+--- Consumer: t123 Reaction page, aim half (todo-alifetactics-next.md).
 --- @safety SAFE - nil-guarded, no-op below the bind
 --- @cost O(1) | 1 luabind trivial (4 field writes) on the engine path, 0 on the floor
 --- @src PR themrdemonized/xray-monolith#594; xray/ai_stalker.h:817-845 (sentinel fields), xray/sight_manager.cpp:80-101 (select_speed consumption)
@@ -685,6 +666,7 @@ end
 --- script substitute is a visual_memory_manager functor wrap that would run our Lua every frame, banned
 --- by code-standards.md "No Per-Frame Work"; vanilla acquisition is the fallback.
 --- Not serialized: the manager is reconstructed on re-online, re-set on npc_on_net_spawn.
+--- Consumer: t123 Reaction page, perception half (todo-alifetactics-next.md).
 --- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-CCustomMonster (the actor)
 --- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
 --- @src PR themrdemonized/xray-monolith#594; xray/visual_memory_manager.cpp:355-379 (composition), :360-361 (close-range skip)
@@ -753,6 +735,8 @@ end
 --- It reads the NPC's CURRENT position (can_kill_at(vertex) is intentionally unbound), so it cannot score a
 --- resolver's candidate destination either. Use only for a current-position clearance read that must exclude
 --- fire_make_sense's other conditions (floor gap / point-blank / unseen window).
+--- Consumer: t134 fire-discipline conduct layer (todo-combat-takeover-v2.md) - the named refinement if
+--- playtests show seen-but-muzzle-blocked wall-chewing.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) | engine: 1 luabind (frame-cached recompute) | fallback: ~9 luabind (bone origin + ray)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:744-777 (safety fan), :802-823 (update_can_kill_info)
@@ -777,6 +761,8 @@ end
 --- enemy) so a caller can decide to REPOSITION for a clear line. It is NOT a trigger hold: the engine's own
 --- friendly-fire hold (CObjectActionFire) survives a combat-planner block and already stops the shot, so
 --- reading this to gate fire duplicates that. Positional use only.
+--- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - the blocked-lane read whose reposition
+--- resolver is find_shot.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) engine (frame-cached) | O(m) members fallback (has_friendly_in_line)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:728-731 (any non-enemy flags member); xray/object_actions.cpp:244-265 (the surviving engine hold)
@@ -885,11 +871,11 @@ function xcombat.on_action_switch(fn)
 end
 
 -- =========================================================================
--- Movement targeting. _vertex_toward is the geometry primitive (decreasing-step search along a direction).
+-- Movement targeting. _find_toward is the geometry primitive (decreasing-step search along a direction).
 -- The maneuver-facing finders all return a level vertex or nil, no side effects, uniform find_<noun> naming:
---   find_point - a reachable vertex in a direction at a distance
 --   find_cover - a firing vertex at the nearest cover (best_cover, then a ring sweep for a clear shot)
 --   find_shot  - a firing vertex around the NPC with a clear shot (the smart sidestep; no cover needed)
+--   find_flee_lane - a clear run lane away from a threat (fanned headings, obstacle-rayed)
 -- =========================================================================
 
 local COVER_RADIUS         = 10
@@ -925,19 +911,6 @@ local function _find_toward(npc, from_lvid, dir, step)
         step_m = step_m - STEP_DECREMENT_M
     end
     return nil
-end
-
---- Free reachable vertex `distance_m` from the NPC along `dir`, or nil.
---- Resolves from the NPC's own node via the decreasing-step primitive; nil on a blocked path (recovery is the caller's).
---- @safety SAFE - nil when no free vertex validates along dir
---- @cost O(s/2) steps | 1 luabind trivial (level_vertex_id) + the _find_toward scan
---- @src xray/level_script.cpp:410 (vertex_in_direction)
---- @param npc game_object
---- @param dir vector unit direction
---- @param distance_m number distance in metres
---- @return number|nil free accessible vertex id, or nil
-function xcombat.find_point(npc, dir, distance_m)
-    return _find_toward(npc, npc:level_vertex_id(), dir, distance_m)
 end
 
 -- One probe: a free reachable vertex `step` from `from_lvid` along `dir` with a clear SHOT line to the enemy -
@@ -993,6 +966,8 @@ end
 
 --- Firing vertex around the NPC with a clear shot - the smart sidestep to clear a blocked shot (a wall or a
 --- squadmate in the firing lane). Same ring sweep as find_cover but centred on the NPC's own node, no cover.
+--- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - the reposition resolver when
+--- can_kill_member reports a friendly in the firing lane.
 --- @safety SAFE - nil when no nearby vertex can see the enemy
 --- @cost O(r*d) | up to (rings*PROBE_DIRS) raycasts
 --- @src xray/level_script.cpp:410 (vertex_in_direction)
@@ -1196,6 +1171,7 @@ end
 --- 0-based position of an NPC within its squad's member iteration order.
 --- Stable per combat session; gives each member a distinct spread bucket instead of the global-id
 --- modulo, which clashed whenever two squadmates shared `id % bucket_count`.
+--- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - role bias by squad ordinal.
 --- @safety SAFE - returns 0 for nil/absent squad or member not found
 --- @cost O(m) members | alife_object + iter per call (called once per NPC at state init)
 --- @src anomaly/sim_squad_scripted.script (squad_members)
