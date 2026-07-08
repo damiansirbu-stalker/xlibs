@@ -285,7 +285,7 @@ function xcombat_takeover_action:__init(name) super(nil, name) end
 function xcombat_takeover_action:initialize()
     action_base.initialize(self)
     local npc = self.object
-    -- Clear any leftover script animation overlay (at_health's limp, an idle pose) before AT drives the NPC: a
+    -- Clear any leftover script animation overlay (at_healing's limp, an idle pose) before AT drives the NPC: a
     -- stationary overlay left playing pins the body while the maneuver's movement slides it (the mid-air-slide bug
     -- seen when a hurt NPC flees mid-limp). demonized's panic clears the same way on takeover
     -- (demonized_stalker_aoe_panic.script:345).
@@ -295,7 +295,7 @@ function xcombat_takeover_action:initialize()
     npc:set_path_type(game_object.level_path)
     npc:set_mental_state(anim.danger)
     -- Squad combat-mask bit: the blocked CStalkerCombatPlanner::initialize no longer sets it, so the graft
-    -- does, through the module's guarded wrapper. The disclosure leaf (AT at_hitresponse -> disclose_enemy)
+    -- does, through the module's guarded wrapper. The disclosure leaf (AT at_disclosure -> disclose_enemy)
     -- writes the same bit for a different reason (make a shooter an enemy); two leaves, one engine bit,
     -- neither redundant.
     xcombat.register_in_combat(npc)
@@ -1053,6 +1053,14 @@ function xcombat.send_to(npc, vid)
     end
     if not npc:accessible(vid) then
         local nvid = npc:accessible_nearest(level.vertex_position(vid), VEC_ZERO)
+        -- accessible_nearest returns u32(-1) when the receiver is not a CCustomMonster or when
+        -- the position is already accessible (vid-vs-position disagreement); set_dest silently
+        -- ignores an invalid id, so fall back to the own node instead of returning the sentinel.
+        if not nvid or nvid >= INVALID_LVID then
+            local own = npc:level_vertex_id()
+            npc:set_dest_level_vertex_id(own)
+            return own
+        end
         npc:set_dest_level_vertex_id(nvid)
         return nvid
     end
