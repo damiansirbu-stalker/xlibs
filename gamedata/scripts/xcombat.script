@@ -156,8 +156,9 @@ end
 --- attitude dominated by the faction term (CAI_Stalker::tfGetRelationType -> RELATION_REGISTRY
 --- GetRelationType), so a known faction-hostile object is engaged without mutating any relation. The
 --- writer counterpart to get_unseen_ms / get_track_pos. Both calls require a CAI_Stalker receiver.
---- @safety SAFE - nil-guarded npc/enemy
---- @cost O(1) | 2 luabind (enable_memory_object: visual-memory inject; register_in_combat: agent_manager().member())
+--- @safety SAFE - nil-guarded npc/enemy; the combat registration routes through the alive-guarded
+--- xcombat.register_in_combat wrapper (agent member state is torn down on death)
+--- @cost O(1) | 2-3 luabind (enable_memory_object: visual-memory inject; alive + register_in_combat: agent_manager().member())
 --- @src xray/script_game_object3.cpp:65 (enable_memory_object), xray/script_game_object_inventory_owner.cpp:1945 (register_in_combat)
 --- @src xray/enemy_manager.cpp:69 (is_relation_enemy gate), xray/ai/stalker/ai_stalker_misc.cpp (CAI_Stalker::tfGetRelationType)
 --- @param npc game_object stalker to alert
@@ -166,7 +167,7 @@ end
 function xcombat.disclose_enemy(npc, enemy)
     if not npc or not enemy then return false end
     npc:enable_memory_object(enemy, true)
-    npc:register_in_combat()
+    xcombat.register_in_combat(npc)
     return true
 end
 
