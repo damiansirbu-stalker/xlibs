@@ -97,7 +97,9 @@ end
 -- KIND CACHE (per-section ini_sys:r_string_ex("kind") lookup, cached)
 -- ============================================================================
 
-local _kind_cache = setmetatable({}, { __mode = "k" })
+-- String-keyed: weak-key mode would be a no-op (strings are never removed from weak tables);
+-- the section universe is LTX-bounded, so the cache is naturally capped.
+local _kind_cache = {}
 -- Cached kind-field lookup. `false` sentinel records nil to avoid re-querying.
 -- @complexity O(1) on cache hit; 1 luabind heavy on miss (r_string_ex)
 local function _get_kind(sec)
@@ -109,7 +111,7 @@ local function _get_kind(sec)
     return kind
 end
 
-local _class_cache = setmetatable({}, { __mode = "k" })
+local _class_cache = {}
 -- Cached class-field lookup. `false` sentinel records nil to avoid re-querying.
 -- @complexity O(1) on cache hit; 1 luabind heavy on miss (r_string_ex)
 local function _get_class(sec)
@@ -418,7 +420,7 @@ local _SECTION_BUILDERS = {
     drink = function() return _eatable_filtered_by_kind({ i_drink = true }) end,
 }
 
-local _category_sections_cache = setmetatable({}, { __mode = "k" })
+local _category_sections_cache = {}
 
 --- Get list of sections that belong to a category
 --- Symmetric inverse of get_section_category. Covers every category that can be the result
