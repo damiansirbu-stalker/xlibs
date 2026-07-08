@@ -529,6 +529,9 @@ X-Ray engine sentinel values extracted from C++ source headers.
 
 - `INVALID_ENTITY_ID` - u16 MAX (65535), from alife_space.h:39
 - `INVALID_LEVEL_VERTEX_ID` - u32 MAX (4294967295)
+- `INVALID_GAME_VERTEX_ID` - u16 MAX (65535), GameGraph::_GRAPH_ID(-1) at xrServer_Objects_ALife.cpp:369
+- `INVALID_BONE_ID` - u16 MAX (65535); `game_object:get_bone_id` returns it for a bone name the skeleton does not have
+- `ACTOR_ENTITY_ID` - 0 (engine convention: actor allocated as the first server slot, `db.actor:id() == 0`)
 
 ### xdata.script - Static Data
 
