@@ -100,8 +100,24 @@ end
 -- timestamp and a last-known position. The takeover reads these instead of re-deriving them with its own
 -- raycast clock: memory_time is the signal vanilla uses to disengage (xr_combat_ignore.script:111),
 -- memory_position is what the reference graft mod pursues when the enemy is not currently visible
--- (rx_combat.script:298). npc:see() stays for the tactical "can I shoot right now" checks.
+-- (rx_combat.script:298). sees() is the tactical "can I shoot right now" check over the same memory.
 -- =========================================================================
+
+--- True when the NPC sees the object RIGHT NOW - the engine's accumulated visible_now state, the exact
+--- test vanilla kill_enemy fires on (stalker_combat_actions.cpp:483-494). A visual-memory read, not a
+--- fresh raycast: visibility accumulates on the engine's own vision path and this reads the result.
+--- The tactical "can I shoot right now" check; for sighting staleness use get_unseen_ms, for the
+--- combat planner's cover bookkeeping use get_cover_state.
+--- @safety SAFE - nil-guarded both sides (false, never an error); the bind itself is engine-SAFE_WRAPped
+--- @cost O(1) | 1 luabind (CheckObjectVisibility - visual memory read)
+--- @src xray/script_game_object_script2.cpp:138 (see = CheckObjectVisibility, SAFE_WRAP)
+--- @param npc game_object the perceiving NPC
+--- @param obj game_object the object under test
+--- @return boolean true when visible now
+function xcombat.sees(npc, obj)
+    if not (npc and obj) then return false end
+    return npc:see(obj)
+end
 
 --- Milliseconds since the NPC last perceived the enemy by ANY sense (sight, sound, or hit).
 --- memory_time aggregates the most-recent last-perceived time across visual/sound/hit memory, stamped from
@@ -375,6 +391,37 @@ end
 function xcombat.release_takeover_id(id)
     if not id then return end
     _takeover_installed[id] = nil
+end
+
+--- The combat planner's stored cover bookkeeping for a stalker: (in_cover, looked_out, position_held).
+--- These are the engine's BELIEFS, not geometry - in_cover means "the take_cover action completed at the
+--- cover point the engine's evaluator picked, and the pick has not changed since" (set as take_cover's
+--- effect, stalker_combat_planner.cpp:369; all three cleared on every best-cover re-pick :57-63 and on
+--- planner setup :65-80). The engine never ray-tests concealment for any of them, so a flagged NPC can
+--- stand visibly exposed beside his point (the peek that would use it is disabled engine-side); pair with
+--- has_obstacle_to_target for the geometric line. Only STORAGE-BACKED flags are read here - SeeEnemy and
+--- the other live evaluators do not live in the storage (a storage read of those returns an unset default);
+--- for "does he see the enemy" use npc:see(enemy). Under a combat-planner block (the takeover) the flags
+--- can only decay - the blocked planner cannot run the actions that set them, the re-pick clear still
+--- fires - so read them BEFORE a seize, not during one.
+--- @safety SAFE - nil-guarded chain end to end; returns nil (not false) when there is no planner to ask
+--- (nil/offline object, non-stalker, uninitialized manager), so "not in cover" and "unknowable" stay distinct
+--- @cost O(1) | 7 luabind trivial (manager, initialized, action, cast_planner, 3 stored property reads)
+--- @src xray/action_planner_script.cpp:26-63 (cast_planner + the read-only storage bind), xray/property_storage_script.cpp:22 (property)
+--- @src xray/stalker_combat_planner.cpp:369 (set), :57-63 (cleared on best-cover change), :253-262 (the storage-backed evaluator set), :344 (kill_enemy requires in_cover)
+--- @src xray/ai/stalker/ai_stalker_script.cpp:43 (stalker_ids.property_in_cover)
+--- @param npc game_object stalker
+--- @return boolean|nil in_cover, boolean|nil looked_out, boolean|nil position_held (all nil when unreadable)
+function xcombat.get_cover_state(npc)
+    if not npc then return nil end
+    local mgr = npc:motivation_action_manager()
+    if not (mgr and mgr:initialized()) then return nil end
+    local planner = cast_planner(mgr:action(stalker_ids.action_combat_planner))
+    if not planner then return nil end
+    local storage = planner.storage
+    return storage:property(stalker_ids.property_in_cover),
+           storage:property(stalker_ids.property_looked_out),
+           storage:property(stalker_ids.property_position_holded)
 end
 
 -- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).

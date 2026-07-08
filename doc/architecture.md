@@ -158,11 +158,12 @@ if xcombat.fire_make_sense(npc, enemy) then ... end
 Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over the per-NPC combat-AI engine binds. Registers no callbacks and holds no game state; caches are transient (TTL, level-key) or session-stable exe probes.
 
 - `get_weapon_kind(npc)`, `get_weapon_range(kind)` - Active weapon kind (TTL-cached) and its engagement range band
-- `get_unseen_ms(npc, enemy, tg)`, `get_track_pos(npc, enemy, sees)` - Enemy-memory reads: any-sense recency, live-or-last-known position
+- `sees(npc, obj)`, `get_unseen_ms(npc, enemy, tg)`, `get_track_pos(npc, enemy, sees)` - Enemy-memory reads: visible right now (the engine's accumulated visible_now), any-sense recency, live-or-last-known position
 - `disclose_enemy(npc, enemy)` - Inject a known enemy into NPC memory and register in combat, relation-clean
 - `install_takeover(npc, spec)`, `release_takeover(npc)`, `release_takeover_id(id)` - Graft the GOAP gate evaluator + action per stalker; the consumer owns policy via spec { gate, on_begin }. Single-consumer: a second differing spec asserts. release_takeover_id is the id-keyed release for server-side unregister
 - `register_in_combat(npc)`, `unregister_in_combat(npc)` - Squad memory-sharing bookkeeping the blocked combat planner no longer performs
 - `get_blocked_planners()`, `get_operator(npc)`, `get_facing_offset(npc, pos)` - Blocked planner-id list, current brain operator, body-facing offset
+- `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held). Engine beliefs, not concealment geometry; nil when there is no planner to ask
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
 - `has_obstacle_between(a, b)`, `has_obstacle_to_target(a, b)`, `has_friendly_in_line(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
 - `find_cover(npc, enemy_pos, search_pos)`, `find_shot(npc, enemy_pos)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders (ring sweeps, clear-lane fans)
