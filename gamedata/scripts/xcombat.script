@@ -420,9 +420,7 @@ function xcombat.get_cover_state(npc)
     local planner = cast_planner(mgr:action(stalker_ids.action_combat_planner))
     if not planner then return nil end
     local storage = planner.storage
-    return storage:property(stalker_ids.property_in_cover),
-           storage:property(stalker_ids.property_looked_out),
-           storage:property(stalker_ids.property_position_holded)
+    return storage:property(stalker_ids.property_in_cover), storage:property(stalker_ids.property_looked_out), storage:property(stalker_ids.property_position_holded)
 end
 
 -- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
