@@ -1,5 +1,9 @@
 --- xlibs_mcm: MCM info page for xlibs
 
+-- The demonized build this release is built and tested against - set to the LATEST demonized at
+-- every release (compatibility-standards.md "The target build").
+local TARGET_DEMONIZED = 20260706
+
 function on_mcm_load()
     return {
         id = "xlibs",
@@ -8,19 +12,8 @@ function on_mcm_load()
             { id = "title", type = "slide", link = "xlibs_mcm_banner",
                 text = "ui_mcm_xlibs_title", size = {512, 50}, spacing = 20 },
             { id = "desc", type = "desc", text = "ui_mcm_xlibs_desc" },
-            { id = "div_version", type = "line" },
-            { id = "version", type = "desc", text = "ui_mcm_xlibs_title",
-                ui_hook_functor = { xlibs_mcm.set_version_text }, clr = {255, 212, 201, 168} },
-        },
+            { id = "div_footer", type = "line" },
+            { id = "platform", type = "desc", text = "ui_mcm_xmcm_footer",
+                ui_hook_functor = { xmcm.platform_functor({ mod = "xlibs", version = xlibs.get_version(), target_build = TARGET_DEMONIZED }) }, clr = {255, 212, 201, 168} },        },
     }
-end
-
---- Set MCM info-page version line from xlibs.get_version()
---- Called by MCM via ui_hook_functor on the version desc widget; runs on MCM render
---- @safety SAFE - handlers.desc is MCM-supplied; SetText is MCM widget API
---- @cost O(1) | 0 luabind (pure MCM widget call; no engine bridge)
---- @param _anchor table MCM anchor element (unused, required by MCM callback signature)
---- @param handlers table MCM handlers with desc text widget
-function set_version_text(_anchor, handlers)
-    handlers.desc:SetText(xlibs.get_version())
 end

@@ -1,5 +1,8 @@
 next
-  Summary: xcombat engine fire-gate wrappers, xsmart roster reconcile, xsquad id snapshot, zero-consumer surface audit, xlog flush fix, mutant name localization
+  Summary: xcombat engine fire-gate wrappers, xsmart roster reconcile, xsquad id snapshot, zero-consumer surface audit, xlog flush fix, mutant name localization, xmcm platform status
+
+  xmcm
+    - Added xmcm.platform_status: dynamic checking of xlibs and xray-monolith/AOEngine versions.
 
   xlog
     - Fixed the periodic flush firing exactly once per session instead of every 60 seconds.

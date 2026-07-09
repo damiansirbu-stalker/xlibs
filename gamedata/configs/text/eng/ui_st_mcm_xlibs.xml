@@ -9,4 +9,7 @@
     <string id="ui_mcm_xlibs_desc">
         <text>Shared utility library for STALKER Anomaly Lua modding. Modules covering entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.</text>
     </string>
+    <string id="ui_mcm_xmcm_footer">
+        <text>Detecting platform...</text>
+    </string>
 </string_table>
