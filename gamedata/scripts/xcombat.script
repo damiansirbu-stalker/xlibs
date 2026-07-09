@@ -3,7 +3,7 @@
 local math_sqrt, math_cos, math_sin, math_abs = math.sqrt, math.cos, math.sin, math.abs
 local math_acos, math_deg, math_huge = math.acos, math.deg, math.huge
 local time_global, tostring, tonumber = time_global, tostring, tonumber
-local type, rawget, assert = type, rawget, assert
+local type, rawget, assert, pairs = type, rawget, assert, pairs
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
 local move, state_mgr = move, state_mgr
@@ -441,6 +441,14 @@ end
 -- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
 local _operators = nil
 
+-- Register the +1/+2/+3 sub-action labels for one numeric action id, skipping any id already mapped.
+local function _assign_variants(ops, name, aid)
+    if type(aid) ~= "number" then return end
+    for i = 1, 3 do
+        if ops[aid + i] == nil then ops[aid + i] = name .. "+" .. i end
+    end
+end
+
 --- Short name of the engine combat operator the NPC's brain is running now (combat / danger / alife /
 --- any xr_actions_id name). Reads the motivation action manager's current action id and maps it: the three
 --- engine planners by stalker_ids, every vanilla scheme action by a reverse walk of the xr_actions_id
@@ -463,11 +471,7 @@ function xcombat.get_operator(npc)
             if type(aid) == "number" and _operators[aid] == nil then _operators[aid] = name end
         end
         for name, aid in pairs(xr_actions_id) do
-            if type(aid) == "number" then
-                for i = 1, 3 do
-                    if _operators[aid + i] == nil then _operators[aid + i] = name .. "+" .. i end
-                end
-            end
+            _assign_variants(_operators, name, aid)
         end
         if xr_danger.actid and _operators[xr_danger.actid] == nil then _operators[xr_danger.actid] = "danger_s" end
     end
@@ -1231,18 +1235,22 @@ xcombat.INDOOR_LEVELS = {
 -- on many levels, so an up-ray alone false-flags a canopy as a roof; the horizontal wall confirmation
 -- below is what tells a building (roof + walls) from a tree (roof, open sides).
 local RQ_STATIC          = 2
-local INDOOR_PROBE_Y     = 1.2   -- cast from chest height (skip ground clutter, reach a normal ceiling)
-local INDOOR_ROOF_M      = 4     -- a static hit straight up within this = a roof overhead
-local INDOOR_WALL_M      = 3     -- a static hit sideways within this = an enclosing wall
-local INDOOR_MIN_WALLS   = 2     -- need at least this many of the 4 cardinal directions walled
+-- cast from chest height (skip ground clutter, reach a normal ceiling)
+local INDOOR_PROBE_Y     = 1.2
+-- a static hit straight up within this = a roof overhead
+local INDOOR_ROOF_M      = 4
+-- a static hit sideways within this = an enclosing wall
+local INDOOR_WALL_M      = 3
+-- need at least this many of the 4 cardinal directions walled
+local INDOOR_MIN_WALLS   = 2
 
--- One static-geometry ray from (px,py,pz) along (dx,dy,dz); true if it hits the level mesh within range.
+-- One static-geometry ray from `pos` along `dir`; true if it hits the level mesh within range.
 -- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
-local function _static_hit(px, py, pz, dx, dy, dz, range)
+local function _static_hit(pos, dir, range)
     local ray = ray_pick()
     ray:set_flags(RQ_STATIC)
-    ray:set_position(vector():set(px, py, pz))
-    ray:set_direction(vector():set(dx, dy, dz))
+    ray:set_position(pos)
+    ray:set_direction(dir)
     ray:set_range(range)
     ray:query()
     local hit = ray:get_distance()
@@ -1265,13 +1273,13 @@ end
 --- @return boolean true if enclosed (underground level, or roofed-and-walled outdoor spot)
 function xcombat.is_indoor(pos)
     if xcombat.INDOOR_LEVELS[level.name()] then return true end
-    local x, y, z = pos.x, pos.y + INDOOR_PROBE_Y, pos.z
-    if not _static_hit(x, y, z, 0, 1, 0, INDOOR_ROOF_M) then return false end
+    local probe = vector():set(pos.x, pos.y + INDOOR_PROBE_Y, pos.z)
+    if not _static_hit(probe, vector():set(0, 1, 0), INDOOR_ROOF_M) then return false end
     local walls = 0
-    if _static_hit(x, y, z,  1, 0,  0, INDOOR_WALL_M) then walls = walls + 1 end
-    if _static_hit(x, y, z, -1, 0,  0, INDOOR_WALL_M) then walls = walls + 1 end
-    if _static_hit(x, y, z,  0, 0,  1, INDOOR_WALL_M) then walls = walls + 1 end
-    if _static_hit(x, y, z,  0, 0, -1, INDOOR_WALL_M) then walls = walls + 1 end
+    if _static_hit(probe, vector():set( 1, 0,  0), INDOOR_WALL_M) then walls = walls + 1 end
+    if _static_hit(probe, vector():set(-1, 0,  0), INDOOR_WALL_M) then walls = walls + 1 end
+    if _static_hit(probe, vector():set( 0, 0,  1), INDOOR_WALL_M) then walls = walls + 1 end
+    if _static_hit(probe, vector():set( 0, 0, -1), INDOOR_WALL_M) then walls = walls + 1 end
     return walls >= INDOOR_MIN_WALLS
 end
 
