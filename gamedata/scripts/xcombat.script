@@ -1,6 +1,6 @@
 --- xcombat: combat AI primitives - weapon classification, NPC control commands, geometry, movement targeting, cover reservation, squad spread, engine fire-gate wrappers
 
-local pairs, math_sqrt, math_cos, math_sin, math_abs = pairs, math.sqrt, math.cos, math.sin, math.abs
+local math_sqrt, math_cos, math_sin, math_abs = math.sqrt, math.cos, math.sin, math.abs
 local math_acos, math_deg = math.acos, math.deg
 local time_global, tostring, tonumber = time_global, tostring, tonumber
 local type, rawget, assert = type, rawget, assert
@@ -924,7 +924,11 @@ end
 --   find_flee_lane - a clear run lane away from a threat (fanned headings, obstacle-rayed)
 -- =========================================================================
 
-local COVER_RADIUS         = 10
+-- best_cover collects every cover point in COVER_RADIUS and runs a navmesh accessible() check on each
+-- (cover_manager_inline.h), so its cost grows with the area scanned (~r^2) and is worst when it finds
+-- nothing (checks all of them). At radius 10 a dense-cover no-cover result measured up to 2.7ms; 7 roughly
+-- halves the points scanned, and cover within ~7m behind is a sound retreat distance anyway.
+local COVER_RADIUS         = 7
 local COVER_MIN_ENEMY_DIST = 1
 local COVER_MAX_ENEMY_DIST = 30
 local STEP_DECREMENT_M     = 2
@@ -997,8 +1001,9 @@ end
 --- Firing vertex at the nearest cover: best_cover locates the obstacle, then a ring sweep around it returns
 --- the nearest free vertex with a clear shot. The NPC stands there with the obstacle adjacent to duck behind.
 --- @safety SAFE - nil when no cover near or nothing around it can see the enemy
---- @cost O(r*d) | 1 best_cover heavy + up to (rings*PROBE_DIRS) raycasts
---- @src xray/script_game_object3.cpp:66 (best_cover), xray/level_script.cpp:410 (vertex_in_direction)
+--- @cost O(covers-in-radius + rings*PROBE_DIRS) | 1 best_cover heavy (scans + accessible()-checks every cover
+---   in COVER_RADIUS, worst when it finds none), then up to (rings*PROBE_DIRS) raycasts only when cover is found
+--- @src xray/script_game_object3.cpp:66 (best_cover), xray/cover_manager_inline.h (nearest+accessible scan), xray/level_script.cpp:410 (vertex_in_direction)
 --- @param npc game_object
 --- @param enemy_pos vector enemy position the firing line must reach
 --- @param search_pos vector|nil centre of the cover search; defaults to the NPC's position
@@ -1145,43 +1150,53 @@ xcombat.INDOOR_LEVELS = {
     l13u_warlab           = true,
 }
 
-local _surge_smart_positions = nil
-local _surge_level = nil
+-- Indoor raycast geometry. rqtStatic = the baked level mesh only (walls, roofs, terrain) - NOT objects
+-- or NPCs, so a crate or a passing stalker never reads as a wall. Trees are baked into the static mesh
+-- on many levels, so an up-ray alone false-flags a canopy as a roof; the horizontal wall confirmation
+-- below is what tells a building (roof + walls) from a tree (roof, open sides).
+local RQ_STATIC          = 2
+local INDOOR_PROBE_Y     = 1.2   -- cast from chest height (skip ground clutter, reach a normal ceiling)
+local INDOOR_ROOF_M      = 4     -- a static hit straight up within this = a roof overhead
+local INDOOR_WALL_M      = 3     -- a static hit sideways within this = an enclosing wall
+local INDOOR_MIN_WALLS   = 2     -- need at least this many of the 4 cardinal directions walled
 
--- Collect surge-shelter smart positions for the current level. Rebuilt when level.name() changes,
--- so the cache self-invalidates on level transition with no event subscription.
--- @cost O(s) smarts | 1 luabind per smart (has_surge_shelter prop read)
-local function _init_surge_smarts()
-    _surge_smart_positions = {}
-    _surge_level = level.name()
-    if not SIMBOARD or not SIMBOARD.smarts_by_names then return end
-    for _, smart in pairs(SIMBOARD.smarts_by_names) do
-        if smart and xsmart.has_surge_shelter(smart) and smart.position then
-            local radius = smart.radius or 30
-            _surge_smart_positions[#_surge_smart_positions + 1] = {
-                pos = smart.position,
-                radius_sqr = radius * radius,
-            }
-        end
-    end
+-- One static-geometry ray from (px,py,pz) along (dx,dy,dz); true if it hits the level mesh within range.
+-- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
+local function _static_hit(px, py, pz, dx, dy, dz, range)
+    local ray = ray_pick()
+    ray:set_flags(RQ_STATIC)
+    ray:set_position(vector():set(px, py, pz))
+    ray:set_direction(vector():set(dx, dy, dz))
+    ray:set_range(range)
+    ray:query()
+    local hit = ray:get_distance()
+    return hit > 0 and hit <= range
 end
 
---- True if `pos` is on a fully-indoor level or within a surge-shelter smart's radius.
---- Level-name table covers underground maps; surge-shelter proximity catches indoor pockets on outdoor levels.
---- @safety SAFE - lazy-builds the surge-smart list per level, rebuilds when level.name() changes
---- @cost O(1) on indoor levels, O(s) shelters otherwise | 1 luabind level.name + distance_to_sqr per shelter
---- @src anomaly/surge_manager.script (surge shelter list)
+--- True if `pos` is inside tight geometry: an underground/lab level, or a spot on an outdoor level with
+--- a roof overhead AND enclosing walls. Underground levels short-circuit true (whole map is enclosed, no
+--- ray). Otherwise a single up-ray checks for a roof - open sky returns false immediately (the common,
+--- cheapest path). A roof alone is not enough (a tree canopy is baked into the static mesh and would hit),
+--- so four cardinal side-rays confirm enclosure: INDOOR_MIN_WALLS of them must strike a wall within
+--- INDOOR_WALL_M. A building interior passes (roof + walls); a lone tree, an awning, or a rock overhang
+--- fails (roof, open sides) and reads outdoor. rqtStatic keeps objects and NPCs out of the test.
+--- The engine's own per-position signal (get_luminocity_hemi) is rejected: it conflates a roof with
+--- night / storm / deep shade, which is why the engine limits it to ambient particles.
+--- @safety SAFE - up to 5 ray_pick queries, no engine object required (world positions only)
+--- @cost O(1) | 1 luabind on open ground (up-ray misses), up to 5 under a roof; seize-path only, never per frame
+--- @src xray/xr_collide_defs.h:73 (rqtStatic = baked level mesh), xray/GamePersistent.cpp:285 (hemi rejected)
 --- @param pos vector world position
---- @return boolean true if indoor
+--- @return boolean true if enclosed (underground level, or roofed-and-walled outdoor spot)
 function xcombat.is_indoor(pos)
-    local level_name = level.name()
-    if xcombat.INDOOR_LEVELS[level_name] then return true end
-    if _surge_level ~= level_name then _init_surge_smarts() end
-    for i = 1, #_surge_smart_positions do
-        local smart = _surge_smart_positions[i]
-        if pos:distance_to_sqr(smart.pos) < smart.radius_sqr then return true end
-    end
-    return false
+    if xcombat.INDOOR_LEVELS[level.name()] then return true end
+    local x, y, z = pos.x, pos.y + INDOOR_PROBE_Y, pos.z
+    if not _static_hit(x, y, z, 0, 1, 0, INDOOR_ROOF_M) then return false end
+    local walls = 0
+    if _static_hit(x, y, z,  1, 0,  0, INDOOR_WALL_M) then walls = walls + 1 end
+    if _static_hit(x, y, z, -1, 0,  0, INDOOR_WALL_M) then walls = walls + 1 end
+    if _static_hit(x, y, z,  0, 0,  1, INDOOR_WALL_M) then walls = walls + 1 end
+    if _static_hit(x, y, z,  0, 0, -1, INDOOR_WALL_M) then walls = walls + 1 end
+    return walls >= INDOOR_MIN_WALLS
 end
 
 -- =========================================================================
