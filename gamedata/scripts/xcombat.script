@@ -1,7 +1,7 @@
 --- xcombat: combat AI primitives - weapon classification, NPC control commands, geometry, movement targeting, cover reservation, squad spread, engine fire-gate wrappers
 
 local math_sqrt, math_cos, math_sin, math_abs = math.sqrt, math.cos, math.sin, math.abs
-local math_acos, math_deg = math.acos, math.deg
+local math_acos, math_deg, math_huge = math.acos, math.deg, math.huge
 local time_global, tostring, tonumber = time_global, tostring, tonumber
 local type, rawget, assert = type, rawget, assert
 local level_object_by_id = level.object_by_id
@@ -132,6 +132,21 @@ end
 --- @return number ms since last perception
 function xcombat.get_unseen_ms(npc, enemy, tg)
     return tg - npc:memory_time(enemy)
+end
+
+--- Resolve a remembered enemy id to its live game_object - the maneuver target-commitment read
+--- (a staged maneuver keeps fighting the enemy it was staged against instead of re-reading
+--- best_enemy every tick). nil when the id is gone, offline, or dead, so the caller ends the
+--- maneuver instead of aiming at a corpse.
+--- @safety SAFE - nil id / offline / dead all return nil
+--- @cost O(1) | 1-2 luabind trivial (object_by_id, alive)
+--- @param id number|nil enemy id
+--- @return game_object|nil live enemy, or nil
+function xcombat.resolve_enemy(id)
+    if not id then return nil end
+    local obj = level_object_by_id(id)
+    if obj and obj:alive() then return obj end
+    return nil
 end
 
 --- Position to track the enemy for movement: the live position when currently seen, else the last-known
@@ -426,14 +441,17 @@ end
 -- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
 local _operators = nil
 
---- Short name of the engine combat operator the NPC's brain is running now (combat / danger / alife).
---- Reads the motivation action manager's current action id and maps the known combat planner ids to a label;
---- any other live action shows as its raw id, an absent/uninitialized manager as "-". A read of who drives.
+--- Short name of the engine combat operator the NPC's brain is running now (combat / danger / alife /
+--- any xr_actions_id name). Reads the motivation action manager's current action id and maps it: the three
+--- engine planners by stalker_ids, every vanilla scheme action by a reverse walk of the xr_actions_id
+--- table (exact ids first, then name+1..3 for the multi-slot entries like state_mgr), and xr_danger's
+--- scripted action as "danger_s" - so the HUD/trace never shows a raw number for a known action. A still
+--- unknown id shows as its number, an absent/uninitialized manager as "-". A read of who drives.
 --- @safety SAFE - nil-guarded manager + initialized() check, never constructs
 --- @cost O(1) | 3 luabind trivial (motivation_action_manager, initialized, current_action_id - field reads)
 --- @src xray/script_game_object_script2.cpp (motivation_action_manager), anomaly/xr_actions_id.script
 --- @param npc game_object stalker
---- @return string operator label ("combat"/"danger"/"alife"/id/"-")
+--- @return string operator label ("combat"/"danger"/"alife"/scheme action name/id/"-")
 function xcombat.get_operator(npc)
     if not _operators then
         _operators = {
@@ -441,6 +459,17 @@ function xcombat.get_operator(npc)
             [stalker_ids.action_danger_planner] = "danger",
             [stalker_ids.action_alife_planner]  = "alife",
         }
+        for name, aid in pairs(xr_actions_id) do
+            if type(aid) == "number" and _operators[aid] == nil then _operators[aid] = name end
+        end
+        for name, aid in pairs(xr_actions_id) do
+            if type(aid) == "number" then
+                for i = 1, 3 do
+                    if _operators[aid + i] == nil then _operators[aid + i] = name .. "+" .. i end
+                end
+            end
+        end
+        if xr_danger.actid and _operators[xr_danger.actid] == nil then _operators[xr_danger.actid] = "danger_s" end
     end
     local mgr = npc:motivation_action_manager()
     if not (mgr and mgr:initialized()) then return "-" end
@@ -535,6 +564,14 @@ function xcombat.set_combat(npc, opts)
         if body then npc:set_body_state(move[body]) end
         local mvt = MOVE_KEY[opts.movement]
         if mvt then npc:set_movement_type(move[mvt]) end
+    end
+    -- A stowed rout faces its RUN PATH, explicitly. The sprint state defines no direction and the
+    -- direction fallback proved unreliable under the takeover block: a fleeing NPC inherited the
+    -- previous state's stare (backpedalling in the enemy's face, observed 2026-07-09). The vanilla
+    -- reach-task call shape (xr_reach_task.script:124) sets the sight every apply, so the 200ms
+    -- re-assert keeps the head down the path.
+    if opts.fire == "STOW" then
+        npc:set_sight(look.path_dir, nil, 0)
     end
     npc:sniper_fire_mode(opts.fire == "SNIPE")
     return true
@@ -657,6 +694,34 @@ function xcombat.has_friendly_in_line(npc, npc_pos, ene_pos, lateral_thresh_m)
         if _member_blocks_line(member_id, my_id, axis) then return true end
     end
     return false
+end
+
+-- Squared NPC-to-actor distance, TTL-cached per id (the _weapon_kind_cache shape). 5s is the balance
+-- point: worst-case closure is ~14 m/s (both sprinting), so the verdict error band on a radius compare
+-- is +-70m - acceptable for a perceivability gate; 10s would double it and deny a visible fight too long.
+local ACTOR_DIST_TTL_MS = 5000
+local _actor_dist_cache = {}
+
+--- Squared distance from an NPC to the actor, TTL-cached per id (5s). Radius-agnostic by design: it
+--- returns the one number and every caller compares against its own squared radius, so one shared cache
+--- serves all consumers. On a cache hit the call is one table read - zero luabind, zero allocation; on a
+--- miss (once per TTL per NPC) two position() reads and a distance_to_sqr. Returns math.huge when there
+--- is no actor (menu, teardown), so a radius compare reads "far" instead of erroring.
+--- @safety SAFE - nil-actor guarded (math.huge), npc is the caller's live object
+--- @cost O(1) | 0 luabind cached; 3 luabind trivial on miss (2 position reads + distance)
+--- @src xray/script_game_object_script2.cpp (position), the _weapon_kind_cache TTL precedent above
+--- @param npc game_object
+--- @return number squared distance in m^2, math.huge when no actor exists
+function xcombat.actor_dist_sqr(npc)
+    local id = npc:id()
+    local tg = time_global()
+    local entry = _actor_dist_cache[id]
+    if entry and tg < entry.expires then return entry.dist_sqr end
+    local actor = db.actor
+    if not actor then return math_huge end
+    local dist_sqr = npc:position():distance_to_sqr(actor:position())
+    _actor_dist_cache[id] = { dist_sqr = dist_sqr, expires = tg + ACTOR_DIST_TTL_MS }
+    return dist_sqr
 end
 
 -- =========================================================================
@@ -1059,12 +1124,14 @@ local function _flee_lane_at(npc, own_lvid, npc_pos, away_dir, offset_deg, dista
 end
 
 --- Flee destination: the heading nearest `away_dir` whose run lane is clear for the full `distance_m` (a
---- reachable vertex that far out with no wall or object on the straight line to it). Fans candidate headings out
---- from away_dir in `arc_deg` steps to +-`max_spread_deg`, straight-away first, first clear lane wins. No clear
---- lane at any heading falls back to the farthest reachable partial along away_dir, so a fleeing NPC keeps
---- moving unless it is fully walled (then nil, the caller holds via send_to).
+--- reachable vertex that far out with no wall or object on the straight line to it). Two-phase search:
+--- fan candidate headings from away_dir in `arc_deg` steps to +-`max_spread_deg` at the FULL distance,
+--- straight-away first, first clear lane wins; nothing clear at full length re-fans at HALF length (a
+--- clear half-distance diagonal beats a short straight stub - the boxed-in case). Only then fall back to
+--- the farthest reachable partial along away_dir, so a fleeing NPC keeps moving unless it is fully
+--- walled (then nil, the caller holds via send_to).
 --- @safety SAFE - nil only when no vertex validates along away_dir at all
---- @cost O(n) headings | up to (2*max_spread/arc + 1) (vertex_in_direction + accessible + raycast)
+--- @cost O(n) headings | up to 2*(2*max_spread/arc + 1) (vertex_in_direction + accessible + raycast)
 --- @src xray/level_script.cpp:410 (vertex_in_direction)
 --- @param npc game_object
 --- @param away_dir vector unit direction away from the danger
@@ -1083,6 +1150,15 @@ function xcombat.find_flee_lane(npc, away_dir, distance_m, arc_deg, max_spread_d
         local vid = _flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, distance_m)
         if vid then return vid end
         offset_deg = offset_deg + arc_deg
+    end
+    local half_m = distance_m * 0.5
+    if half_m >= STEP_DECREMENT_M then
+        offset_deg = 0
+        while offset_deg <= max_spread_deg do
+            local vid = _flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, half_m)
+            if vid then return vid end
+            offset_deg = offset_deg + arc_deg
+        end
     end
     return _find_toward(npc, own, away_dir, distance_m)
 end
@@ -1264,7 +1340,7 @@ end
 -- behalf and holds no ownership tables; on_action_switch registers the CALLER's function at the caller's
 -- explicit call - nothing load-time, nothing hidden. The cover reservation is the engine's
 -- db.used_level_vertex_ids, written given an explicit lvid + owner; the module tables are transient
--- memoization caches (weapon-kind by TTL, surge-shelter positions by level-name change) plus the
+-- memoization caches (weapon-kind by TTL) plus the
 -- session-stable probe caches (_bind_ready, _fire_cvars - properties of the exe, immutable at runtime).
 -- The consumer keeps the lvid it claimed and releases it.
 -- =========================================================================
