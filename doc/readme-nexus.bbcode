@@ -1,4 +1,4 @@
-Version: 1.8.0
+Version: 1.8.1
 
 [url=https://github.com/damiansirbu-stalker/xlibs]GitHub[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog]Changelog[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt]На русском[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/issues]Bugs, suggestions[/url]
 
@@ -14,7 +14,7 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 
 [size=2][b]Entity and World[/b][/size]
 [list]
-[*][b]xcreature[/b] - Creature identification, type checks, fluent server object query iterator, money primitives
+[*][b]xcreature[/b] - Creature identification, type checks, translated names, money primitives
 [*][b]xsquad[/b] - Squad search, scripted control, release, chase, iteration
 [*][b]xsmart[/b] - Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
 [*][b]xlevel[/b] - Level/map queries, game time, location names, vertex validation
@@ -27,11 +27,11 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 
 [size=2][b]Data Structures[/b][/size]
 [list]
-[*][b]xtable[/b] - Filter, find, reduce, clone, shuffle, sort, binary insert, memoize, locks
-[*][b]xttltable[/b] - TTL key-value store, sliding window counter, fixed-capacity budget
+[*][b]xtable[/b] - Count, shuffle, sort, set merge and subtract
+[*][b]xttltable[/b] - TTL key-value store, sliding window counter, token bucket, FIFO cache
 [*][b]xslice[/b] - Time-sliced array iteration across frames
-[*][b]xmath[/b] - Probability rolls, weighted choice, random sampling, variation
-[*][b]xstring[/b] - String interpolation with ${key} placeholders
+[*][b]xmath[/b] - Random sampling and partial shuffle
+[*][b]xstring[/b] - String interpolation with {key} placeholders
 [*][b]xtime[/b] - Game-time seconds accumulator (wraps engine game_time())
 [/list]
 
@@ -51,10 +51,10 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 
 [size=2][b]Integration[/b][/size]
 [list]
-[*][b]xbus[/b] - Pub/sub event bus with pcall-wrapped delivery and diagnostics
+[*][b]xbus[/b] - Pub/sub event bus (direct delivery, errors stay visible)
 [*][b]xevent[/b] - Runtime function hooking for synthetic callbacks
 [*][b]xpda[/b] - PDA messages and map markers (squad and entity)
-[*][b]xmcm[/b] - MCM config getters and loaders with defaults extraction
+[*][b]xmcm[/b] - MCM config bundle (pre-seeded table, getter, loader)
 [*][b]xchange[/b] - Liquibase-style save data migration registry; each changeset runs once per save
 [/list]
 
@@ -79,7 +79,7 @@ No configuration needed. xlibs is a passive library loaded on demand by other mo
 
 [size=3][b]Compatibility[/b][/size]
 Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
-Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
+Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start; everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
 
 [line]
 

@@ -1,11 +1,11 @@
-<h3>Version: 1.8.0</h3>
+<h3>Version: 1.8.1</h3>
 <h3>GitHub: <a href="https://github.com/damiansirbu-stalker/xlibs">https://github.com/damiansirbu-stalker/xlibs</a></h3>
 <h3>Changelog: <a href="https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog">doc/changelog</a> | <a href="https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt">На русском</a> | <a href="https://github.com/damiansirbu-stalker/xlibs/issues">Bugs, suggestions</a></h3>
 <p>xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.<br /><br />The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in both the European and Russian STALKER modding traditions. Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.<br /><br />Pure Lua where possible. No engine dependency unless necessary. No central loader - the engine auto-loads scripts on first access. Just call xlog.get_logger() or xsquad.find_squads() and it works.<br /><br /></p>
 <h2>Features</h2>
 <h3>Entity and World</h3>
 <ul>
-<li><b>xcreature</b> - Creature identification, type checks, fluent server object query iterator, money primitives</li>
+<li><b>xcreature</b> - Creature identification, type checks, translated names, money primitives</li>
 <li><b>xsquad</b> - Squad search, scripted control, release, chase, iteration</li>
 <li><b>xsmart</b> - Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation</li>
 <li><b>xlevel</b> - Level/map queries, game time, location names, vertex validation</li>
@@ -17,11 +17,11 @@
 </ul>
 <h3>Data Structures</h3>
 <ul>
-<li><b>xtable</b> - Filter, find, reduce, clone, shuffle, sort, binary insert, memoize, locks</li>
-<li><b>xttltable</b> - TTL key-value store, sliding window counter, fixed-capacity budget</li>
+<li><b>xtable</b> - Count, shuffle, sort, set merge and subtract</li>
+<li><b>xttltable</b> - TTL key-value store, sliding window counter, token bucket, FIFO cache</li>
 <li><b>xslice</b> - Time-sliced array iteration across frames</li>
-<li><b>xmath</b> - Probability rolls, weighted choice, random sampling, variation</li>
-<li><b>xstring</b> - String interpolation with ${key} placeholders</li>
+<li><b>xmath</b> - Random sampling and partial shuffle</li>
+<li><b>xstring</b> - String interpolation with {key} placeholders</li>
 <li><b>xtime</b> - Game-time seconds accumulator (wraps engine game_time())</li>
 </ul>
 <h3>Diagnostics</h3>
@@ -38,10 +38,10 @@
 </ul>
 <h3>Integration</h3>
 <ul>
-<li><b>xbus</b> - Pub/sub event bus with pcall-wrapped delivery and diagnostics</li>
+<li><b>xbus</b> - Pub/sub event bus (direct delivery, errors stay visible)</li>
 <li><b>xevent</b> - Runtime function hooking for synthetic callbacks</li>
 <li><b>xpda</b> - PDA messages and map markers (squad and entity)</li>
-<li><b>xmcm</b> - MCM config getters and loaders with defaults extraction</li>
+<li><b>xmcm</b> - MCM config bundle (pre-seeded table, getter, loader)</li>
 <li><b>xchange</b> - Liquibase-style save data migration registry; each changeset runs once per save</li>
 </ul>
 <h2>Requirements</h2>
@@ -53,7 +53,7 @@
 <h2>Configuration</h2>
 <p>No configuration needed. xlibs is a passive library loaded on demand by other mods.<br /><br /></p>
 <h2>Compatibility</h2>
-<p>Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.<br />Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.<br /><br /></p>
+<p>Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.<br />Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start; everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.<br /><br /></p>
 <h2>Development</h2>
 <p>Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.<br />Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).<br />The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.<br />Full report in doc/test-report.log.<br /><br /></p>
 <h2>Usage and License</h2>

@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="windows-1251"?>
 <string_table>
-    <string id="ui_mcm_menu_xlibs">
-        <text>xlibs</text>
-    </string>
-    <string id="ui_mcm_xlibs_title">
-        <text>xlibs</text>
-    </string>
-    <string id="ui_mcm_xlibs_desc">
-        <text>Общая библиотека утилит для Lua-моддинга STALKER Anomaly. Модули для запросов сущностей, операций с отрядами, логики умных укрытий, работы с тайниками, логирования, профилирования, систем событий и структур данных.</text>
-    </string>
+  <string id="ui_mcm_menu_xlibs">
+    <text>xlibs</text>
+  </string>
+  <string id="ui_mcm_xlibs_title">
+    <text>xlibs</text>
+  </string>
+  <string id="ui_mcm_xlibs_desc">
+    <text>Общая библиотека утилит для Lua-моддинга STALKER Anomaly. Модули для запросов сущностей, операций с отрядами, логики умных укрытий, работы с тайниками, логирования, профилирования, систем событий и структур данных.</text>
+  </string>
+  <string id="ui_mcm_xmcm_footer">
+    <text>Определение платформы...</text>
+  </string>
 </string_table>
