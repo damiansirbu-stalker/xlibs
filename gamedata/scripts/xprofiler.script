@@ -57,18 +57,4 @@ function new_if(condition)
     return new()
 end
 
---- Wrap function with timing, returns result and duration_ms
---- Creates profile_timer, brackets fn() with start/stop, converts time() from microseconds to ms
---- @safety SAFE - profile_timer start/stop/time never crash (CPU::GetCLK is leaf intrinsic)
---- @cost O(1) + fn cost | 4 luabind trivial (ctor medium + start + stop + time: all CPU::GetCLK delta + arithmetic)
---- @src xray/xrServerEntities/script_engine_script.cpp(127,253)
---- @param fn function Function to execute
---- @return any, number result, duration in milliseconds
-function wrap(fn)
-    local timer = new()
-    timer:start()
-    local result = fn()
-    timer:stop()
-    return result, timer:get_ms()
-end
 

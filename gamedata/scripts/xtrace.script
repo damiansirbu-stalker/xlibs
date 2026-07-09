@@ -63,26 +63,3 @@ function new_if(condition)
     return new()
 end
 
---- Wrap function with trace push/pop
---- Pushes op_name onto trace path, executes fn(trace), pops on return
---- @safety SAFE - pure Lua; fn errors propagate (no pcall)
---- @cost O(1) + fn cost | 0 luabind (Lua-only push/pop bracket; fn cost depends on caller)
---- @param trace table Trace object
---- @param op_name string Operation name
---- @param fn function Function to execute, receives trace as arg
---- @return any result
-function wrap(trace, op_name, fn)
-    local seg = trace:push(op_name)
-    local result = fn(trace)
-    trace:pop(seg)
-    return result
-end
-
---- Reset counters (testing only)
---- Zeroes trace_counter and op_counter globals
---- @safety SAFE - pure Lua
---- @cost O(1) | 0 luabind (pure Lua table/string ops)
-function reset()
-    trace_counter = 0
-    op_counter = 0
-end

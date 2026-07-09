@@ -7,6 +7,7 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 ## Invariants
 
 - **No steady-state per-frame work.** Ongoing work runs on a throttled tick (a fixed interval) or on a discrete engine event (hit, shot, spawn, option change); it never runs continuously every frame. A per-frame engine callback (`npc_on_update`) is used only as a carrier that throttles before doing anything, and we never place our code on a path the engine runs every frame (a visibility or fire functor). Frame-spreading a bounded one-off batch (xslice, 1 item per frame) to avoid a single-frame spike is the one allowed use of the frame; it completes and stops. Full rule and rationale: `doc/standards/code-standards.md` "No Per-Frame Work".
+- **Steady-state silence.** xlibs modules do not log during normal operation; instrumentation runs only through a consumer-created xlog logger in the consumer's own code. The one permitted logging class is a load-time caller-misuse warning (a boundary diagnostic surfacing a caller bug before it becomes silent data loss): xchange warns on a bad or duplicate changeset registration because a silently skipped migration is a data hazard nobody would hear.
 
 ---
 
@@ -84,15 +85,8 @@ xbus.subscribe("event:name", function(data) ... end, "my_handler")
 xbus.publish("event:name", { key = value })
 ```
 
-- `subscribe(event, callback, name)` - Register handler (pcall-wrapped delivery)
-- `unsubscribe(event, name)` - Remove handler by name
-- `publish(event, data)` - Dispatch to all handlers
-- `get_subscribers(event)` - List handlers for event
-- `count(event)` - Number of subscribers
-- `has(event, name)` - Check if handler registered
-- `stats()` - { published, delivered, errors }
-- `reset_stats()` - Zero counters
-- `debug_state()` - Full diagnostic dump
+- `subscribe(event, callback, name)` - Register handler; rejects duplicates by name
+- `publish(event, data)` - Dispatch to all handlers, direct calls (no pcall: subscribers are internal modules, errors must be visible)
 
 ### xcreature.script - Creature/Entity Identification
 
@@ -100,24 +94,18 @@ xbus.publish("event:name", { key = value })
 local is_mutant = xcreature.is_mutant(entity_id)
 local community = xcreature.community(entity_id)
 local name = xcreature.get_name(entity_id)
-xcreature.query():stalkers():alive():on_level(lvl):each(fn)
 ```
 
-- `get_clsid(input)` - Engine class ID from any input
-- `entity_type(input)` - ENTITY.STALKER, ENTITY.MUTANT, or nil
 - `is_stalker(input)`, `is_mutant(input)`, `is_npc(input)` - Entity type checks
 - `is_trader(input)` - True if entity is Script_Trader CSE (clsid 37 / 36); catches Sidorovich-class
 - `community(input)` - Get faction community
-- `get_name(input)` - Get translated name
-- `pos(input)` - Get position
-- `give_money(obj, amount)` - Give rubles to game_object
+- `get_name(input)` - Translated name; translate-first for mutants (inv_name, then section key, then the English hash), memoized per section. Returns nil for nil entities and nameless stalkers - callers pick the fallback
+- `get_money(obj)`, `give_money(obj, amount)`, `transfer_money(from, amount, to)` - Ruble reads and moves, u32-underflow guarded
+- `online_iter_with_id()` - Iterator over online game objects yielding (id, obj) pairs
 - `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog", etc.). Handles modded exe clsid reuse via section prefix fallback. player_id fast reject for stalkers (0 luabind).
 - `get_mutant_variant(input)` - Full NPC variant section ("bloodsucker_red_strong", "dog_weak_brown")
 - `is_unscriptable(obj)` - Check against xdata.unscriptable_npcs
 - `is_task_giver(obj)` - Check NPC/squad ID against active tasks
-- `query()` - Fluent server objects iterator:
-  - Filters: `stalkers()`, `traders()`, `mutants()`, `npcs()`, `alive()`, `online()`, `on_level(lvl_id)`, `filter(fn)`
-  - Terminals: `each(callback)`, `collect()`, `count()`, `first()`, `get_npc_counts()`
 
 ### xsquad.script - Squad Queries & Operations
 
@@ -132,6 +120,7 @@ xsquad.release_squad(squad)
 - `target_actor(squad, rush)` - Script squad to chase actor (engine-native pursuit)
 - `release_squad(squad)` - Release from scripted control, return to simulation
 - `release_squads(opts)` - Bulk release with filter
+- `create_squad(smart, section)` - Spawn a squad at a smart through the vanilla board path (roster + squad_on_npc_creation native)
 - `get_squad_smart(squad)`
 - `is_stationed(squad, smart_id)` - True when engine considers squad stationed (current_action=1). With smart_id, also requires current_target_id match. Sticky until idle_time expires or new target assigned
 - `get_squad_by_member(npc_id)` - Get squad containing NPC
@@ -141,6 +130,10 @@ xsquad.release_squad(squad)
 - `has_active_role(squad)` - Dynamic role check (task_giver, companion)
 - `is_task_target(squad)` - Task target check (task_squads hash + bounty/hostage member fallback)
 - `is_scripted(squad)` - Check engine/vanilla scripting fields (scripted_target, condlist, random_targets)
+- `is_squad(obj)` - clsid guard: true only for sim_squad_scripted instances (id-recycling defense)
+- `has_squad(pos, opts)` - Short-circuiting boolean: any squad within max_distance matches?
+- `collect_squad_ids(out)` - Fill a set with all SIMBOARD squad ids
+- `get_commander_rank(squad)`, `get_commander_name(squad)` - Commander metadata reads
 - `is_protected(squad, opts)` - Unified protection check. Runs guards in order: exclude_filter, is_scripted, is_permanent, has_active_role, is_task_target. Shares commander resolution across checks. Each guard toggled via opts flags.
 - `reassert_target(squad, target)` - Restore scripted_target if cleared by another mod between scans
 - `iter_squads()` - Iterator over all SIMBOARD squads
@@ -178,6 +171,7 @@ Engine fire-gate wrappers (themrdemonized/xray-monolith PRs #594 aim+vision, #59
 - `set_vision_speed(npc, factor)` - Per-NPC vision acquisition factor composing with g_ai_vision_speed_boost. Floor: no-op by design; the only script substitute is a per-frame functor wrap, banned by code-standards "No Per-Frame Work"
 - `can_kill_enemy(npc, enemy)` - Engine shot clearance (5-ray safety fan, frame-cached). Floor: one capped rqtBoth ray from the weapon-hand bone, stopped short of the enemy body
 - `can_kill_member(npc, enemy_pos)` - Non-enemy in the fire lane; a repositioning hint, never a hold-fire gate (the engine's CObjectActionFire hold survives a combat-planner block). Floor: living squadmates only via has_friendly_in_line
+- `is_under_fire(npc, enemy, tg, window_ms)` - Danger-memory read: has the enemy hit or shot at the NPC within the window
 - `fire_make_sense(npc, enemy)` - The engine fire-discipline gate. Floor: the engine gate order from floor primitives (height gap, capped clearance ray, see-now, 10s unseen window with an automatic weapon), constants tracking the ai_fire_* cvars when the exe has them
 - `on_action_switch(fn)` - Register fn on the npc_on_combat_action_switch veto; registers only when the seam exists and returns whether it did. Enhancement-only, no floor imitation possible
 
@@ -190,6 +184,7 @@ local npc = xobject.go(npc_id)  -online game object or nil
 
 - `se(input)` - Get server object from any input type
 - `go(id)` - Get online game object by ID (nil if offline)
+- `is_story(se_obj)` - True when the entity carries a story id (pure Lua STORY_PAIRS lookup, 0 luabind)
 
 Inventory-domain methods (item categorization, slot accessors, item lifecycle, ammo config) live in `xinventory.script` per the boundary: xobject = generic game_object lookup; xinventory = item-as-inventory-thing semantics.
 
@@ -282,16 +277,16 @@ Consumers: `AlifePlus/configs/alifeplus/ap_trade_policy.ltx` (per-rank, two-valu
 
 ```lua
 local level_id = xlevel.get_level_id(se_obj)
-local name = xlevel.get_location_name(pos, level_id)
 local valid = xlevel.is_valid_lvid(se_obj)
 ```
 
 - `get_level_id(se_obj)` - Level ID from server entity (pcall-guarded)
 - `get_actor_level_id()` - Actor's current level ID
-- `get_game_hours()` - Total game hours since start
+- `get_level_name(level_id)`, `get_level_id_by_name(name)` - Level id <-> name resolution (session-cached)
 - `get_smart_display_name(smart)` - Translated smart terrain name
-- `get_location_name(pos, lvl_id)` - Location name from nearest smart
+- `get_neighbor_levels(source_id, hops)` - Level-id set within N graph hops. Returns the cached set BY REFERENCE: read-only, never mutate or hold across sessions
 - `is_valid_lvid(se_obj)` - Check level vertex validity (0xFFFFFFFF = invalid)
+- `is_surge()` - True while a surge or psi-storm is underway (pure Lua module reads via xr_conditions.surge_started)
 
 ### xsmart.script - Smart Terrain Queries
 
@@ -308,13 +303,15 @@ Smart property predicates (read from smart.props / engine fields):
 - `has_anomaly(smart)` - Within 50m of any online anomaly zone
 - `has_animated_stalker_jobs(smart)` - Has any non-stub stalker job (excludes generic_point / campfire_point stubs)
 - `accepts_faction(smart, faction)` - Engine target_precondition Tier 1: props.all OR props.all_stalker/all_monster OR props[faction]
-- `get_declared_factions(smart)` - Set of stalker factions explicitly listed in props (cached)
+- `is_near_campfire(smart, position, radius)` - Position within radius of one of the smart's campfires
 
 Smart finders:
 - `get_actor_smart()` - Nearest smart to actor (engine-maintained, O(1))
 - `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter, source). `factions` takes string or set
 - `find_first_smart(opts)` - Distance-free variant; first matching smart in pool iteration order
 - `find_smarts_spawning(level_id, faction)` - Array of smarts on level whose recipes produce given faction
+- `find_friendly_base(community, pos, opts)` - Nearest base-class smart friendly to the community (min_distance filter)
+- `smarts_by_names()` - Name-keyed smart lookup table (SIMBOARD.smarts_by_names read)
 - `smart_iter()` - Stateful iterator over all SIMBOARD smart terrains
 
 SIMBOARD roster (sim-intent membership, NOT physical occupancy):
@@ -327,7 +324,7 @@ SIMBOARD roster (sim-intent membership, NOT physical occupancy):
 - `is_smart_empty(smart_id)` - No squads assigned (raw roster check, includes in-transit)
 
 Service NPC resolution (online + actor-level via npc_info walk):
-- `get_npc_roles(npc)` - SET of roles `{trader=true, medic=true, mechanic=true}` (any subset, empty for non-service NPCs). Multi-role NPCs (Yar = medic+trader, mechanics with dm_init_trader = mechanic+trader) populate multiple keys. Cached per NPC. Signals: community="trader", clsid=script_trader/trader, section substring patterns, trade= field in active logic block (Demonized-style classifier per Trader Destockifier `trader_autoinject.script:85`). level_spot is NOT used (false-positives on quest NPCs)
+- `get_npc_roles(npc)` - SET of roles `{trader=true, medic=true, mechanic=true}` (any subset, empty for non-service NPCs). Multi-role NPCs (Yar = medic+trader, mechanics with dm_init_trader = mechanic+trader) populate multiple keys. Cached per NPC id with a section verify on hit (id-recycling defense). Signals: community="trader", clsid=script_trader/trader, section substring patterns, trade= field in active logic block (Demonized-style classifier per Trader Destockifier `trader_autoinject.script:85`). level_spot is NOT used (false-positives on quest NPCs)
 - `is_trader_npc(npc)`, `is_medic_npc(npc)`, `is_mechanic_npc(npc)` - Boolean wrappers checking `get_npc_roles(npc)[role]`
 - `get_trader_at_smart(smart)`, `get_medic_at_smart(smart)`, `get_mechanic_at_smart(smart)` - First online live NPC at smart with role in their set, or nil
 - `has_trader_at_smart(smart)`, `has_medic_at_smart(smart)`, `has_mechanic_at_smart(smart)` - Boolean variants
@@ -339,7 +336,7 @@ Squad-smart interaction:
 
 Jobs (smart.stalker_jobs):
 - `has_stalker_jobs(smart, type_id)` - Has any (type_id nil) or specific job_type_id (e.g. JOB_TYPE_TRADER = 15)
-- `get_npc_for_job(smart, type_id)` - Online game_object of NPC assigned to job of given type_id. NOT the trader NPC (job_type_id=15 tags the visitor patrol slot, not the barman); use service-NPC accessors for traders
+- `get_job_for_npc(smart, npc_id)` - Job descriptor the NPC currently holds at the smart (npc_info read)
 
 Section metadata (LTX squad_descr):
 - `section_faction(section)` - Faction (player_id) a squad section produces (cached per section)
@@ -352,31 +349,18 @@ Spawn helpers (set / clear shared / exclusive spawn, reset_spawns, repopulate) e
 
 ### xstash.script - Stash Operations
 
-- `find_stashes(pos, opts)` - Find revealed stashes near position (opts: max_distance, min_distance, level_id, max_count)
-- `is_stash_available(id)`, `is_stash_looted(id)`, `mark_stash_looted(id)`, `clear_stash(id)`
+- `find_stashes(pos, opts)` - Find revealed stashes near position (opts: max_distance, min_distance, level_id, max_count; exact-count take)
+- `is_stash_looted(id)` - caches[id] == true read
 - `get_stash_items(stash_id)` - Read-only stash contents as parsed item list
 - `loot_stash(id)` - Loot stash contents (marks looted, returns item list)
 - `fill_stash(id, items, add_marker)` - Fill stash with items
 
 ### xtable.script - Table Utilities
 
-```lua
-local filtered = xtable.filter(tbl, function(v) return v > 0 end)
-local found = xtable.find(tbl, function(v) return v.id == target end)
-```
-
-- `is_array(x)` - Check if table is array-like
-- `clone(t)` - Shallow copy
 - `count(t, fn)` - Count elements (optional predicate)
-- `filter(t, fn, opts)`, `find(t, fn)`, `reduce(t, fn, init)`
 - `shuffle(t)`, `sort(t, comparator)`
-- `bisect_left(arr, value, compare_fn)` - Binary search insertion point
-- `binary_insert(arr, value, compare_fn)` - Sorted insert
 - `merge(...)` - Set union of hash tables. Variadic, nil-safe, returns new table.
 - `subtract(base, ...)` - Set difference. Returns base keys minus all keys in remaining args.
-- `memoize(fn)` - Function memoization
-- `acquire_lock(key, sec)` - Time-based lock (returns false if in window)
-- `clear_locks()` - Wipe all locks
 
 ### xttltable.script - TTL Data Structures
 
@@ -384,7 +368,7 @@ All three time-based structures support clock injection via `opts.clock`. Defaul
 
 - `create_ttl_table(opts)` - TTL table with auto-expiry
   - `default_ttl` -> expiry seconds, `clock` -> clock function (default os.clock)
-  - `:set(key, value, ttl)`, `:get(key)`, `:has(key)`, `:remove(key)`
+  - `:set(key, value, ttl)`, `:get(key)`, `:has(key)`, `:remove(key)` - false round-trips through :get (negative-cache convention, same as fifo_cache)
   - `:remaining_ttl(key)` - calls clock function for accurate expiry
   - `:size()`, `:all()`, `:clear()`
   - `:export()`/`:import()` for save/load (imported entries get fresh TTL)
@@ -448,21 +432,13 @@ next pass's input. O(step) per frame, O(n) per pass. No per-item `table.remove`.
 
 ### xmath.script - RNG
 
-- `chance(percent)` - Probability roll
-- `prd_chance(key, percent)` - Pseudo-random distribution (Dota 2 PRD algorithm, reduces streak variance)
 - `sample(tbl)` - Random element
-- `sample_n(tbl, n)` - N random elements
+- `sample_n(tbl, n)` - Random-COUNT sample: k = random(1, min(n, #t)) elements (deliberate dispatch variability; slice partial_shuffle for an exact take)
 - `partial_shuffle(tbl, count)` - Shuffle first N elements
-- `weighted_choice(weights)` - Weighted random selection
-- `vary(value, percent)` - Random variation within percent
 
 ### xmcm.script - MCM Config
 
-- `create_getter(mod_id, defaults, path_builder)` - Live config getter
-- `create_loader(mod_id, defaults, path_builder)` - One-shot config loader
-- `extract_defaults(op, recursive)` - Extract defaults from MCM options tree
-- `format_defaults(mod_id, defaults)` - Debug-friendly defaults dump
-- `format_config(mod_id, defaults, get_config)` - Debug-friendly config dump
+- `create_config(mod_id, defaults, path_builder)` - Pre-seeded cfg table + per-key getter + load() refresher (every mod's mcm file uses this)
 
 ### xprofiler.script - Code Profiling
 
@@ -470,21 +446,16 @@ Source: xray-monolith/src/xrServerEntities/script_engine_script.cpp:127-196
 
 - `new()`, `new_if(condition)` -> `:start()`, `:stop()`, `:get_us()`, `:get_ms()`, `:reset()`
 - `new_if(false)` returns NOOP singleton (zero overhead)
-- `wrap(fn)` - Profile a function call, returns result + elapsed
 - Uses `profile_timer` (CPU clock, microsecond resolution)
 
 ### xtrace.script - Tracing
 
-- `new()`, `new_if(condition)` -> `.id`, `.path`
+- `new()`, `new_if(condition)` -> `.id`, `.path`, `:push(op)`, `:pop(segment)`
 - `new_if(false)` returns NOOP singleton (zero overhead)
-- `wrap(trace, op_name, fn)` - Execute fn within a trace segment
-- `reset()` - Reset trace ID counter
 
 ### xinspect.script - Debug
 
-- `inspect(value, opts)` - Deep table/userdata inspection
-- `format_table(t, max_depth)` - Table to string
-- `get_type(obj, cls)` - Engine type identification
+- `format_table(t, max_depth)` - Table to string (cycle detection, depth cap)
 - `userdata(obj)` - Userdata field enumeration
 
 ### xevent.script - Synthetic Callbacks
@@ -495,16 +466,13 @@ Runtime function hooking. Intercept any Lua function, emit callbacks from system
 -- consumer declares its event once (AddScriptCallback), then hooks a game function to fire it
 AddScriptCallback("my_synthetic_event")
 xevent.hook("xr_eat_medkit", "consume_medkit", function(orig, npc, medkit, kind)
-    xevent.emit("my_synthetic_event", npc, medkit, kind)
+    SendScriptCallback("my_synthetic_event", npc, medkit, kind)
     return orig(npc, medkit, kind)
 end)
 ```
 
 - `hook(module, func, wrapper)` - Wrap function, returns success
-- `unhook(module, func)` - Restore original
-- `emit(name, ...)` - Emit synthetic callback (SendScriptCallback)
 - `is_hooked(module, func)` - Check if hooked
-- `list_hooks()` - Active hooks
 
 **Naming convention:** prefix synthetic event names by owner to avoid collision with engine callbacks (AlifePlus uses `ap_`, e.g. `ap_npc_medkit_use`).
 
@@ -513,16 +481,19 @@ end)
 ### xpda.script - PDA/Map
 
 - `send(caption, msg, icon)` - PDA message
+- `npc_tip(npc, msg, opts)` - NPC-attributed tip
 - `mark_squad(id, opts)`, `unmark_squad(id)`, `clear_squad_markers()`
-- `mark_entity(id, opts)`, `unmark_entity(id, type)`, `hydrate_markers(markers)`
+- `mark_entity(id, opts)`, `unmark_entity(id, type)`
 
 ### xstring.script - Interpolation
 
-- `interpolate(template, vars)` - `"Hello ${name}!"` -> `"Hello World!"`
+- `interpolate(template, vars)` - `"Hello {name}!"` -> `"Hello World!"`
 
 ### xtime.script - Game Time
 
 - `game_sec()` - Game-seconds since epoch (cached start_time, invalidated on on_game_start)
+- `game_time()` - Engine CTime for the current in-game moment (nil when no level)
+- `hms()` - Current in-game hour and minute via CTime:get() (nil, nil when no level)
 
 ### xconst.script - Engine Sentinel Constants
 

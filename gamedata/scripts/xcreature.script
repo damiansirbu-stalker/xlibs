@@ -1,10 +1,10 @@
 --- xcreature: Creature/entity identification and properties (stalkers, mutants, NPCs)
 
-local pairs, type, pcall, setmetatable = pairs, type, pcall, setmetatable
+local pairs, type, setmetatable = pairs, type, setmetatable
 local string = string
 local IsMonster, IsStalker, IsTrader, alife_character_community = IsMonster, IsStalker, IsTrader, alife_character_community
 local get_object_story_id, get_object_squad = get_object_story_id, get_object_squad
-local xobject, xlevel, xdata = xobject, xlevel, xdata
+local xobject, xdata = xobject, xdata
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 
 ENTITY = {
@@ -16,30 +16,15 @@ ENTITY = {
 --- Accepts ID, game_object, or server object; resolves to clsid via xobject.se + :clsid() luabind
 --- @safety SAFE - returns nil for invalid/missing entities, :clsid() never crashes
 --- @cost O(log n) | 1 luabind medium (alife_object: xr_map find) + 1 luabind trivial (clsid: enum return)
---- @src anomaly/_g.script(2044), xray/xrGame/script_game_object_script.cpp
+--- @src anomaly/_g.script(2062), xray/xrGame/script_game_object_script.cpp
 --- @param input number|userdata|table Entity ID or object
 --- @return number|nil Class ID
-function get_clsid(input)
+local function get_clsid(input)
     if not input then return nil end
     local input_type = type(input)
     if input_type == "number" then input = xobject.se(input) end
     if not input then return nil end
     if input.clsid then return input:clsid() end
-    return nil
-end
-
---- Get entity type (stalker or mutant)
---- Uses IsStalker/IsMonster with clsid; nil-first parameter is the fast check path (no game_object needed)
---- @safety SAFE - nil input returns nil, IsStalker/IsMonster are nil-safe with clsid
---- @cost O(log n) | 1-2 luabind: get_clsid (1 medium alife_object + 1 trivial clsid) + IsStalker/IsMonster (0 luabind, pure Lua compare/hash since cls is pre-supplied)
---- @src anomaly/_g.script(2820) IsStalker, (2827) IsMonster
---- @param input number|userdata|table Entity ID or object
---- @return string|nil "stalker", "mutant", or nil
-function entity_type(input)
-    local cls = get_clsid(input)
-    if not cls then return nil end
-    if IsMonster(nil, cls) then return ENTITY.MUTANT end
-    if IsStalker(nil, cls) then return ENTITY.STALKER end
     return nil
 end
 
@@ -226,12 +211,6 @@ function get_mutant_variant(input)
     return se:section_name()
 end
 
-local _stalker_filter = function(e) return is_stalker(e) end
-local _trader_filter = function(e) return is_trader(e) end
-local _mutant_filter = function(e) return is_mutant(e) end
-local _npc_filter = function(e) return is_npc(e) end
-local _alive_filter = function(se) return se.alive and se:alive() end
-
 --- Get faction community from entity
 --- Resolves via xobject.se then tries get_squad_community (squads) or alife_character_community (NPCs)
 --- @safety SAFE - returns nil for invalid entities
@@ -302,53 +281,51 @@ local function _translate_or_nil(key)
     return (translated and translated ~= key) and translated or nil
 end
 
--- Resolve mutant name: hash lookup, ini fallback, string cleanup
--- @cost O(k) section parts | 1-2 luabind heavy on miss (r_string_ex: lower_bound + lowercase + shared_str alloc; translate_string medium)
+-- Session-fixed memo: section -> resolved display name. Locale is fixed per VM life and the
+-- VM restarts on every level transition / load, so entries can never go stale. Plain table on
+-- purpose: string keys are never weak-evicted.
+local _mutant_name_cache = {}
+
+-- Resolve mutant name: translation first (inv_name key, then the section id as a string-table
+-- key), the English MUTANT_NAMES hash only for sections with neither, section cleanup as the
+-- terminal fallback. Translate-first keeps localized names ahead of the baked English table
+-- (code-standards: User-Facing Text - Localized XML Only).
+-- @cost O(1) memo hit | 1-2 luabind heavy on miss (r_string_ex: lower_bound + lowercase + shared_str alloc; translate_string medium)
 local function _get_mutant_name(section)
-    local display = _get_mutant_display_name(section)
-    if display then return display end
+    local cached = _mutant_name_cache[section]
+    if cached then return cached end
 
     local inv_name = ini_sys:r_string_ex(section, "inv_name")
-    local translated = inv_name and _translate_or_nil(inv_name) or _translate_or_nil(section)
-    if translated then return translated end
-
-    local clean = section:gsub("_normal", ""):gsub("_weak", ""):gsub("_strong", "")
-    return clean:gsub("_", " "):gsub("^%l", string.upper)
+    local name = (inv_name and _translate_or_nil(inv_name))
+        or _translate_or_nil(section)
+        or _get_mutant_display_name(section)
+    if not name then
+        local clean = section:gsub("_normal", ""):gsub("_weak", ""):gsub("_strong", "")
+        name = clean:gsub("_", " "):gsub("^%l", string.upper)
+    end
+    _mutant_name_cache[section] = name
+    return name
 end
 
 --- Get translated name for entity (stalker or mutant)
---- Stalkers use character_name(); mutants use hash table then ini_sys:r_string_ex fallback
---- @safety SAFE - returns "unknown" for nil, "stalker"/"mutant" for missing names
---- @cost O(log n) | 2-4 luabind: stalker: alife_object + character_name heavy; mutant: alife_object + section_name heavy + (hash hit or r_string_ex heavy + translate)
---- @src anomaly/_g.script(2044), xray/xrGame/script_game_object_script.cpp
+--- Stalkers use character_name(); mutants translate inv_name / section first, memoized per section,
+--- with the English hash and section cleanup as fallbacks (see _get_mutant_name).
+--- @safety SAFE - returns nil for nil entities and nameless stalkers; callers pick the fallback (locale purity, xlevel 1.4.0 precedent)
+--- @cost O(log n) | 2-4 luabind: stalker: alife_object + character_name heavy; mutant: alife_object + section_name heavy + (memo hit or r_string_ex heavy + translate)
+--- @src anomaly/_g.script(2062), xray/xrGame/script_game_object_script.cpp
 --- @param input number|table Entity ID or server object
---- @return string Translated name
+--- @return string|nil Translated name, or nil when the entity or its name is unavailable
 function get_name(input)
     local entity = xobject.se(input)
-    if not entity then return "unknown" end
+    if not entity then return nil end
 
     if is_stalker(entity) then
         local name = entity.character_name and entity:character_name()
-        return (name and name ~= "") and name or "stalker"
+        return (name and name ~= "") and name or nil
     end
 
     local section = entity:section_name()
-    return section and _get_mutant_name(section) or "mutant"
-end
-
---- Get position from entity
---- Tries server object .position field first, falls back to game_object :position() method
---- @safety SAFE - returns nil for nil/invalid entities
---- @cost O(log n) | 1 luabind medium (alife_object) + 1 luabind trivial (.position field on cse or :position() Fvector return)
---- @src xray/xrServerEntities/xrServer_Objects_ALife_script.cpp
---- @param input number|userdata|table Entity ID or object
---- @return vector|nil Position
-function pos(input)
-    if not input then return nil end
-    local entity = xobject.se(input)
-    if entity and entity.position then return entity.position end
-    if input.position then return type(input.position) == "function" and input:position() or input.position end
-    return nil
+    return section and _get_mutant_name(section) or nil
 end
 
 --- Get current money (rubles) of an inventory owner
@@ -403,60 +380,6 @@ function transfer_money(from, amount, to)
     return true
 end
 
---- Get personal goodwill from one inventory owner toward another.
---- Reads ONLY the personal-relation term (RELATION_REGISTRY personal map); it excludes the
---- community / reputation / rank contributions to the summed attitude. NEUTRAL (0) if unset.
---- @safety SAFE - nil-guarded; GetGoodwill VERIFY trips only on non-CInventoryOwner
---- @cost O(1) | 1 luabind medium (goodwill: RELATION_REGISTRY().GetGoodwill personal-map lookup)
---- @src xray/xrGame/script_game_object_inventory_owner.cpp(744-754), xray/xrGame/relation_registry.cpp(134-149)
---- @param obj game_object Subject (whose attitude is read)
---- @param target game_object Object of the attitude
---- @return number Personal goodwill; 0 if obj/target nil
-function get_goodwill(obj, target)
-    if not obj or not target then return 0 end
-    return obj:goodwill(target)
-end
-
---- Set personal goodwill from one inventory owner toward another (absolute write).
---- Writes the personal-relation term only; the engine clamps to [game_relations]
---- personal_goodwill_limits (-3000, 2000). GetRelationType reads the summed attitude
---- (personal + community + reputation + rank), so a low enough personal value flips this one
---- pair to enemy (attitude < attitude_neutal_threshold = -999) without touching community.
---- @safety SAFE - nil-guarded; set_goodwill clamps internally
---- @cost O(1) | 1 luabind medium (set_goodwill: RELATION_REGISTRY().SetGoodwill personal-map write)
---- @src xray/xrGame/script_game_object_script3.cpp(292), xray/xrGame/relation_registry.cpp(151-159)
---- @param obj game_object Subject
---- @param value number Personal goodwill to set (clamped engine-side)
---- @param target game_object Object of the attitude
---- @return boolean true on call, false if obj/target/value nil
-function set_goodwill(obj, value, target)
-    if not obj or not target or not value then return false end
-    obj:set_goodwill(value, target)
-    return true
-end
-
--- game_objects_iter fallback for vanilla/AOEngine (no callbacks_gameobject.script)
--- @cost O(n) | 0 luabind
-local _online_iter = game_objects_iter or function()
-    local k, data
-    return function()
-        repeat
-            k, data = next(db.storage, k)
-        until not k or (data and data.object)
-        return data and data.object
-    end
-end
-
---- Iterator over all online game objects
---- Uses game_objects_iter (Demonized modded exe) when available, falls back to db.storage
---- @safety SAFE - nil-guarded, skips entries without valid game_object
---- @cost O(n) online objects | 0 luabind (pure Lua table iteration)
---- @src modded-exes/callbacks_gameobject.script(38)
---- @return function Iterator yielding game_object instances
-function online_iter()
-    return _online_iter()
-end
-
 -- id-yielding iterator: lets caller validate via alife_object(id) before any method call on obj
 -- gameobjects_registry (modded-exes) and db.storage (vanilla) are both id-keyed
 local _online_iter_with_id = gameobjects_registry and function()
@@ -484,138 +407,6 @@ function online_iter_with_id()
     return _online_iter_with_id()
 end
 
-local function iterate_online(callback)
-    local sim = alife()
-    if not sim then return end
-
-    for obj in _online_iter() do
-        local se = sim:object(obj:id())
-        if se and callback(se) then return end
-    end
-end
-
-local server_objects_iterator = {}
-server_objects_iterator.__index = server_objects_iterator
-
-function server_objects_iterator:new()
-    return setmetatable({
-        _filters = {},
-        _level_id = nil,
-        _online_only = false,
-    }, self)
-end
-
-function server_objects_iterator:online()
-    self._online_only = true
-    return self
-end
-
-function server_objects_iterator:on_level(lvl_id)
-    self._level_id = lvl_id
-    return self
-end
-
-function server_objects_iterator:filter(fn)
-    self._filters[#self._filters + 1] = fn
-    return self
-end
-
-function server_objects_iterator:stalkers() return self:filter(_stalker_filter) end
-function server_objects_iterator:traders() return self:filter(_trader_filter) end
-function server_objects_iterator:mutants() return self:filter(_mutant_filter) end
-function server_objects_iterator:npcs() return self:filter(_npc_filter) end
-function server_objects_iterator:alive() return self:filter(_alive_filter) end
-
-function server_objects_iterator:_passes(se_obj)
-    if self._level_id and xlevel.get_level_id(se_obj) ~= self._level_id then
-        return false
-    end
-    for i = 1, #self._filters do
-        if not self._filters[i](se_obj) then return false end
-    end
-    return true
-end
-
---- @safety pcall: filter predicates may error on invalid objects
-function server_objects_iterator:_iterate(callback)
-    local sim = alife()
-    if not sim then return end
-
-    if self._online_only then
-        iterate_online(function(se)
-            local ok, passes = pcall(self._passes, self, se)
-            if ok and passes then return callback(se) end
-        end)
-        return
-    end
-
-    sim:iterate_objects(function(se)
-        local ok, passes = pcall(self._passes, self, se)
-        if ok and passes then return callback(se) end
-    end)
-end
-
-function server_objects_iterator:each(callback)
-    self:_iterate(function(se_obj)
-        callback(se_obj)
-        return false
-    end)
-    return self
-end
-
-function server_objects_iterator:collect()
-    local results = {}
-    self:_iterate(function(se_obj)
-        results[#results + 1] = se_obj
-        return false
-    end)
-    return results
-end
-
-function server_objects_iterator:get_npc_counts()
-    local counts = { stalkers = 0, stalkers_online = 0, stalkers_offline = 0, mutants = 0, mutants_online = 0, mutants_offline = 0 }
-    local storage = db and db.storage
-    self:_iterate(function(entity)
-        local etype = entity and entity_type(entity)
-        if not etype then return false end
-        local key = etype == ENTITY.STALKER and "stalkers" or "mutants"
-        local online = storage and storage[entity.id] ~= nil
-        counts[key] = counts[key] + 1
-        counts[key .. (online and "_online" or "_offline")] = counts[key .. (online and "_online" or "_offline")] + 1
-        return false
-    end)
-    return counts
-end
-
-function server_objects_iterator:count()
-    local total = 0
-    self:_iterate(function()
-        total = total + 1
-        return false
-    end)
-    return total
-end
-
-function server_objects_iterator:first()
-    local found = nil
-    self:_iterate(function(se_obj)
-        found = se_obj
-        return true
-    end)
-    return found
-end
-
---- Create fluent server objects iterator
---- Wraps alife():iterate_objects or game_objects_iter with chainable filter/collect API
---- @safety pcall: iteration uses pcall per entity to isolate invalid object errors, see doc/library/modding/pcall-safety.md
---- @cost O(n) entities iterated | per-entity: 1 luabind heavy (iterate_objects scans full OBJECT_REGISTRY) + per-filter cost (1 trivial each for clsid/alive, 0 for cached level_id)
---- @src xray/xrGame/alife_simulator_script.cpp(477,514) iterate_objects, modded-exes game_objects_iter
---- @return table server_objects_iterator
---- @usage xcreature.query():stalkers():alive():on_level(lvl):collect()
-function query()
-    return server_objects_iterator:new()
-end
-
 -- Cache: weak keys so entries are removed when obj is GC'd
 local _unscriptable_cache = setmetatable({}, { __mode = "k" })
 
@@ -639,7 +430,7 @@ end
 --- Checks story_id, companion info, xdata.unscriptable_npcs hash, and squad story_id; cached per game_object
 --- @safety SAFE - returns true for nil (fail-safe), all APIs return nil for invalid objects
 --- @cost O(1) cached | uncached: 3-5 luabind mixed (id trivial, IsStalker trivial, has_info medium known_info linear find, section heavy shared_str)
---- @src anomaly/_g.script(2674) get_object_story_id, anomaly/_g.script(2437) get_object_squad
+--- @src anomaly/_g.script(2692) get_object_story_id, anomaly/_g.script(2437) get_object_squad
 --- @param obj game_object Game object
 --- @return boolean True if unscriptable (nil returns true for safety)
 function is_unscriptable(obj)

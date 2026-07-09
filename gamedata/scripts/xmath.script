@@ -1,6 +1,6 @@
---- xmath: Math utilities (random selection, clamping, distance, pseudo-random distribution)
+--- xmath: Math utilities (random selection and sampling)
 
-local pairs, math_random, math_min, math_floor = pairs, math.random, math.min, math.floor
+local math_random, math_min = math.random, math.min
 
 --- Return random element from array
 --- Uses math.random for index selection; assumes #t > 0
@@ -28,38 +28,10 @@ function partial_shuffle(t, n)
     return t
 end
 
---- Return true with given probability
---- Compares math.random(100) against threshold; 0 = never, 100 = always
---- @safety SAFE - pure Lua
---- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
---- @param percent number Chance percentage (0-100)
---- @return boolean
---- @usage if xmath.chance(25) then ... end
-function chance(percent)
-    return math_random(100) <= percent
-end
-
---- Pick random key from table with weighted probabilities
---- Sums weights, picks random point in range, iterates until cumulative weight exceeds it
---- @safety SAFE - pure Lua, returns nil for empty table (pairs order non-deterministic)
---- @cost O(n) keys | 0 luabind (two pure Lua pairs passes: sum then cumulative pick)
---- @param weights table Keys with numeric weights, e.g. {bandit=50, army=30, freedom=20}
---- @return any Selected key
---- @usage local faction = xmath.weighted_choice({bandit=50, army=30, freedom=20})
-function weighted_choice(weights)
-    local sum = 0
-    for _, v in pairs(weights) do
-        sum = sum + v
-    end
-    local rnd = math_random() * sum
-    for k, v in pairs(weights) do
-        if rnd < v then return k end
-        rnd = rnd - v
-    end
-end
-
---- Sample up to n random elements from array (in-place partial shuffle)
---- Delegates to partial_shuffle then picks random count up to available
+--- Sample a uniformly random NUMBER of elements from array: k = random(1, min(n, #t))
+--- Delegates to partial_shuffle then picks the random count; the random-sized take is the
+--- contract (consumer dispatch variability). For an exact-count take, use partial_shuffle
+--- directly and slice (the xstash.find_stashes pattern).
 --- @safety SAFE - pure Lua, mutates input table
 --- @cost O(n) | 0 luabind (pure Lua loop + math.random per step)
 --- @param t table Source array
@@ -72,71 +44,3 @@ function sample_n(t, n)
     return t, math_random(1, available)
 end
 
---- Vary value by +/- percent
---- Generates uniform random in [value - range, value + range] where range = value * percent / 100
---- @safety SAFE - pure Lua arithmetic
---- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
---- @param value number Base value
---- @param percent number Variance (10 = +/-10%)
---- @return number
---- @usage local reward = xmath.vary(5000, 10)
-function vary(value, percent)
-    local range = value * percent / 100
-    return value + math_random() * range * 2 - range
-end
-
--- PRD constants: C values for percentages 1-99 (Dota 2 pseudo-random distribution)
--- P(N) = C * N where N = attempts since last proc. Verified against Liquipedia Dota 2 wiki.
-local PRD_C = {
-    0.0001560417, 0.0006200876, 0.0013861777, 0.0024485555, 0.0038016583,
-    0.0054401086, 0.0073587053, 0.0095524157, 0.0120163682, 0.0147458448,
-    0.0177362748, 0.0209832282, 0.0244824095, 0.0282296525, 0.0322209144,
-    0.0364522710, 0.0409199117, 0.0456201350, 0.0505493442, 0.0557040429,
-    0.0610808317, 0.0666764036, 0.0724875434, 0.0785111207, 0.0847440919,
-    0.0911834609, 0.0978263805, 0.1046702274, 0.1117117582, 0.1189491927,
-    0.1263793161, 0.1340008645, 0.1418051957, 0.1498100879, 0.1579830981,
-    0.1663287768, 0.1749092436, 0.1836246524, 0.1924859580, 0.2015474136,
-    0.2109200314, 0.2203645774, 0.2298986764, 0.2395401523, 0.2493069984,
-    0.2598723506, 0.2704529367, 0.2810076352, 0.2915522666, 0.3021030253,
-    0.3126766393, 0.3232905471, 0.3341199609, 0.3473699931, 0.3603978509,
-    0.3732168295, 0.3858396118, 0.3982783322, 0.4105446352, 0.4226497308,
-    0.4346044472, 0.4464192806, 0.4581044440, 0.4696699141, 0.4811254783,
-    0.4924807811, 0.5074626866, 0.5294117647, 0.5507246377, 0.5714285714,
-    0.5915492958, 0.6111111111, 0.6301369863, 0.6486486486, 0.6666666667,
-    0.6842105263, 0.7012987013, 0.7179487179, 0.7341772152, 0.7500000000,
-    0.7654320988, 0.7804878049, 0.7951807229, 0.8095238095, 0.8235294118,
-    0.8372093023, 0.8505747126, 0.8636363636, 0.8764044944, 0.8888888889,
-    0.9010989011, 0.9130434783, 0.9247311828, 0.9361702128, 0.9473684211,
-    0.9583333333, 0.9690721649, 0.9795918367, 0.9898989899,
-}
-
-local _prd_state = {}
-
---- Reset PRD state for a key (callers with dynamic keys call this on entity death/cleanup)
---- Prevents unbounded growth of _prd_state when keys are per-entity rather than static
---- @safety SAFE - pure Lua table nil assignment
---- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
---- @param key string Key to reset
-function prd_reset(key)
-    _prd_state[key] = nil
-end
-
---- Roll with pseudo-random distribution, reducing streak variance
---- Dota 2 PRD: P(N) = C * N, N increments on failure, resets on success
---- @safety SAFE - pure Lua, stateful (per-key failure counter in module table)
---- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
---- @param key string Unique identifier for this roll stream
---- @param percent number Chance percentage (1-99 integers; <1 false, >=100 true)
---- @return boolean
-function prd_chance(key, percent)
-    if percent < 1 then return false end
-    if percent >= 100 then return true end
-    local c_value = PRD_C[math_floor(percent)]
-    local attempts = (_prd_state[key] or 0) + 1
-    if c_value * attempts >= 1 or math_random() <= c_value * attempts then
-        _prd_state[key] = nil
-        return true
-    end
-    _prd_state[key] = attempts
-    return false
-end

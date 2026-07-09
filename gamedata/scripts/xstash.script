@@ -10,7 +10,7 @@ local xobject, xlevel, xmath = xobject, xlevel, xmath
 --- set (stash_ids to consider).
 --- @safety SAFE - xobject.se returns nil for invalid, .position field nil-guarded, distance_to_sqr is vector inline math
 --- @cost O(n) stashes in pool | per stash: 1 medium (xobject.se -> alife_object xr_map find) + 1 trivial (distance_to_sqr); level filter cached (0 luabind)
---- @src anomaly/treasure_manager.script(33), anomaly/_g.script(2044), anomaly/item_backpack.script(27)
+--- @src anomaly/treasure_manager.script(33), anomaly/_g.script(2062), anomaly/item_backpack.script(27)
 --- @param pos vector Origin position
 --- @param opts table { max_distance, min_distance, max_count, level_id, filled, source }
 ---   source: optional { [stash_id] = anything } iterable. When present, replaces treasure_manager.caches
@@ -62,33 +62,6 @@ function find_stashes(pos, opts)
     return candidates
 end
 
---- Mark stash as looted in treasure_manager
---- Sets treasure_manager.caches[id] = true (engine convention: true=looted, string=filled, nil=hidden)
---- @safety SAFE - pure Lua table write, nil-guarded
---- @cost O(1) | 0 luabind (pure Lua hash write)
---- @src anomaly/treasure_manager.script(33)
---- @param stash_id number Stash object ID
---- @return boolean success
-function mark_stash_looted(stash_id)
-    if not stash_id then return false end
-    if not treasure_manager or not treasure_manager.caches then return false end
-    treasure_manager.caches[stash_id] = true
-    return true
-end
-
---- Check if stash is available (revealed but not looted)
---- Checks treasure_manager.caches[id] is a string (comma-separated item list means filled)
---- @safety SAFE - pure Lua table read, nil-guarded
---- @cost O(1) | 0 luabind (pure Lua hash read + type check)
---- @src anomaly/treasure_manager.script(33)
---- @param stash_id number Stash object ID
---- @return boolean
-function is_stash_available(stash_id)
-    if not stash_id then return false end
-    if not treasure_manager or not treasure_manager.caches then return false end
-    return type(treasure_manager.caches[stash_id]) == "string"
-end
-
 --- Check if stash was looted
 --- Checks treasure_manager.caches[id] == true (boolean true means looted)
 --- @safety SAFE - pure Lua table read, nil-guarded
@@ -115,26 +88,6 @@ function get_stash_items(stash_id)
     local contents = treasure_manager.caches[stash_id]
     if type(contents) ~= "string" then return nil end
     return str_explode(contents, ",")
-end
-
---- Clear stash (mark as looted, remove marker)
---- Sets caches[id] = true and removes "treasure" map spot via pcall
---- @safety pcall: map_remove_object_spot crashes during transitions, see doc/library/modding/pcall-safety.md
---- @cost O(1) | 1 luabind medium (map_remove_object_spot: MapManager().RemoveMapLocation)
---- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(456)
---- @param stash_id number Stash object ID
---- @return boolean true if cleared
-function clear_stash(stash_id)
-    if not stash_id then return false end
-    if not treasure_manager or not treasure_manager.caches then return false end
-
-    local contents = treasure_manager.caches[stash_id]
-    if type(contents) ~= "string" then return false end
-
-    treasure_manager.caches[stash_id] = true
-    pcall(function() level.map_remove_object_spot(stash_id, "treasure") end)
-
-    return true
 end
 
 --- Loot stash contents (marks as looted, returns item list)

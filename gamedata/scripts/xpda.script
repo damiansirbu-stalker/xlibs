@@ -92,22 +92,6 @@ function unmark_entity(id, marker_type)
     pcall(function() level.map_remove_object_spot(id, marker_type) end)
 end
 
---- Re-apply markers from saved data table (caller provides persisted data)
---- Iterates saved markers, delegates to mark_entity per entry (pcall internally)
---- @safety pcall: mark_entity wraps map_add_object_spot via pcall, see doc/library/modding/pcall-safety.md
---- @cost O(n) markers | 2 luabind heavy per marker (remove + add via mark_entity)
---- @src xray/xrGame/level_script.cpp(431,456)
---- @param markers table { [id] = { marker_type = "...", label = "..." }, ... }
---- @return number Count of markers applied
-function hydrate_markers(markers)
-    if not markers then return 0 end
-    local count = 0
-    for id, data in pairs(markers) do
-        if mark_entity(id, data) then count = count + 1 end
-    end
-    return count
-end
-
 --- Send PDA message (dumb pipe, no sound, no color)
 --- Calls db.actor:give_game_news which is the engine notification API
 --- @safety SAFE - returns false if db.actor unavailable (main menu, loading)

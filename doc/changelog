@@ -1,10 +1,30 @@
 next
-  Summary: xcombat engine fire-gate wrappers, xsmart roster reconcile, xsquad id snapshot
+  Summary: xcombat engine fire-gate wrappers, xsmart roster reconcile, xsquad id snapshot, zero-consumer surface audit, xlog flush fix, mutant name localization
+
+  xlog
+    - Fixed the periodic flush firing exactly once per session instead of every 60 seconds.
+      The flush timer now re-arms itself, so buffered INFO/DEBUG lines reach disk on the
+      configured interval instead of waiting for a save, level change, or error write.
+
+  xcreature
+    - Changed get_name to translate-first for mutants: a localized inv_name or section string
+      now beats the built-in English name table, and results are memoized per section.
+    - Changed get_name to return nil for nil entities and nameless stalkers. Callers choose
+      the fallback text (was baked "unknown" / "stalker" / "mutant").
+    - Removed query() with its fluent iterator surface, entity_type, pos, online_iter,
+      get_goodwill, set_goodwill. get_clsid is now internal. Zero consumers existed.
+
+  xttltable
+    - Fixed ttl_table :get() collapsing a stored false to nil. false now round-trips, matching
+      the fifo_cache negative-cache convention.
+    - Removed create_budget. Zero consumers existed.
 
   xsquad
     - Added collect_squad_ids(out): snapshots all SIMBOARD squad ids into a reusable array,
       id-only with zero luabind cost, so a caller can spread a squad walk across ticks without
       touching the live table mid-iteration.
+    - Added create_squad(smart, section): spawns a squad at a smart through the vanilla board
+      path, with roster assignment and squad_on_npc_creation fired natively.
 
   xcombat
     - Added wrappers over the per-NPC combat-AI engine binds from themrdemonized/xray-monolith
@@ -21,11 +41,33 @@ next
     - Changed install_takeover to assert on a second differing takeover spec instead of silently
       replacing the first consumer's policy. A failed install no longer writes the spec.
     - Removed resolve_stance, find_point, AGGRESSOR_KINDS. Zero consumers existed.
+    - Fixed send_to returning the engine's invalid-vertex sentinel when accessible_nearest fails.
+      It now falls back to the NPC's own node, so an arrival check cannot read the previous,
+      already-completed path as an instant arrival.
 
   xsmart
     - Added reconcile_squad_roster(squad, from_smart_id): syncs SIMBOARD.smarts rosters after a
       squad changed smart through the roster-blind vanilla assign_smart, so has_capacity /
       is_smart_empty read truth. Idempotent, a no-op on a base that already syncs.
+    - Fixed get_npc_roles serving a dead NPC's cached role set to the new holder of a recycled
+      server id. Cache entries now verify the NPC section on hit and re-detect on mismatch.
+    - Removed get_npc_for_job. get_declared_factions is now internal. Zero consumers existed.
+
+  Surface audit
+    - Removed every remaining export with zero consumers, verified by census across all 8
+      consumer repos plus Warfare-erepb. Per-module lists below.
+    - Removed from xtable: is_array, clone, filter, find, reduce, sweep, bisect_left,
+      binary_insert, memoize, acquire_lock, check_lock, clear_locks.
+    - Removed from xmath: chance, prd_chance, prd_reset, weighted_choice, vary.
+    - Removed from xbus: unsubscribe, get_subscribers, count, has, stats, reset_stats, debug_state.
+    - Removed from xevent: unhook, emit, list_hooks.
+    - Removed from xinspect: inspect. get_type is now internal.
+    - Removed from xtrace: wrap, reset. Removed from xprofiler: wrap.
+    - Removed from xstash: is_stash_available, mark_stash_looted, clear_stash.
+    - Removed from xlevel: get_game_hours, get_location_name.
+    - Removed from xpda: hydrate_markers. Removed from xstring: capitalize_first.
+    - Removed from xmcm: create_loader, extract_defaults, format_defaults, format_config.
+      create_getter is now internal to create_config.
 
 1.8.0
   Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire, xinventory get_rank_chance, release_item_id, create_item cond fix, xsquad get_community
@@ -117,6 +159,10 @@ next
       All consumers (trade, stash loot/fill, inventory-balance) inherit protection without per-consumer code.
     - LAST_MAIN_SLOT lowered from 18 to 14 to match runtime slot_persistent count (Inventory.cpp:72-86).
     - Removed 20 dedicated is_X predicates (is_medkit, is_bandage, ...); use is_in_category(sec, category) instead.
+    - Removed in_reward_set. Superseded by the category model (get_section_category / is_in_category).
+      (Record backfilled 2026-07-08, removal was in this release.)
+    - Changed xobject.iterate_online_inventory to xinventory.iterate_inventory with the
+      xobject/xinventory boundary split. (Record backfilled 2026-07-08, move was in this release.)
 
   xsmart
     - get_npc_roles(npc) returns the set of all roles an NPC fulfills (was get_npc_role single-string).
@@ -124,6 +170,9 @@ next
       level_spot signal dropped (vanilla quest scripts set level_spot=trader on non-traders).
       is_trader_npc, is_medic_npc, is_mechanic_npc unchanged (predicates over the set).
     - smarts_by_names() returns SIMBOARD.smarts_by_names for whole-world smart iteration (nil-guarded).
+    - Removed get_controlling_faction (the 1.7.0 rename of get_smart_faction) and is_smart_hostile_to.
+      Zero consumers remained. Holder reads go through smart.faction directly, props admission
+      through accepts_faction. (Record backfilled 2026-07-08, removals were in this release.)
 
   xdata
     - 22 vanilla mechanics + 4 quest trader NPCs added to npc_roles as trader/medic destinations.
@@ -196,6 +245,7 @@ next
     Added: find_first_smart(opts). First-match smart lookup with no ranking. Opts mirror find_smart factions / filter / level_id.
     Added: accepts_faction(smart, faction). True if smart's props admit the faction (stalker or mutant). Mirrors engine target_precondition Tier-1 admission gate. Use for routing-side decisions.
     Added: section_faction(section). Returns the player_id (faction community) a squad section will produce, reading the section's `faction` INI field from configs/misc/squad_descr/. Same string round-trips with squad.player_id at spawn and xcreature.community at runtime. Use to classify a smart's respawn_params.squads pool by what it spawns -- recipe-content checks for refill / spawn-intervention logic, where Tier-1 admission does not answer the question (props admit factions that recipes cannot produce, see doc/library/modding/smart-terrain-props.md).
+    Removed: has_monster_jobs(smart, type_id). Constant-true predicate: gulag_general.init_monster_jobs pushes max_population*4 mob_home jobs (minimum 1) on EVERY smart (gulag_general.script:1018-1022), and load_jobs fills monster_jobs only for actor-level smarts (smart_terrain.script:457-464), so it never answered "can mutants go there". That question is accepts_faction (props admission) plus max_population (capacity). (Record backfilled 2026-07-08, removal was in this release.)
   xsquad:
     Added: get_commander_rank(squad). Commander rank; 0 for empty squads, non-stalkers, or unresolved commanders.
     Removed: is_squad_at_base(squad). No callers.

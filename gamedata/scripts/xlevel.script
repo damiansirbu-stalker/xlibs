@@ -17,24 +17,11 @@ local function get_game_graph()
     return gg
 end
 
---- Get total game hours (days * 24 + hours)
---- C++ get_time_hours/days have built-in fallback: check g_pGameLevel, fall back to
---- ai().alife().time_manager().game_time() if NULL (level_script.cpp:289-303).
---- level.present() guard ensures alife() exists (no game session = no alife singleton).
---- @safety SAFE - level.present() guards no-game-session; engine fallback handles NULL g_pGameLevel
---- @cost O(1) | 2 luabind trivial (get_time_hours + get_time_days: each calls split_time on a u64 timestamp, bit math)
---- @src xray/xrGame/level_script.cpp(289), xray/xrGame/level_script.cpp(297)
---- @return number Total hours since game start (0 when no level)
-function get_game_hours()
-    if not level.present() then return 0 end
-    return level.get_time_hours() + level.get_time_days() * 24
-end
-
 --- True while a surge (emission) is underway.
 --- Wraps the vanilla xr_conditions.surge_started gate so callers avoid the raw module reference.
 --- @safety SAFE - level.present() guards; xr_conditions.surge_started is the vanilla check
---- @cost O(1) | 1 luabind trivial via xr_conditions
---- @src anomaly/xr_conditions.script surge_started, anomaly/surge_manager.script
+--- @cost O(1) | 1 luabind trivial (level.present); surge_started is pure Lua module reads (xr_conditions.script:1792)
+--- @src anomaly/xr_conditions.script(1792) surge_started, anomaly/surge_manager.script
 --- @return boolean
 function is_surge()
     if not level.present() then return false end
@@ -77,16 +64,6 @@ function get_actor_level_id()
     local graph = get_game_graph()
     if not graph then return nil end
     return graph:vertex(gvid):level_id()
-end
-
--- Translate the current level's raw name; nil when no level
--- @cost O(log n) | 3 luabind: level.present trivial, level.name heavy (shared_str alloc), translate_string medium (std::map find on STRING_TABLE_MAP)
-local function get_current_level_name()
-    if not level.present() then return nil end
-    local lname = level.name()
-    if not lname then return nil end
-    local translated = game.translate_string(lname)
-    return (translated and translated ~= lname) and translated or lname
 end
 
 local _level_names = nil
@@ -184,23 +161,6 @@ function get_smart_display_name(smart)
     return (raw:gsub("_", " "))
 end
 
---- Get translated location name from nearest smart terrain
---- Finds nearest smart then delegates to get_smart_display_name (cached smart_names.ltx)
---- @safety SAFE - falls back to current level name if no smart found
---- @cost O(n) smarts for find_smart | 0 luabind for name resolution (cached)
---- @src anomaly/smart_terrain.script(1766-1791), anomaly/sim_board.script(96)
---- @param pos vector Position to search from
---- @param lvl_id number Level ID filter
---- @return string Location name
-function get_location_name(pos, lvl_id)
-    if not pos or not lvl_id then
-        return get_current_level_name()
-    end
-    local smart = xsmart.find_smart(pos, { level_id = lvl_id })
-    if not smart then return get_current_level_name() end
-    return get_smart_display_name(smart)
-end
-
 --- Check if server object has valid level vertex ID
 --- Offline or transitioning entities may have 0xFFFFFFFF (invalid) as their level vertex
 --- @safety SAFE - nil-guarded; 1 luabind for the level vertex id userdata field read, otherwise pure Lua
@@ -286,7 +246,8 @@ end
 --- @src anomaly/level_targets.script(39-74) level_links graph; anomaly/sim_squad_warfare.script(731-733) precedent consumer
 --- @param source_id number Engine level_id of the source level
 --- @param hops number BFS depth (1 = direct neighbors only, 2 = direct + neighbors-of-neighbors, etc.)
---- @return table Set { [level_id]=true, ... } excluding source_id; empty when source unreachable or invalid
+--- @return table Set { [level_id]=true, ... } excluding source_id; empty when source unreachable or invalid.
+---   Returned BY REFERENCE from the per-(source, hops) cache: treat as read-only, never mutate
 function get_neighbor_levels(source_id, hops)
     if not source_id or not hops or hops < 1 then return {} end
     local key = source_id * 100 + hops

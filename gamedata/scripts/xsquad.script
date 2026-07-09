@@ -222,7 +222,7 @@ end
 --- Static within session. Cached per squad object (weak keys, GC-safe).
 --- @safety SAFE - returns true for nil (fail-safe), alife_object returns nil for invalid
 --- @cost O(1) cache hit | uncached 4-5 luabind mixed weights (story_id 0, commander_id trivial, alife_object medium, section_name heavy, clsid trivial, community heavy)
---- @src anomaly/_g.script(2674) get_object_story_id
+--- @src anomaly/_g.script(2692) get_object_story_id
 --- @param squad se_squad Squad server object
 --- @return boolean True if permanent (nil squad returns true for safety)
 --- @return string|nil Reason: "nil_squad", "not_squad", "story_id", "trader", "named_npc", "empty_squad"
@@ -273,7 +273,7 @@ end
 --- Looks up se_npc via alife_object, reads group_id, resolves squad via alife_object
 --- @safety SAFE - returns nil for invalid IDs, group_id >= INVALID_ENTITY_ID means no squad
 --- @cost O(log n) | 2 luabind medium (alife_object for NPC + alife_object for squad, both xr_map finds) + 1 trivial (group_id field read on cse userdata)
---- @src anomaly/_g.script(2044), xray/xrGame/alife_simulator_script.cpp(40)
+--- @src anomaly/_g.script(2062), xray/xrGame/alife_simulator_script.cpp(40)
 --- @param npc_id number NPC ID (can be offline)
 --- @return se_squad|nil Squad server object or nil if not in squad
 function get_squad_by_member(npc_id)
@@ -392,7 +392,7 @@ end
 --- (see release_squads two-pass at :711-736).
 --- @safety SAFE - alife_object returns nil for deleted, skipped automatically
 --- @cost O(n) squads | 1 luabind medium per squad (sim:object: xr_map find)
---- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
+--- @src anomaly/sim_board.script(84), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @return function Iterator yielding squad server objects
 function iter_squads()
     if not SIMBOARD or not SIMBOARD.squads then return _EMPTY_ITER end
@@ -504,7 +504,7 @@ end
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
 --- @cost O(n) squads in pool | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
---- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
+--- @src anomaly/sim_board.script(84), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
 ---   exclude_at_smart_id, exclude_permanent, exclude_active_role, exclude_task_target,
@@ -542,18 +542,21 @@ function find_squad(pos, opts)
 end
 
 --- Find multiple squads matching criteria
---- Same as find_squad but returns up to max_count results via random sampling
+--- Same as find_squad but returns a RANDOM-SIZED sample: xmath.sample_n takes a uniformly
+--- random 1..max_count count from the candidate pool (deliberate dispatch variability, in
+--- contrast with xstash.find_stashes' exact-count take).
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
 --- @cost O(n) squads in pool | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
---- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
+--- @src anomaly/sim_board.script(84), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
 ---   max_count, exclude_at_smart_id, exclude_permanent, exclude_active_role,
 ---   exclude_task_target, exclude_scripted, exclude_filter, exclude_ids, source }
 ---   source: optional { [squad_id] = true, ... } iterable. When present, replaces SIMBOARD.squads as the iteration pool.
 ---   Use AlifePlus ap_core_cache.squads_on_level(level_id) to fetch a per-level bucket.
---- @return table Array of squad server objects
+--- @return table Array of squad server objects, sized uniformly random 1..max_count (empty when no candidate)
+--- @return number Count of candidates skipped by the is_protected filter
 function find_squads(pos, opts)
     if not pos or not opts or not opts.max_distance then return {} end
     local pool = opts.source or (SIMBOARD and SIMBOARD.squads)
@@ -601,7 +604,7 @@ end
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
 --- @cost O(n) squads in pool worst case, short-circuits on first match | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); opts.match cost set by caller
---- @src anomaly/sim_board.script(84), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
+--- @src anomaly/sim_board.script(84), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
 ---   exclude_at_smart_id, exclude_permanent, exclude_active_role, exclude_task_target,
@@ -643,7 +646,7 @@ end
 --- Reads smart_id or assigned_target_id, resolves via alife_object, rejects non-smart entities via clsid check
 --- @safety SAFE - returns nil for nil squad, missing entity, or non-smart entity
 --- @cost O(log n) | 2 luabind (alife_object medium + clsid trivial)
---- @src anomaly/sim_squad_scripted.script(102,288), anomaly/_g.script(2044), xray/xrGame/alife_object_registry_inline.h(36)
+--- @src anomaly/sim_squad_scripted.script(102,288), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param squad se_squad Squad object
 --- @return se_smart|nil Current smart terrain or nil
 function get_squad_smart(squad)
@@ -773,5 +776,21 @@ function release_squads(opts)
     end
 
     return count
+end
+
+--- Create a squad at a smart terrain through the vanilla board path
+--- Wraps SIMBOARD:create_squad: spawns the squad section at the smart, creates members,
+--- assigns the roster, and fires squad_on_npc_creation per member natively.
+--- @safety SAFE - nil/section guards; SIMBOARD guard for pre-sim calls
+--- @cost O(members) | heavy (alife_create per member + roster assignment); spawn-time only
+--- @src anomaly/sim_board.script(131-153)
+--- @param smart table Smart terrain server object (spawn anchor + roster owner)
+--- @param section string Squad section from misc\squad_descr.ltx (e.g. "bandit_sim_squad_novice")
+--- @return table|nil Squad server object, nil on invalid input
+function create_squad(smart, section)
+    if not smart or not section or section == "" then return nil end
+    if not SIMBOARD then return nil end
+    if not ini_sys:section_exist(section) then return nil end
+    return SIMBOARD:create_squad(smart, section)
 end
 

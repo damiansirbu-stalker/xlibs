@@ -14,7 +14,7 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 Features:
 
 Entity and World:
-  xcreature    Creature identification, type checks, fluent server object query iterator, money primitives
+  xcreature    Creature identification, type checks, translated names, money primitives
   xsquad       Squad search, scripted control, release, chase, iteration
   xsmart       Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
   xlevel       Level/map queries, game time, location names, vertex validation
@@ -25,11 +25,11 @@ Entity and World:
   xconst       X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
 
 Data Structures:
-  xtable       Filter, find, reduce, clone, shuffle, sort, binary insert, memoize, locks
-  xttltable    TTL key-value store, sliding window counter, fixed-capacity budget
-  xmath        Probability rolls, weighted choice, random sampling, variation
+  xtable       Count, shuffle, sort, set merge and subtract
+  xttltable    TTL key-value store, sliding window counter, token bucket, FIFO cache
+  xmath        Random sampling and partial shuffle
   xslice       Time-sliced array iteration across frames
-  xstring      String interpolation with ${key} placeholders
+  xstring      String interpolation with {key} placeholders
   xtime        Game-time seconds accumulator (wraps engine game_time())
 
 Diagnostics:
@@ -43,10 +43,10 @@ Effects:
   xsound       Looping sound wrap (handle API, Lua-side volume lerp, lazy actor_on_update tick)
 
 Integration:
-  xbus         Pub/sub event bus with pcall-wrapped delivery and diagnostics
+  xbus         Pub/sub event bus (direct delivery, errors stay visible)
   xevent       Runtime function hooking for synthetic callbacks
   xpda         PDA messages and map markers (squad and entity)
-  xmcm         MCM config getters and loaders with defaults extraction
+  xmcm         MCM config bundle (pre-seeded table, getter, loader)
   xchange      Liquibase-style save data migration registry; each changeset runs once per save
 
 Requirements:
@@ -64,7 +64,7 @@ No configuration needed. xlibs is a passive library loaded on demand by other mo
 
 Compatibility:
 Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
-Pure library. Does not modify any base scripts, does not register callbacks, does not run any background logic. Compatible with everything including GAMMA.
+Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start; everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
 
 Development:
 Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.

@@ -1,5 +1,9 @@
 --- xpp: post-process effector wrap (slot allocator, engine-smoothed factor, handle API)
 
+-- Slot ids allocate upward from 4000: vanilla scripts and the engine use effector ids in the
+-- low thousands and below (surge/psi/actor effects), so the 4000+ band avoids colliding with
+-- any engine or vanilla-script effector id. Another mod adding effectors in this band would
+-- collide; keep the base above known vanilla usage.
 local _NEXT_SLOT = 4000
 local _active = {}
 

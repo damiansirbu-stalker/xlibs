@@ -19,15 +19,12 @@ OBJECT_TYPE = {
     OBJECT = "object",
 }
 
---- Get object type using game's type check functions
---- Dispatches through IsStalker/IsMonster/IsWeapon/etc. global type checkers with clsid
---- @safety SAFE - returns nil for nil obj, type checkers are nil-safe
---- @cost O(1) | 1 luabind trivial when cls is nil (clsid: enum return), 0 luabind otherwise; Is* dispatch is pure Lua clsid equality / hash lookup
---- @src anomaly/_g.script(2820) IsStalker, (2827) IsMonster, (3175) IsItem
---- @param obj userdata Game object
---- @param cls number|nil Class ID (optional, will fetch if nil)
---- @return string Type name: "stalker"|"monster"|"weapon"|"outfit"|"headgear"|"item"|"anomaly"|"invbox"|"object"
-function get_type(obj, cls)
+-- Get object type using game's type check functions (internal: userdata() dispatch)
+-- Dispatches through IsStalker/IsMonster/IsWeapon/etc. global type checkers with clsid
+-- @safety SAFE - returns nil for nil obj, type checkers are nil-safe
+-- @cost O(1) | 1 luabind trivial when cls is nil (clsid: enum return), 0 luabind otherwise; Is* dispatch is pure Lua clsid equality / hash lookup
+-- @src anomaly/_g.script(2820) IsStalker, (2827) IsMonster, (3175) IsItem
+local function get_type(obj, cls)
     cls = cls or (obj and obj.clsid and obj:clsid())
     if not cls then return nil end
     if IsStalker and IsStalker(nil, cls) then return OBJECT_TYPE.STALKER end
@@ -154,21 +151,9 @@ format_value = function(v, depth, ctx)
     return _format_table(v, depth, ctx)
 end
 
---- Inspect any value with cycle detection and depth limiting
---- Recursive walker over tables; SIMPLE_TYPES dispatch for primitives, userdata delegated to userdata(); cycle detection via ctx.seen set, depth cap via ctx.max_depth (default 3)
---- @safety SAFE - userdata path pcall-guarded internally; format_value tolerates missing metatables and __index
---- @cost O(n) total values walked | 0 luabind for tables/primitives, per-userdata cost = userdata() cost (5-10 luabind mixed weights)
---- @param value any Value to inspect
---- @param opts table|nil Options: { depth = number (default 3) }
---- @return string Human-readable representation
-function inspect(value, opts)
-    opts = opts or {}
-    local ctx = { max_depth = opts.depth or 3, seen = {} }
-    return format_value(value, 0, ctx)
-end
-
---- Format table (table-only alias for inspect with shallower default depth)
---- Returns tostring(t) for non-table input; otherwise delegates to format_value with depth limit
+--- Format table with cycle detection and depth limiting
+--- Returns tostring(t) for non-table input; otherwise delegates to the recursive format_value walker
+--- (SIMPLE_TYPES dispatch for primitives, userdata delegated to userdata(); cycle detection via ctx.seen)
 --- @safety SAFE - same path as inspect()
 --- @cost O(n) total values walked | 0 luabind (pure Lua; userdata only entered via inspect path)
 --- @param t table Table to format

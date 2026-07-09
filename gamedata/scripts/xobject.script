@@ -24,7 +24,7 @@ end
 --- m_game_vertex_id ~= nil is the server-object discriminator; game objects expose game_vertex_id() as a method so the field is nil and falls through to _extract_id
 --- @safety SAFE - alife_object Lua wrapper nil-guards id and rejects id >= 65535 (_g.script:2045)
 --- @cost O(log n) on alife_object | 0 luabind for pass-through server object, 1 luabind medium otherwise (alife_object: xr_map<u16,*> find on OBJECT_REGISTRY)
---- @src anomaly/_g.script(2044), xray/xrGame/alife_simulator_script.cpp(40), xray/xrGame/alife_object_registry_inline.h(36)
+--- @src anomaly/_g.script(2062), xray/xrGame/alife_simulator_script.cpp(40), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param input number|userdata|table ID, game object, or server object
 --- @return cse_alife_object|nil Server object
 function se(input)
@@ -38,8 +38,8 @@ end
 --- True if the entity is story-protected (has a story id). Exempts quest-critical
 --- NPCs/squads from scripted pursuit and cleanup.
 --- @safety SAFE - nil-guarded
---- @cost O(1) | 1 luabind trivial (get_object_story_id: id->story_id map lookup)
---- @src anomaly/_g.script get_object_story_id
+--- @cost O(1) | 0 luabind (get_object_story_id is a pure Lua STORY_PAIRS table lookup)
+--- @src anomaly/_g.script(2692) get_object_story_id
 --- @param se_obj table|number Server object or entity id
 --- @return boolean
 function is_story(se_obj)

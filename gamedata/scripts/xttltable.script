@@ -9,10 +9,16 @@
 --- TTL Counter: sliding window occurrence counter.
 --- Token Bucket: per-key rate limiter with burst capacity.
 --- FIFO Cache: bounded key-value store with oldest-first eviction.
---- Budget: fixed-capacity counter (caller-reset, no time component).
 ---
 --- Timing: os.clock by default (Lua C API, zero bridge overhead). All durations in seconds.
 --- Optional clock injection: pass opts.clock = fn to use game time or custom clock.
+---
+--- Hot-path cooldowns do NOT live here: the sanctioned shape is the caller-now split
+--- check/mark pair (AlifePlus ap_core_limiter.create_cooldown) - the throttle itself makes
+--- zero clock calls and the caller amortizes one time read across all checks
+--- (doc/library/modding/bridge-calls.md, Anti-Pattern: Bridge Call in Throttle). It lives in
+--- the consumer while the clock domain is the caller's tick; adopt it here only when a
+--- second consumer needs it.
 
 local pairs, type, setmetatable = pairs, type, setmetatable
 local clock, min = os.clock, math.min
@@ -71,10 +77,11 @@ function _ttl_table_mt:set(key, value, ttl)
     return true
 end
 
---- Pure table lookup. No bridge calls.
+--- Pure table lookup. No bridge calls. false round-trips (matches the fifo_cache negative-cache
+--- convention); an expired-but-unswept entry still returns its value until cleanup runs.
 function _ttl_table_mt:get(key)
     local entry = self._entries[key]
-    return entry and entry.value or nil
+    if entry then return entry.value end
 end
 
 --- Pure table lookup. No bridge calls.
@@ -348,34 +355,3 @@ function create_fifo_cache(opts)
     }, _fifo_mt)
 end
 
---- Budget: fixed-capacity counter that decrements on take and resets on demand
-local _budget_mt = {}
-_budget_mt.__index = _budget_mt
-
---- Take one slot, return true if available
---- @cost O(1) | 0 luabind (pure Lua)
-function _budget_mt:take()
-    if self._n <= 0 then return false end
-    self._n = self._n - 1
-    return true
-end
-
---- Reset to capacity (or new capacity if provided)
---- @cost O(1) | 0 luabind (pure Lua)
-function _budget_mt:reset(capacity)
-    self._n = capacity or self._capacity
-end
-
---- Check remaining slots without consuming
---- @cost O(1) | 0 luabind (pure Lua)
-function _budget_mt:remaining() return self._n end
-
---- Create a fixed-capacity budget that decrements on take and resets on demand
---- Caller-managed: budget never auto-resets, holder must call :reset() per cycle (per tick, per frame, etc.)
---- @safety SAFE - pure Lua integer counter
---- @cost O(1) take/reset/remaining | 0 luabind (integer counter)
---- @param capacity number Maximum slots
---- @return table Budget instance with :take(), :reset(), :remaining()
-function create_budget(capacity)
-    return setmetatable({ _n = capacity, _capacity = capacity }, _budget_mt)
-end

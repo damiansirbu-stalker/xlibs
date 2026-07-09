@@ -83,32 +83,7 @@ function has_stalker_jobs(smart, type_id)
     return smart ~= nil and _has_jobs_in(smart.stalker_jobs, type_id)
 end
 
---- Resolve the NPC currently assigned to a job of the given type_id at this smart.
---- Returns the online game_object if assigned and online, nil otherwise.
---- NOTE: this does NOT resolve the trader NPC. JOB_TYPE_TRADER (15) tags the visitor patrol
---- job slot (`<smart>_beh_trade_<i>` per gulag_general.script:971), not the barman's seated
---- logic. Probed across 20 vanilla trader smarts: the barman's job entry's job_type_id is nil
---- even when the smart is online. Use xsmart.get_trader_at_smart for the barman.
---- @scope online - reads smart.npc_info populated by smart_terrain:update_jobs (smart_terrain.script:376) only when smart is online
---- @safety SAFE - pure Lua iteration, nil-guarded; xobject.go falls back to nil for offline ids
---- @cost O(n) n = npc_info entries at smart (typically 1-15) | 1 luabind via xobject.go on match (level.object_by_id)
---- @src anomaly/smart_terrain.script(801) self.npc_info entries with `job` field
---- @src anomaly/gulag_general.script(971) job_type_id assignment
---- @param smart smart_terrain Smart terrain to query
---- @param type_id number Job type id (e.g. JOB_TYPE_CAMPFIRE_POINT, JOB_TYPE_GENERIC_POINT)
---- @return game_object|nil
-function get_npc_for_job(smart, type_id)
-    if not smart or not smart.npc_info or not type_id then return nil end
-    for npc_id, info in pairs(smart.npc_info) do
-        local job = info and info.job
-        if job and job.job_type_id == type_id then
-            return xobject.go(npc_id)
-        end
-    end
-    return nil
-end
-
---- Resolve the job a specific NPC currently holds at this smart (inverse of get_npc_for_job).
+--- Resolve the job a specific NPC currently holds at this smart.
 --- Reads the NPC's engine-bound .job -- the descriptor set in select_npc_job. Returns
 --- nil when the NPC has no npc_info entry (not arrived/registered, or smart offline: npc_info is
 --- populated only for online smarts on the actor's level) or holds no job yet. The descriptor
@@ -131,11 +106,15 @@ end
 
 --- Lazy per-NPC role cache. Roles are immutable in practice (section, community, and bound
 --- logic block don't change at runtime for service NPCs), so entries are populated on first
---- query and never invalidated. Dead NPCs leave stale entries; the cached value remains
---- correct and memory cost is bounded by the lifetime NPC count (well under 50KB).
+--- query. The engine recycles freed server-entity ids (see the clsid guard in
+--- assign_squad_to_smart below), so each entry stores the section it was detected for and
+--- get_npc_roles re-detects when the section at the id changed - a recycled id can not
+--- serve the dead NPC's role set to its new holder. Memory cost is bounded by the lifetime
+--- NPC count (well under 50KB).
 --- Empty role sets are cached only if logic was bound at detection time (so pre-bind empty
 --- results don't stick when the NPC's logic binds later — first call returns empty, second
 --- call after bind returns the real role set).
+--- Entry shape: { sec = <section at detect time>, roles = <role set> }
 local _npc_role = {}
 
 -- Signal C of the role cascade: substring match on the NPC section name. See
@@ -199,10 +178,10 @@ end
 -- quest), causing false-positive trader classification. The trade = field is the engine's
 -- actual trade-catalog enabler — present iff the NPC has a trade catalog.
 --
--- @complexity O(1) | 1 community + 1 clsid + 1 section + delegates to _section_roles / _trade_cat_role.
---       All cached per NPC id after first call.
-local function _detect_role(npc)
-    local roles = _section_roles(npc:section())
+-- @complexity O(1) | 1 community + 1 clsid + delegates to _section_roles / _trade_cat_role
+--       (section read by get_npc_roles and passed in). All cached per NPC id after first call.
+local function _detect_role(npc, sec)
+    local roles = _section_roles(sec)
     if character_community(npc) == "trader" then roles.trader = true end
     local cls = npc:clsid()
     if cls == clsid.script_trader or cls == clsid.trader then roles.trader = true end
@@ -216,7 +195,7 @@ end
 --- for Pripyat Yar). See _detect_role for the signal cascade and Demonized-classifier
 --- reference. Pre-bind empty sets not cached so a later call after logic binds re-detects.
 --- @safety SAFE - nil-guarded; all engine reads are standard game_object methods
---- @cost O(1) | 0 luabind cached, 2-5 luabind heavy on miss (community + clsid + section + optional r_string_ex)
+--- @cost O(1) | 1 luabind on hit (section verify vs id recycling), 2-5 luabind heavy on miss (community + clsid + section + optional r_string_ex)
 --- @complexity O(1) amortized | luabind cost as above
 --- @see anomaly/xr_logic.script:113 (engine trade= consumer)
 --- @src anomaly_mods/Trader Destockifier .../trader_autoinject.script:85 (Demonized get_trader_type);
@@ -226,20 +205,21 @@ end
 function get_npc_roles(npc)
     if not npc then return {} end
     local id = npc:id()
-    local roles = _npc_role[id]
-    if roles ~= nil then return roles end
-    roles = _detect_role(npc)
+    local sec = npc:section()
+    local entry = _npc_role[id]
+    if entry ~= nil and entry.sec == sec then return entry.roles end
+    local roles = _detect_role(npc, sec)
     -- Cache positive results always. Cache empty sets only if logic was bound at detection
     -- time (so pre-bind empty doesn't stick when the NPC's logic binds later).
     if next(roles) ~= nil or (db.storage[id] and db.storage[id].section_logic) then
-        _npc_role[id] = roles
+        _npc_role[id] = { sec = sec, roles = roles }
     end
     return roles
 end
 
 --- Test if NPC is a trader. See get_npc_roles for the detection signals.
 --- @safety SAFE - delegates to get_npc_roles
---- @cost O(1) | 0 luabind cached, 2-5 luabind heavy on miss
+--- @cost O(1) | 1 luabind on hit (section verify), 2-5 luabind heavy on miss
 --- @param npc game_object Online NPC game_object
 --- @return boolean
 function is_trader_npc(npc)
@@ -248,7 +228,7 @@ end
 
 --- Test if NPC is a medic. See get_npc_roles for the detection signals.
 --- @safety SAFE - delegates to get_npc_roles
---- @cost O(1) | 0 luabind cached, 2-5 luabind heavy on miss
+--- @cost O(1) | 1 luabind on hit (section verify), 2-5 luabind heavy on miss
 --- @param npc game_object Online NPC game_object
 --- @return boolean
 function is_medic_npc(npc)
@@ -257,7 +237,7 @@ end
 
 --- Test if NPC is a mechanic. See get_npc_roles for the detection signals.
 --- @safety SAFE - delegates to get_npc_roles
---- @cost O(1) | 0 luabind cached, 2-5 luabind heavy on miss
+--- @cost O(1) | 1 luabind on hit (section verify), 2-5 luabind heavy on miss
 --- @param npc game_object Online NPC game_object
 --- @return boolean
 function is_mechanic_npc(npc)
@@ -539,7 +519,7 @@ end
 --- @src anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
 --- @param smart smart_terrain Smart terrain to check
 --- @return table Faction set {[faction]=true, ...} or empty table
-function get_declared_factions(smart)
+local function get_declared_factions(smart)
     if not smart then return {} end
     local cached = _factions_cache[smart.id]
     if cached then return cached end

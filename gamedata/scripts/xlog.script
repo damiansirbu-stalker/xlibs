@@ -279,10 +279,19 @@ local function flush_all_loggers()
     end
 end
 
+-- Re-arm BEFORE flushing, return nil so the event stays queued with the new deadline.
+-- The vanilla queue removes an event whose callback returns true (_g.script:374-377) and
+-- re-invokes a nil-returner every update with an unchanged timer; without reset_timer in
+-- the bindings, fall back to the one-shot (return true) rather than spin per-frame.
 local function periodic_flush_callback()
+    local rearmed = false
+    if platform and platform.reset_timer then
+        platform.reset_timer("xlog", "flush", defaults.flush_interval)
+        rearmed = true
+    end
     _rotation_checked = {}
     flush_all_loggers()
-    return true
+    if not rearmed then return true end
 end
 
 local function start_periodic_flush()
@@ -311,7 +320,7 @@ end
 --- Stores bindings table, starts periodic flush timer, registers lifecycle callbacks
 --- @safety SAFE - asserts bindings non-nil, all setup delegates to pure Lua
 --- @cost O(1) | 0 luabind (bindings are closures, deferred until flush/callback fire)
---- @param bindings table { get_logs_path, create_timer, console_print, register_callback }
+--- @param bindings table { get_logs_path, create_timer, reset_timer, console_print, register_callback }
 function init(bindings)
     assert(bindings, "xlog.init: bindings required")
     platform = bindings
@@ -324,7 +333,7 @@ end
 --- @safety SAFE - pure Lua table/metatable creation
 --- @cost O(1) | 0 luabind (pure Lua table allocation + setmetatable)
 --- @param name string Logger name
---- @param cfg table|nil { level, enabled, outfile, buffer_size, flush_on_level, max_file_size, stack_trace, max_stack_frames }
+--- @param cfg table|nil { level, outfile, buffer_size, flush_on_level, max_file_size, stack_trace, max_stack_frames }
 --- @return table Logger facade with fatal/error/warn/info/debug/trace methods
 function get_logger(name, cfg)
     local key = name or "default"
@@ -371,7 +380,7 @@ function get_levels()
 end
 
 --- Initialize logging system with game-specific callbacks
---- Wires getFS():update_path("$logs$") for path, CreateTimeEvent for flush, RegisterScriptCallback for lifecycle
+--- Wires getFS():update_path("$logs$") for path, CreateTimeEvent + ResetTimeEvent for the periodic flush, RegisterScriptCallback for lifecycle
 --- @safety SAFE - all bindings are nil-checked in init(); getFS/update_path deferred to first flush
 --- @cost O(1) at startup | 0 luabind here (closures defer the work); first flush triggers 2 luabind heavy (getFS: FS singleton, update_path: string concat over path tree)
 --- @src xray/xrGame/fs_registrator_script.cpp(9,289), anomaly/_g.script(339,104), RavenAscendant/mcm_log.script(52)
@@ -381,6 +390,7 @@ function on_game_start()
             return getFS():update_path("$logs$", "")
         end,
         create_timer = CreateTimeEvent,
+        reset_timer = ResetTimeEvent,
         console_print = printf,
         register_callback = RegisterScriptCallback,
     })
