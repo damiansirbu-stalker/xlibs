@@ -504,8 +504,10 @@ end
 
 -- =========================================================================
 -- NPC control - the takeover writes the NPC through set_combat, so the consumer issues no raw engine calls.
--- set_combat owns weapon mode + posture + movement and hands the fire state its look_object, so the engine
--- object-track aims and fires at the enemy autonomously every frame (the turret model); send_to owns destination.
+-- set_combat owns weapon mode + posture + movement, resolves the fire DISCIPLINE internally (a FIRE/SNIPE
+-- intent degrades to READY when no shot makes sense), and hands the fire state its look_object, so the
+-- engine object-track aims and fires at the enemy autonomously every frame (the turret model); send_to
+-- owns destination.
 -- =========================================================================
 
 -- The combat-state matrix: [fire][posture][movement] -> the one state_lib state that bundles exactly that
@@ -546,23 +548,49 @@ local function _combat_state(fire, posture, movement)
     return by_post and by_post[movement]
 end
 
---- Drive the NPC's combat state - the one command for weapon mode, posture, and movement.
+-- The engine's fire discipline, composed from its own two behaviors: an enemy SEEN right now is fired on
+-- with no further gate (the Alundaio kill-if-visible order, stalker_combat_actions.cpp:483-496 - no
+-- distance term, point-blank fires); only the BLIND case consults fire_make_sense (the gate the engine's
+-- own detour/sweep actions use, stalker_combat_actions.cpp:906-914 - its occlusion pick stops shooting
+-- the wall the enemy ducked behind, its 10s automatic-weapon window sustains suppression at last-known);
+-- otherwise the intent degrades to READY, weapon up, until sight returns.
+-- Returns (fire to apply, gate word: "seen"/"true"/"false") for the caller's trace.
+-- @cost O(1) | 1 luabind (see) when seen; + the fire_make_sense reads when blind
+local function _resolve_fire(npc, requested, enemy)
+    if enemy and xcombat.sees(npc, enemy) then return requested, "seen" end
+    if enemy and xcombat.fire_make_sense(npc, enemy) then return requested, "true" end
+    return xcombat.READY, "false"
+end
+
+--- Drive the NPC's combat state - the one command for weapon mode, posture, movement, and fire discipline.
 --- Replaces raw state_mgr / set_body_state / set_movement_type / sniper_fire_mode calls with three safe
---- orthogonal knobs: it resolves the matching state from the matrix so state and the explicit posture/movement
---- always agree (no engine contention), and returns false without touching the NPC when the engine ships no
---- state for the combo, so the caller can pick another. opts.state names any state_lib state directly for
---- the rare case the knobs do not cover, keeping every engine state reachable.
---- @safety SAFE - returns false on an unsupported combo; the four engine calls are SAFE_WRAPped
---- @cost O(1) | 1 state_mgr dispatch + 2 luabind trivial (set_body_state, set_movement_type) + 1 sniper toggle
+--- orthogonal knobs plus the enemy: opts.fire is the caller's INTENT, and a FIRE/SNIPE intent resolves
+--- through the engine's own discipline (_resolve_fire: seen -> as asked, blind -> fire_make_sense, else
+--- READY weapon-up) before any state applies - the caller holds no fire logic. The look_object follows the
+--- intent: a FIRE/SNIPE intent watches the enemy even while degraded to READY (eyes on last-known until
+--- sight returns); READY/STOW intents look at nothing. Resolves the matching state from the matrix so
+--- state and the explicit posture/movement always agree (no engine contention), and returns false without
+--- touching the NPC when the engine ships no state for the resolved combo. opts.state names any state_lib
+--- state directly for the rare case the knobs do not cover, keeping every engine state reachable.
+--- @safety SAFE - returns false on an unsupported combo; the engine calls are SAFE_WRAPped
+--- @cost O(1) | 1 state_mgr dispatch + 2 luabind trivial (set_body_state, set_movement_type) + 1 sniper toggle; + the _resolve_fire reads on a FIRE/SNIPE intent
 --- @src anomaly/state_lib.script (bundles), anomaly/state_mgr.script:503 (set_state)
 --- @src xray/script_game_object_script2.cpp:282-283 (body/movement), xray/script_game_object_script3.cpp:453 (sniper)
+--- @src xray/stalker_combat_actions.cpp:483-496 (seen -> fire, the anti-wall order), :906-914 (blind fire_make_sense)
 --- @param npc game_object
---- @param opts table { fire, posture, movement, aim = game_object|nil, state = string|nil }
---- @return boolean true if a state was applied, false if the combo has no state
+--- @param opts table { fire = intent, posture, movement, enemy = game_object|nil, state = string|nil }
+--- @return string|boolean applied fire ("FIRE"/"SNIPE"/"READY"/"STOW") when a state was applied, false when the combo has no state
+--- @return string gate word: "seen"/"true"/"false" when the intent was FIRE/SNIPE, "na" otherwise
 function xcombat.set_combat(npc, opts)
-    local state = opts.state or _combat_state(opts.fire, opts.posture, opts.movement)
-    if not state then return false end
-    state_mgr.set_state(npc, state, nil, nil, { look_object = opts.aim }, { fast_set = true })
+    local intent = opts.fire
+    local fire, gate = intent, "na"
+    if intent == xcombat.FIRE or intent == xcombat.SNIPE then
+        fire, gate = _resolve_fire(npc, intent, opts.enemy)
+    end
+    local state = opts.state or _combat_state(fire, opts.posture, opts.movement)
+    if not state then return false, gate end
+    local aim = (intent == xcombat.FIRE or intent == xcombat.SNIPE) and opts.enemy or nil
+    state_mgr.set_state(npc, state, nil, nil, { look_object = aim }, { fast_set = true })
     if not opts.state then
         local body = BODY_KEY[opts.posture]
         if body then npc:set_body_state(move[body]) end
@@ -574,11 +602,11 @@ function xcombat.set_combat(npc, opts)
     -- previous state's stare (backpedalling in the enemy's face, observed 2026-07-09). The vanilla
     -- reach-task call shape (xr_reach_task.script:124) sets the sight every apply, so the 200ms
     -- re-assert keeps the head down the path.
-    if opts.fire == "STOW" then
+    if fire == "STOW" then
         npc:set_sight(look.path_dir, nil, 0)
     end
-    npc:sniper_fire_mode(opts.fire == "SNIPE")
-    return true
+    npc:sniper_fire_mode(fire == "SNIPE")
+    return fire, gate
 end
 
 -- =========================================================================
