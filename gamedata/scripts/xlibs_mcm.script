@@ -1,8 +1,58 @@
 --- xlibs_mcm: MCM info page for xlibs
 
+local type, tostring, math_floor = type, tostring, math.floor
+
 -- The demonized build this release is built and tested against - set to the LATEST demonized at
 -- every release (compatibility-standards.md "The target build").
 local TARGET_DEMONIZED = 20260706
+
+-- xray-monolith build (YYYYMMDD) as the themrdemonized tag style, no zero padding (20260706 -> "2026.7.6").
+local function _build_tag(build)
+    return math_floor(build / 10000) .. "." .. (math_floor(build / 100) % 100) .. "." .. (build % 100)
+end
+
+-- AOEngine v0.55 is cut from the 2025-09-08 xray-monolith fork state (compatibility-standards.md), so
+-- AOE is judged as an engine frozen at this build: any newer target reads partially compatible on AOE.
+local AOE_BASELINE_BUILD = 20250908
+
+-- Platform status line + verdict for the xlibs info-page footer. Self-contained: xmcm no longer carries
+-- this, since it was the one place a consumer had to depend on a version-sensitive xlibs symbol.
+local function _platform_status()
+    local line = "xlibs " .. xlibs.get_version()
+    local has_build = type(get_modded_exes_version) == "function"
+    local effective
+    if type(get_aoe_version) == "function" then
+        line = line .. ", AOEngine " .. tostring(get_aoe_version())
+        if has_build then line = line .. ", xray-monolith " .. _build_tag(get_modded_exes_version()) end
+        effective = AOE_BASELINE_BUILD
+    elseif has_build then
+        local build = get_modded_exes_version()
+        line = line .. ", xray-monolith " .. _build_tag(build)
+        effective = build
+    else
+        return line .. " (incompatible)", "blocked"
+    end
+    if effective < TARGET_DEMONIZED then
+        return line .. " (partially compatible)", "fallback"
+    end
+    return line .. " (fully compatible)", "full"
+end
+
+local _footer_clr = nil
+local function _platform_functor()
+    return function(_anchor, handlers)
+        if not _footer_clr then
+            _footer_clr = {
+                full     = GetARGB(255, 170, 220, 170),
+                fallback = GetARGB(255, 230, 210, 120),
+                blocked  = GetARGB(255, 220, 120, 120),
+            }
+        end
+        local line, level = _platform_status()
+        handlers.desc:SetText(line)
+        handlers.desc:SetTextColor(_footer_clr[level])
+    end
+end
 
 function on_mcm_load()
     return {
@@ -14,6 +64,6 @@ function on_mcm_load()
             { id = "desc", type = "desc", text = "ui_mcm_xlibs_desc" },
             { id = "div_footer", type = "line" },
             { id = "platform", type = "desc", text = "ui_mcm_xmcm_footer",
-                ui_hook_functor = { xmcm.platform_functor({ mod = "xlibs", version = xlibs.get_version(), target_build = TARGET_DEMONIZED }) }, clr = {255, 212, 201, 168} },        },
+                ui_hook_functor = { _platform_functor() }, clr = {255, 212, 201, 168} },        },
     }
 end
