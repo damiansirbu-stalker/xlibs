@@ -442,6 +442,24 @@ function is_unscriptable(obj)
     return result
 end
 
+--- Server-entity (offline-safe) variant of is_unscriptable
+--- Reads only signals available without a game object: story_id registry, unscriptable_npcs
+--- section hash, and squad story_id. The companion has_info signal needs a game object and is
+--- omitted; offline consumers cover companions otherwise (they follow the actor online).
+--- @safety SAFE - returns true for nil (fail-safe), clsid/section_name/group_id nil-guarded
+--- @cost O(1) | 1-2 luabind (clsid trivial, section_name heavy shared_str only if stalker); story_id lookups 0 luabind (Lua registry)
+--- @src anomaly/_g.script(2692) get_object_story_id
+--- @param se_obj cse_alife_object Server object (online or offline)
+--- @return boolean True if unscriptable (nil returns true for safety)
+function is_unscriptable_se(se_obj)
+    if not se_obj then return true end
+    if get_object_story_id(se_obj.id) then return true end
+    if IsStalker(nil, se_obj:clsid()) and xdata.unscriptable_npcs[se_obj:section_name()] then return true end
+    local group_id = se_obj.group_id
+    if group_id and group_id ~= INVALID_ENTITY_ID and get_object_story_id(group_id) then return true end
+    return false
+end
+
 --- Check if creature is an active task giver (has task referencing its NPC ID or squad ID)
 --- Scans task_manager.task_info for active tasks where task_giver_id matches NPC ID or squad ID
 --- @safety SAFE - returns false for nil, task_manager nil-guarded

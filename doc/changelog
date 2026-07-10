@@ -1,3 +1,11 @@
+next
+  Summary: xcreature offline-safe unscriptable check
+
+  xcreature
+    - Added is_unscriptable_se: server-entity variant of is_unscriptable that works on offline
+      entities. Checks story_id, unscriptable_npcs section, and squad story_id without a game
+      object. The companion has_info signal is game-object-only and omitted.
+
 1.8.1
   Summary: xcombat engine fire-gate wrappers, xsmart roster reconcile, xsquad id snapshot, zero-consumer surface audit, xlog flush fix, mutant name localization, xmcm platform status
 
