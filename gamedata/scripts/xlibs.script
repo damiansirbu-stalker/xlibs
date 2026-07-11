@@ -1,6 +1,6 @@
 --- xlibs: Package metadata
 local tonumber = tonumber
-local _VERSION = "1.8.1"
+local _VERSION = "1.8.2"
 
 --- Get xlibs package version string
 --- Constant read from module-local _VERSION literal, set at file load

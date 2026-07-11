@@ -1,10 +1,22 @@
-next
-  Summary: xcreature offline-safe unscriptable check
+1.8.2
+  Summary: is_companion, is_unscriptable_se, dist_flat_sqr, set_combat fire discipline
+
+  xsquad
+    - Added is_companion(squad): true for an active companion squad, 0 luabind. The companion
+      branch of has_active_role and is_protected now routes through it.
 
   xcreature
     - Added is_unscriptable_se: server-entity variant of is_unscriptable that works on offline
       entities. Checks story_id, unscriptable_npcs section, and squad story_id without a game
       object. The companion has_info signal is game-object-only and omitted.
+
+  xcombat
+    - Changed set_combat to take a fire intent plus the enemy and resolve the fire discipline
+      itself: a FIRE or SNIPE intent degrades to READY when no shot makes sense. Consumers pass
+      intent, not a resolved state, and hold no fire logic.
+
+  xmath
+    - Added dist_flat_sqr(a, b): squared ground-plane (XZ) distance, no sqrt, height-insensitive.
 
 1.8.1
   Summary: xcombat engine fire-gate wrappers, xsmart roster reconcile, xsquad id snapshot, zero-consumer surface audit, xlog flush fix, mutant name localization, xmcm platform status
