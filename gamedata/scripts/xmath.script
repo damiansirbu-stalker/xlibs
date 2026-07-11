@@ -1,6 +1,19 @@
---- xmath: Math utilities (random selection and sampling)
+--- xmath: Math utilities (random selection, sampling, flat geometry)
 
 local math_random, math_min = math.random, math.min
+
+--- Squared flat (XZ) distance between two position vectors - the ground-plane displacement read.
+--- Squared so a radius compare needs no sqrt; flat so a height difference (stairs, a ledge) does
+--- not read as movement.
+--- @safety SAFE - pure Lua field reads
+--- @cost O(1) | 0 luabind (vector field math)
+--- @param a vector position
+--- @param b vector position
+--- @return number squared XZ distance in m^2
+function dist_flat_sqr(a, b)
+    local dx, dz = a.x - b.x, a.z - b.z
+    return dx * dx + dz * dz
+end
 
 --- Return random element from array
 --- Uses math.random for index selection; assumes #t > 0
