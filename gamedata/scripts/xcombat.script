@@ -1376,7 +1376,10 @@ end
 -- behalf and holds no ownership tables; on_action_switch registers the CALLER's function at the caller's
 -- explicit call - nothing load-time, nothing hidden. The cover reservation is the engine's
 -- db.used_level_vertex_ids, written given an explicit lvid + owner; the module tables are transient
--- memoization caches (weapon-kind by TTL) plus the
+-- memoization caches (_weapon_kind_cache 2s TTL, _actor_dist_cache 5s TTL - raw tables keyed by npc
+-- id, no eviction: memory is bounded by the id space, and a recycled id can inherit the dead NPC's
+-- entry for at most one TTL window, accepted over an evicting collection's per-read cost on these
+-- hot paths) plus the
 -- session-stable probe caches (_bind_ready, _fire_cvars - properties of the exe, immutable at runtime).
 -- The consumer keeps the lvid it claimed and releases it.
 -- =========================================================================
