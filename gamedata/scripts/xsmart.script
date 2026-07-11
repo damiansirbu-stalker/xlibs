@@ -4,7 +4,7 @@ local pairs, ipairs, next, type, alife_object, tostring = pairs, ipairs, next, t
 local pcall, math, table, tonumber = pcall, math, table, tonumber
 local string_match, table_concat = string.match, table.concat
 local character_community = character_community
-local xobject, xsquad, xlevel = xobject, xsquad, xlevel
+local xobject, xsquad, xlevel, xttltable = xobject, xsquad, xlevel, xttltable
 
 --- Stalker faction community names used as props keys in simulation_objects_props.ltx
 local STALKER_FACTIONS = {
@@ -658,6 +658,73 @@ function has_enemy_squad(smart_id, community, exclude_id)
         if game_relations.is_factions_enemies(community, se.player_id) then return true end
     end
     return false
+end
+
+local OCCUPANCY_TTL_SEC = 60
+local _occupancy_cache = xttltable.create_ttl_table({ default_ttl = OCCUPANCY_TTL_SEC })
+
+-- Set of communities with a stationed squad at the smart, or nil when none.
+-- @complexity O(min(n,5)) stationed squads | per squad: 1 medium (alife_object)
+local function _stationed_communities(smart_id)
+    local communities
+    for se in iter_stationed_squads(smart_id) do
+        communities = communities or {}
+        communities[se.player_id] = true
+    end
+    return communities
+end
+
+-- Snapshot one level: per smart, the set of stationed communities. nil before SIMBOARD setup.
+-- @complexity O(all smarts) x xlevel.get_level_id + _stationed_communities per level smart
+local function _build_level_occupancy(level_id)
+    local pool = SIMBOARD and SIMBOARD.smarts_by_names
+    if not pool then return nil end
+    local by_smart = {}
+    for _, smart in pairs(pool) do
+        if xlevel.get_level_id(smart) == level_id then
+            by_smart[smart.id] = _stationed_communities(smart.id)
+        end
+    end
+    return by_smart
+end
+
+-- True when any community in the set has a stationed squad in the communities set.
+-- @complexity O(communities at smart) pure Lua
+local function _matches_any(communities, faction_set)
+    for community in pairs(communities) do
+        if faction_set[community] then return true end
+    end
+    return false
+end
+
+--- Count smarts on a level where a squad of the given community (string) or of any community
+--- in the given set (table { [community] = true }) is physically stationed. A smart counts once
+--- per query no matter how many stationed squads match. Occupancy is the same SIMBOARD squads
+--- substrate Warfare's check_owner derives ownership from; this is its stateless read.
+--- Snapshot per level, refreshed after OCCUPANCY_TTL_SEC; presence changes at squad-travel
+--- speed, so staleness up to the TTL is invisible to callers gating expansion on it.
+--- @scope global - walks SIMBOARD.smarts_by_names across all levels on rebuild
+--- @safety SAFE - returns 0 on nil args or before SIMBOARD setup completes
+--- @cost O(smarts with squads on level) pure Lua cached | rebuild on miss: O(all smarts) x xlevel.get_level_id + iter_stationed_squads per level smart, once per level per TTL
+--- @src anomaly/sim_board.script(96,258), anomaly/sim_squad_scripted.script(295-323)
+--- @param factions string|table Community string, or set { [community] = true }
+--- @param level_id number Level id (xlevel.get_level_id)
+--- @return number Count of smarts with a stationed squad matching factions
+function get_faction_smart_count(factions, level_id)
+    if not factions or not level_id then return 0 end
+    local by_smart = _occupancy_cache:get(level_id)
+    if not by_smart then
+        by_smart = _build_level_occupancy(level_id)
+        if not by_smart then return 0 end
+        _occupancy_cache:set(level_id, by_smart)
+    end
+    local is_set = type(factions) == "table"
+    local count = 0
+    for _, communities in pairs(by_smart) do
+        local matched = is_set and _matches_any(communities, factions) or (not is_set and communities[factions])
+        if matched then count = count + 1 end
+    end
+    return count
 end
 
 --- Assign a squad to a smart's roster, or detach with nil. Wraps SIMBOARD:assign_squad_to_smart.

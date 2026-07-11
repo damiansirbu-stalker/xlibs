@@ -321,6 +321,7 @@ SIMBOARD roster (sim-intent membership, NOT physical occupancy):
 - `iter_stationed_squads(smart_id, exclude_id, cap)` - Closure iterator yielding se for squads with current_action=1 AND current_target_id=smart_id (xsquad.is_stationed). Skips in-transit. Cap default 5
 - `has_squad_of_faction(smart_id, faction, exclude_id)` - True if any stationed squad of given faction
 - `has_enemy_squad(smart_id, community, exclude_id)` - True if any stationed squad is faction-enemy of community
+- `get_faction_smart_count(factions, level_id)` - Count of smarts on the level with a stationed squad of the community (string) or of any community in the set (table). Per-level snapshot of stationed communities, 60s TTL (xttltable). Consumed by AlifePlus per-faction expansion caps
 - `is_smart_empty(smart_id)` - No squads assigned (raw roster check, includes in-transit)
 
 Service NPC resolution (online + actor-level via npc_info walk):
