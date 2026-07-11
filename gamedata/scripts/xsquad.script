@@ -160,9 +160,7 @@ local function _check_active_role(squad, cmd_id, sec)
     -- Dynamic: task giver (changes as tasks are accepted/completed, never cached)
     if _is_task_giver(squad, squad.id, cmd_id) then return true, "task_giver", sec end
     -- Dynamic: companion (can be recruited/dismissed, never cached)
-    if axr_companions and axr_companions.companion_squads[squad.id] ~= nil then
-        return true, "companion", sec
-    end
+    if is_companion(squad) then return true, "companion", sec end
     return false, nil, nil
 end
 
@@ -243,6 +241,18 @@ end
 --- @return string|nil Commander section_name
 function has_active_role(squad)
     return _check_active_role(squad)
+end
+
+--- Check if the squad is an active companion squad (recruited, not yet dismissed).
+--- Dynamic, re-evaluated every call (companions can be recruited/dismissed).
+--- @safety SAFE - nil-guarded global read, no luabind
+--- @cost O(1) | 0 luabind (axr_companions.companion_squads Lua table lookup by squad.id)
+--- @src anomaly/axr_companions.script(25,150) companion_squads
+--- @param squad se_squad Squad server object
+--- @return boolean True if a companion squad (nil squad returns false)
+function is_companion(squad)
+    if not squad then return false end
+    return axr_companions ~= nil and axr_companions.companion_squads[squad.id] ~= nil
 end
 
 --- Check if squad has engine/vanilla scripting fields set.
@@ -776,6 +786,24 @@ function release_squads(opts)
     end
 
     return count
+end
+
+--- Delete one known squad from the world through the vanilla board path. SIMBOARD:remove_squad ->
+--- squad:remove_squad snapshots the members and releases each one (unregister_member +
+--- safe_release_manager.release) BEFORE destroying the group entity, so no member is orphaned. A bare
+--- alife_release_id on the group entity would only DETACH members -- the engine group destructor
+--- (CSE_ALifeOnlineOfflineGroup::~) calls unregister_member in a loop and never releases them -- leaving
+--- them as squadless alife entities that persist at their last position. Offline-safe: release_squads
+--- issues the same call over offline squads.
+--- @safety SAFE - nil/SIMBOARD guarded; engine standard cleanup, offline-safe
+--- @cost O(members) | per member: smart unregister + safe_release; then group release
+--- @src anomaly/sim_board.script(218), anomaly/sim_squad_scripted.script(413)
+--- @param squad table Squad server object
+--- @return boolean True if the removal was issued
+function remove_squad(squad)
+    if not squad or not SIMBOARD then return false end
+    SIMBOARD:remove_squad(squad)
+    return true
 end
 
 --- Create a squad at a smart terrain through the vanilla board path
