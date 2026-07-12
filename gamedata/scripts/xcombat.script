@@ -548,18 +548,27 @@ local function _combat_state(fire, posture, movement)
     return by_post and by_post[movement]
 end
 
--- The engine's fire discipline, composed from its own two behaviors: an enemy SEEN right now is fired on
--- with no further gate (the Alundaio kill-if-visible order, stalker_combat_actions.cpp:483-496 - no
--- distance term, point-blank fires); only the BLIND case consults fire_make_sense (the gate the engine's
--- own detour/sweep actions use, stalker_combat_actions.cpp:906-914 - its occlusion pick stops shooting
--- the wall the enemy ducked behind, its 10s automatic-weapon window sustains suppression at last-known);
--- otherwise the intent degrades to READY, weapon up, until sight returns.
--- Returns (fire to apply, gate word: "seen"/"true"/"false") for the caller's trace.
+-- The engine's fire discipline, composed from its own two behaviors: an enemy SEEN right now is fired
+-- on with no further gate (the Alundaio kill-if-visible order, stalker_combat_actions.cpp:483-496 - no
+-- distance term, point-blank fires); only the BLIND case consults fire_make_sense (the gate the
+-- engine's own detour/sweep actions use, stalker_combat_actions.cpp:906-914 - its occlusion pick stops
+-- shooting the wall the enemy ducked behind, its 10s automatic-weapon window sustains suppression at
+-- last-known); otherwise READY, weapon up, until sight returns.
+-- A can_kill_enemy gate on the seen branch was tried 2026-07-11 and REVERTED 2026-07-12 on measured
+-- + source evidence: the ENGINE never gates fire on can_kill_enemy (its sole consumer is sight
+-- aim-point selection, sight_action.cpp:408; the fire holds are visible_now and can_kill_member);
+-- while WALKING the ray direction is the head's CURRENT sight angles (ai_stalker_fire.cpp:216),
+-- which lag a strafing target past the 2.8deg fan, and the sight machine deliberately re-aims at
+-- the target's visible point for 1500ms when the check fails (sight_action.cpp:395-455) - so the
+-- gate muted fire through the engine's normal lag-and-displace windows: 73% of reads blocked (1053
+-- of 1443, many at body-angle 0-5deg), NPCs silent at close range where vanilla blazes. Never re-add.
+-- Returns (fire to apply, fire-gate verdict: "seen" = visible, fired as asked; "memory" = blind,
+-- firing at last-known (the 10s auto-weapon window); "hold" = blind and no shot makes sense, READY).
 -- @cost O(1) | 1 luabind (see) when seen; + the fire_make_sense reads when blind
 local function _resolve_fire(npc, requested, enemy)
     if enemy and xcombat.sees(npc, enemy) then return requested, "seen" end
-    if enemy and xcombat.fire_make_sense(npc, enemy) then return requested, "true" end
-    return xcombat.READY, "false"
+    if enemy and xcombat.fire_make_sense(npc, enemy) then return requested, "memory" end
+    return xcombat.READY, "hold"
 end
 
 --- Drive the NPC's combat state - the one command for weapon mode, posture, movement, and fire discipline.
@@ -580,7 +589,7 @@ end
 --- @param npc game_object
 --- @param opts table { fire = intent, posture, movement, enemy = game_object|nil, state = string|nil }
 --- @return string|boolean applied fire ("FIRE"/"SNIPE"/"READY"/"STOW") when a state was applied, false when the combo has no state
---- @return string gate word: "seen"/"true"/"false" when the intent was FIRE/SNIPE, "na" otherwise
+--- @return string fire-gate verdict: "seen"/"memory"/"hold" when the intent was FIRE/SNIPE, "na" otherwise
 function xcombat.set_combat(npc, opts)
     local intent = opts.fire
     local fire, gate = intent, "na"
@@ -873,13 +882,17 @@ end
 --- shared with the engine's own friendly-fire gate. Floor fallback: one rqtBoth ray from the weapon-hand
 --- bone toward the enemy chest, capped short of the enemy body - posture-coarse, transparency-blind
 --- (glass/bushes block it), and aimed at `enemy` rather than the live fire direction.
---- WHEN/WHERE/WHY: this answers the same "is my shot to the enemy clear" that fire_make_sense already gates
---- with its occlusion check, so do NOT stack it on a takeover fire gate - fire_make_sense owns that decision.
+--- WHEN/WHERE/WHY: NEVER a fire gate - the engine itself never gates fire on this read (sole engine
+--- consumer: sight AIM-POINT selection, sight_action.cpp:408; the fire holds are visible_now and
+--- can_kill_member). Measured 2026-07-12: used as a takeover fire gate it blocked 73% of reads, many
+--- at body-angle 0 - while walking the ray follows the head's CURRENT sight angles
+--- (ai_stalker_fire.cpp:216), lagging a strafing target, and the sight machine re-aims at the
+--- target's visible point for 1500ms whenever the check fails (sight_action.cpp:395-455). Use it as
+--- the engine does: a position/aim-quality question on an NPC whose vanilla planner is aiming - which
+--- is exactly Commitment's veto moment (un-seized, kill_enemy active).
 --- It reads the NPC's CURRENT position (can_kill_at(vertex) is intentionally unbound), so it cannot score a
---- resolver's candidate destination either. Use only for a current-position clearance read that must exclude
---- fire_make_sense's other conditions (floor gap / point-blank / unseen window).
---- Consumer: t134 fire-discipline conduct layer (todo-combat-takeover-v2.md) - the named refinement if
---- playtests show seen-but-muzzle-blocked wall-chewing.
+--- resolver's candidate destination.
+--- Consumer: at_commitment's advantage test (t151, todo-alifetactics-next.md).
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) | engine: 1 luabind (frame-cached recompute) | fallback: ~9 luabind (bone origin + ray)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:744-777 (safety fan), :802-823 (update_can_kill_info)
@@ -966,7 +979,7 @@ end
 --- (stalker_combat_actions.cpp:483-494). Its 2.5m point-blank bail (ai_stalker_fire.cpp:907) is a smart-cover
 --- loophole rule (its only vanilla consumer), wrong for open combat, so never let it gate a seen enemy. On the
 --- blind path it owns occlusion at last-known and the 10s auto-weapon suppression window; consult it at maneuver
---- start or on a throttled tick, never per frame, and do not stack can_kill_enemy on the same decision.
+--- start or on a throttled tick, never per frame, and never stack can_kill_enemy on the same case.
 --- @safety SAFE - nil-guarded; enemy must be a remembered object (a best_enemy is), per get_unseen_ms
 --- @cost O(1) | engine: 1 luabind (internal frame cache) | fallback: ~15 luabind on the full path (positions + bone origin + ray + see + memory + weapon ini)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:894-930 (gate order), :65-68 (vanilla values)
