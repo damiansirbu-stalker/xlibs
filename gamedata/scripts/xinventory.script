@@ -318,10 +318,15 @@ function get_ammo_tier_map(weapon_sec, n_tiers)
     local all_zero_kap = true
     for i = 1, count do
         local sec = sections[i]
-        local kap = ini_sys:r_float_ex(sec, "k_ap") or 0
-        if kap > 0 then all_zero_kap = false end
-        entries[i] = { sec = sec, k_ap = kap, cost = ini_sys:r_float_ex(sec, "cost") or 0 }
+        -- Skip ammo the engine can't spawn: CWeaponAmmo::Load strict-reads k_ap (r_string), so a
+        -- section missing it is a CTD on create. r_float_ex returns nil there; never tier it.
+        local kap = ini_sys:r_float_ex(sec, "k_ap")
+        if kap then
+            if kap > 0 then all_zero_kap = false end
+            entries[#entries + 1] = { sec = sec, k_ap = kap, cost = ini_sys:r_float_ex(sec, "cost") or 0 }
+        end
     end
+    local kept = #entries
 
     table_sort(entries, function(a, b)
         if all_zero_kap then return a.cost < b.cost end
@@ -330,8 +335,8 @@ function get_ammo_tier_map(weapon_sec, n_tiers)
     end)
 
     local tier_map = {}
-    for i = 1, count do
-        tier_map[entries[i].sec] = math_floor((i - 1) * n_tiers / count) + 1
+    for i = 1, kept do
+        tier_map[entries[i].sec] = math_floor((i - 1) * n_tiers / kept) + 1
     end
 
     _ammo_tier_cache[cache_key] = tier_map
@@ -398,6 +403,25 @@ end
 
 -- Dispatch table: category name → builder closure. Builders run once per category on first
 -- call to get_category_sections; result cached in _category_sections_cache.
+-- The engine's CWeaponAmmo::Load strict-reads k_ap (r_string) for every ammo spawn, so an ammo
+-- section that lacks k_ap is a guaranteed CTD on create (e.g. the packed dormant ammo_dyno). Keep
+-- such sections out of the spawnable ammo pool so trade / market / test never create them.
+-- @complexity O(1), 1 luabind (r_float_ex, inheritance-aware)
+local function _ammo_spawnable(sec)
+    return ini_sys:r_float_ex(sec, "k_ap") ~= nil
+end
+
+-- @complexity O(n) ammo sections in the bucket, 1 r_float_ex each; built once per session, cached
+local function _ammo_bucket_spawnable()
+    local list = {}
+    local bucket = _ITM and _ITM["ammo"]
+    if not bucket then return list end
+    for sec in pairs(bucket) do
+        if _ammo_spawnable(sec) then list[#list + 1] = sec end
+    end
+    return list
+end
+
 local _SECTION_BUILDERS = {
     medkit  = function() return _hand_set_to_list(_medkit_set)  end,
     bandage = function() return _hand_set_to_list(_bandage_set) end,
@@ -412,7 +436,7 @@ local _SECTION_BUILDERS = {
     device            = function() return _itm_bucket_to_list("device")       end,
     money             = function() return _itm_bucket_to_list("money")        end,
     grenade_ammo      = function() return _itm_bucket_to_list("grenade_ammo") end,
-    ammo_not_equipped = function() return _itm_bucket_to_list("ammo")         end,
+    ammo_not_equipped = _ammo_bucket_spawnable,
 
     crafting = function() return _itm_buckets_union({ "tool", "part", "upgrade" }) end,
 
