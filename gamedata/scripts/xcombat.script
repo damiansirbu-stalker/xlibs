@@ -95,6 +95,37 @@ function xcombat.get_weapon_range(kind)
     return xcombat.WEAPON_RANGES[kind] or xcombat.WEAPON_RANGES.w_rifle
 end
 
+-- Engine fire-queue bands per weapon kind: the [fire_queue_params] shape the combat planner
+-- fires with, per distance band. Static by design - deterministic mid-combat, immune to
+-- malformed installs; a consumer layering install-specific tuning applies its own overrides
+-- on top. Data only: which band, when, and for whom stays with the consumer.
+-- kind -> band -> { min_size, max_size, min_interval_ms, max_interval_ms }
+-- src: anomaly/configs/creatures/m_stalker.ltx:826-909 (pstl/shtg/snp/auto/mchg); the engine
+-- maps ef_weapon_type 5 -> pstl, 9 -> shtg, 11/12 -> snp, 6/7/8/10 -> mchg, default -> auto
+-- (stalker_combat_action_base.cpp:94-220).
+xcombat.FIRE_QUEUE = {
+    w_pistol  = { far = { 1, 2, 500, 750 },   medium = { 1, 4, 400, 500 },   close = { 1, 8, 350, 400 } },
+    w_shotgun = { far = { 1, 1, 1000, 2000 }, medium = { 1, 4, 600, 750 },   close = { 1, 6, 600, 750 } },
+    w_sniper  = { far = { 1, 1, 2000, 3000 }, medium = { 1, 1, 1500, 2000 }, close = { 1, 1, 1000, 1100 } },
+    w_rifle   = { far = { 1, 3, 400, 800 },   medium = { 1, 6, 350, 600 },   close = { 2, 9, 250, 500 } },
+    w_smg     = { far = { 1, 6, 300, 600 },   medium = { 2, 12, 300, 500 },  close = { 2, 15, 200, 400 } },
+}
+
+--- Fire-queue band bounds for a weapon kind: burst size and inter-burst interval, the envelope
+--- the engine planner itself fires with at that range. Unknown kinds fall back to the rifle
+--- bands, an unknown band to medium, so every armed NPC gets usable bounds.
+--- @safety SAFE - pure table lookup
+--- @cost O(1) | 0 luabind
+--- @src anomaly/configs/creatures/m_stalker.ltx:826-909 [fire_queue_params]
+--- @param kind string weapon kind (get_weapon_kind)
+--- @param band string "far" | "medium" | "close"
+--- @return number, number, number, number min_size, max_size, min_interval_ms, max_interval_ms
+function xcombat.get_fire_queue(kind, band)
+    local bands = xcombat.FIRE_QUEUE[kind] or xcombat.FIRE_QUEUE.w_rifle
+    local bounds = bands[band] or bands.medium
+    return bounds[1], bounds[2], bounds[3], bounds[4]
+end
+
 -- =========================================================================
 -- Enemy memory - the engine tracks each NPC's per-enemy perception (visual + sound + hit) with a last-seen
 -- timestamp and a last-known position. The takeover reads these instead of re-deriving them with its own

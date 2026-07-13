@@ -1,5 +1,5 @@
-1.8.2
-  Summary: get_faction_smart_count, is_companion, is_unscriptable_se, dist_flat_sqr, set_combat fire discipline
+next
+  Summary: get_faction_smart_count, is_companion, is_unscriptable_se, dist_flat_sqr, set_combat fire discipline, fire queue bands
 
   xsmart
     - Added get_faction_smart_count(factions, level_id): count of smarts on a level with a
@@ -19,6 +19,9 @@
     - Changed set_combat to take a fire intent plus the enemy and resolve the fire discipline
       itself: a FIRE or SNIPE intent degrades to READY when no shot makes sense. Consumers pass
       intent, not a resolved state, and hold no fire logic.
+    - Added FIRE_QUEUE and get_fire_queue(kind, band): the engine's [fire_queue_params] burst
+      envelope (size and interval bounds per weapon kind and distance band) as static data.
+      Unknown kinds fall back to the rifle bands, unknown bands to medium.
 
   xmath
     - Added dist_flat_sqr(a, b): squared ground-plane (XZ) distance, no sqrt, height-insensitive.
