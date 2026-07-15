@@ -1,5 +1,5 @@
 STALKER Mod Validation Report
-Generated: 2026-07-11 20:20:41
+Generated: 2026-07-15 20:46:09
 Validator: stalker-manager validate
 Mods: 1
 
@@ -309,41 +309,41 @@ Files:
 [4/4] load - runtime loading (PASS)
   Test: lua54 interpreter + X-Ray engine stubs
   Load test: xlibs
-  LOAD: xchange
-  LOAD: xsound
-  LOAD: xslice
-  LOAD: xevent
-  LOAD: xsquad
-  LOAD: xtrace
-  LOAD: xlog
+  LOAD: xconst
   LOAD: xtime
-  LOAD: xobject
+  LOAD: xsound
+  LOAD: xttltable
   LOAD: xtable
+  LOAD: xtrace
+  LOAD: xbus
+  LOAD: xstring
+  LOAD: xobject
+  LOAD: xlevel
+  LOAD: xstash
+  LOAD: xevent
+  LOAD: xprofiler
+  LOAD: xlibs_mcm
+  LOAD: xsmart_spawn
+  LOAD: xlibs
+  LOAD: xslice
+  LOAD: xcombat
+  LOAD: xsquad
+  LOAD: xpp
+  LOAD: xmath
+  LOAD: xdata
+  LOAD: xinspect
   LOAD: xinventory
   LOAD: xactor
-  LOAD: xstring
-  LOAD: xsmart_spawn
-  LOAD: xinspect
-  LOAD: xttltable
-  LOAD: xstash
-  LOAD: xbus
-  LOAD: xdata
-  LOAD: xsmart
-  LOAD: xprofiler
-  LOAD: xpp
-  LOAD: xlevel
-  LOAD: xcombat
   LOAD: xpda
-  LOAD: xlibs
-  LOAD: xmath
-  LOAD: xlibs_mcm
-  LOAD: xmcm
   LOAD: xcreature
-  LOAD: xconst
+  LOAD: xlog
+  LOAD: xsmart
+  LOAD: xmcm
+  LOAD: xchange
+  START: xlog.on_game_start
+  START: xtime.on_game_start
   START: xpp.on_game_start
   START: xsound.on_game_start
-  START: xtime.on_game_start
-  START: xlog.on_game_start
   OK: 31 loaded, 4 on_game_start
 
 ========================================================================

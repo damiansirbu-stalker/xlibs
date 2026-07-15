@@ -1057,6 +1057,28 @@ function xcombat.on_action_switch(fn)
     return true
 end
 
+--- Register `fn` on the best-cover re-pick veto (npc_on_best_cover_repick): fn(npc, flags), set
+--- flags.allow = false to keep the NPC's current cover instead of moving to a newly-found one (suppress
+--- the in-combat cover shuffle). Fires only on an actual cover change (a few per second per NPC), re-asked
+--- on the next invalidation, not per frame. Same enhancement-only shape as on_action_switch: registers ONLY
+--- when the seam exists and returns whether it did - the veto is a hook inside best_cover(), nothing
+--- script-side can imitate it, so on an older demonized exe this returns false and the caller degrades
+--- (the mod runs unchanged, cover behaviour stays vanilla). The probe touches callbacks_gameobject
+--- (auto-load) then reads the forwarder functor that exe installs beside its AddScriptCallback.
+--- xcombat registers nothing on its own behalf: fn is the caller's, registered at the caller's call.
+--- @safety SAFE - registers only behind the functor probe, false on any absent path (no crash on old exes)
+--- @cost O(1) | one-time registration, 2 table reads per repeat call
+--- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick functor); xray gamedata callbacks_gameobject.script (AddScriptCallback + forwarder)
+--- @param fn function subscriber fn(npc, flags)
+--- @return boolean true when registered on the engine callback, false when this exe has no veto seam
+function xcombat.on_cover_repick(fn)
+    if type(fn) ~= "function" then return false end
+    if callbacks_gameobject == nil then return false end
+    if type(rawget(_G, "CAI_Stalker__AllowCoverRepick")) ~= "function" then return false end
+    RegisterScriptCallback("npc_on_best_cover_repick", fn)
+    return true
+end
+
 -- =========================================================================
 -- Movement targeting. _find_toward is the geometry primitive (decreasing-step search along a direction).
 -- The maneuver-facing finders all return a level vertex or nil, no side effects, uniform find_<noun> naming:
