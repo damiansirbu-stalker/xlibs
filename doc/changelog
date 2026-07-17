@@ -1,3 +1,11 @@
+next
+  Summary: set_fire_queue_scale
+
+  xcombat
+    - Added set_fire_queue_scale(npc, size_k, interval_k): per-NPC scaling of the combat planner's burst
+      size and inter-burst interval (PR #603), probed and no-op on exes without the bind. Applies to
+      vanilla-planner fire only; state_mgr fire states bypass select_queue_params.
+
 1.8.2
   Summary: get_faction_smart_count, is_companion, is_unscriptable_se, dist_flat_sqr, set_combat fire discipline, fire queue bands, cover-repick veto
 

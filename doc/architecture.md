@@ -169,6 +169,7 @@ Engine fire-gate wrappers (themrdemonized/xray-monolith PRs #594 aim+vision, #59
 
 - `set_aim_params(npc, max_angle, min_angle, min_speed, predict_time)` - Per-NPC sight swing/lead; negative component reverts to the global ai_aim_* cvar. Floor: no-op, vanilla aim is the fallback
 - `set_vision_speed(npc, factor)` - Per-NPC vision acquisition factor composing with g_ai_vision_speed_boost. Floor: no-op by design; the only script substitute is a per-frame functor wrap, banned by code-standards "No Per-Frame Work"
+- `set_fire_queue_scale(npc, size_k, interval_k)` - Per-NPC combat-planner burst-size and inter-burst-interval scale (PR #603), applied in select_queue_params; vanilla-planner fire only (state_mgr fire states bypass it). Floor: no-op, vanilla queues are the fallback
 - `can_kill_enemy(npc, enemy)` - Engine shot clearance (5-ray safety fan, frame-cached). Floor: one capped rqtBoth ray from the weapon-hand bone, stopped short of the enemy body
 - `can_kill_member(npc, enemy_pos)` - Non-enemy in the fire lane; a repositioning hint, never a hold-fire gate (the engine's CObjectActionFire hold survives a combat-planner block). Floor: living squadmates only via has_friendly_in_line
 - `is_under_fire(npc, enemy, tg, window_ms)` - Danger-memory read: has the enemy hit or shot at the NPC within the window

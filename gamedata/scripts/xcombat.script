@@ -862,6 +862,29 @@ function xcombat.set_vision_speed(npc, factor)
     return true
 end
 
+--- Per-NPC fire-queue scaling (npc:set_fire_queue_scale(size_k, interval_k), PR #603). Scales the combat
+--- planner's selected burst band: size_k multiplies burst size (the engine clamps >= 1, so < 1 degrades
+--- to single shots, never silence), interval_k multiplies the inter-burst pause. Applied in
+--- select_queue_params AFTER the weapon-type + distance band pick, so any [fire_queue_params] retune is
+--- respected; a negative component follows the vanilla queue. Per-NPC field, read every planner tick; set
+--- once, persists (not serialized, not reset on weapon change), re-set on npc_on_net_spawn.
+--- SCOPE: only vanilla-combat-planner fire. An NPC firing through a state_mgr fire state (a scheme/maneuver
+--- override) reaches the object handler with explicit queue params and bypasses select_queue_params, so
+--- this scale does not touch it.
+--- Floor fallback: NO-OP - vanilla queues ARE the fallback.
+--- @safety SAFE - nil-guarded, no-op below the bind
+--- @cost O(1) | 1 luabind trivial (2 field writes) on the engine path, 0 on the floor
+--- @src PR themrdemonized/xray-monolith#603; xray/stalker_combat_action_base.cpp:246-254 (application), xray/ai/stalker/ai_stalker_inline.h:178-193 (fields + sentinel getters)
+--- @param npc game_object stalker
+--- @param size_k number burst-size scale (negative = vanilla queue)
+--- @param interval_k number inter-burst interval scale (negative = vanilla queue)
+--- @return boolean true when the engine path applied, false on a floor exe (no-op)
+function xcombat.set_fire_queue_scale(npc, size_k, interval_k)
+    if not npc or not _has_bind(npc, "set_fire_queue_scale") then return false end
+    npc:set_fire_queue_scale(size_k, interval_k)
+    return true
+end
+
 local FIRE_BONE = "bip01_r_finger02"
 -- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
 local INVALID_BONE_ID = 65535
