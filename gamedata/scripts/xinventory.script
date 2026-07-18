@@ -934,7 +934,7 @@ end
 --- @safety SAFE - missing file / section / line yields empty block; malformed lines skipped
 --- @cost O(lines) | per line: 1 luabind heavy r_line_ex
 --- @src anomaly/axr_trade_manager precedent (per-section buy_sell rows; this generalizes to per-category)
---- @param path string LTX path under gamedata/configs (e.g. "alifebalance\\ab_inventory_policy.ltx")
+--- @param path string LTX path under gamedata/configs (e.g. "mymod\\my_policy.ltx")
 --- @param sections table Array of section names to load
 --- @param specials_set table|nil Hash {key=true} of keys to extract as specials[key]=number
 --- @return table { [section] = { entries = ordered_list, rules = hash, specials = hash } }
