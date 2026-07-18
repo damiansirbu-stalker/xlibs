@@ -7,7 +7,7 @@ local type, rawget, assert, pairs = type, rawget, assert, pairs
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
 local move, state_mgr = move, state_mgr
-local db, alife_object, ini_sys = db, alife_object, ini_sys
+local db, alife_object, ini_sys, IsWeapon = db, alife_object, ini_sys, IsWeapon
 
 xcombat = xcombat or {}
 
@@ -196,23 +196,36 @@ function xcombat.get_track_pos(npc, enemy, sees)
     return npc:memory_position(enemy)
 end
 
+-- make_enemy_visible probe result, cached on first disclose (nil = not probed yet)
+local _has_make_visible = nil
+
 --- Disclose an enemy to an NPC: inject it into the NPC's memory and register the NPC in combat.
 --- Relation-clean -- no goodwill / community write. The enemy_manager selects the injected object
 --- as an enemy only when is_relation_enemy already holds; for a stalker that resolves via the summed
 --- attitude dominated by the faction term (CAI_Stalker::tfGetRelationType -> RELATION_REGISTRY
 --- GetRelationType), so a known faction-hostile object is engaged without mutating any relation. The
 --- writer counterpart to get_unseen_ms / get_track_pos. Both calls require a CAI_Stalker receiver.
+--- On exes with the make_enemy_visible bind (probe-cached module-local, never a version compare) the
+--- disclosed enemy is ALSO promoted into the SEEN class (CMemoryManager::make_object_visible_somewhen):
+--- selection scores "currently seen" ~1000 vs single digits for hit memory (enemy_manager.cpp
+--- evaluate), so memory injection alone never outranks a distant seen enemy - the promotion is what
+--- makes the victim actually TURN on the shooter. Floor exes skip it and keep the memory-only
+--- disclosure (the pre-bind behavior, unchanged).
 --- @safety SAFE - nil-guarded npc/enemy; the combat registration routes through the alive-guarded
 --- xcombat.register_in_combat wrapper (agent member state is torn down on death)
---- @cost O(1) | 2-3 luabind (enable_memory_object: visual-memory inject; alive + register_in_combat: agent_manager().member())
+--- @cost O(1) | 3-4 luabind (enable_memory_object: visual-memory inject; make_enemy_visible: add_visible_object, probed; alive + register_in_combat: agent_manager().member())
 --- @src xray/script_game_object3.cpp:65 (enable_memory_object), xray/script_game_object_inventory_owner.cpp:1945 (register_in_combat)
 --- @src xray/enemy_manager.cpp:69 (is_relation_enemy gate), xray/ai/stalker/ai_stalker_misc.cpp (CAI_Stalker::tfGetRelationType)
+--- @src xray/memory_manager.cpp make_object_visible_somewhen (the seen-class promotion; engine-internal precedent agent_enemy_manager.cpp)
 --- @param npc game_object stalker to alert
 --- @param enemy game_object hostile object to disclose
+--- @param opts table|nil { memory_only = true } skips the seen-class promotion (pre-bind behavior)
 --- @return boolean true when applied
-function xcombat.disclose_enemy(npc, enemy)
+function xcombat.disclose_enemy(npc, enemy, opts)
     if not npc or not enemy then return false end
     npc:enable_memory_object(enemy, true)
+    if _has_make_visible == nil then _has_make_visible = type(npc.make_enemy_visible) == "function" end
+    if _has_make_visible and not (opts and opts.memory_only) then npc:make_enemy_visible(enemy) end
     xcombat.register_in_combat(npc)
     return true
 end
@@ -1082,8 +1095,12 @@ end
 
 --- Register `fn` on the best-cover re-pick veto (npc_on_best_cover_repick): fn(npc, flags), set
 --- flags.allow = false to keep the NPC's current cover instead of moving to a newly-found one (suppress
---- the in-combat cover shuffle). Fires only on an actual cover change (a few per second per NPC), re-asked
---- on the next invalidation, not per frame. Same enhancement-only shape as on_action_switch: registers ONLY
+--- the in-combat cover shuffle). Asked once per invalidation for the event drivers (enemy re-select,
+--- danger add/remove, the held cover's value degrading - a deny refreshes the stored value, so that one
+--- stabilizes), but two invalidators are STANDING STATE, not events: an enemy inside 3m of the held cover
+--- and a smart cover whose loophole is gone re-invalidate on every combat-action execute, so a subscriber
+--- denying through one is re-asked per brain update - keep the body cheap and cap any continuous deny.
+--- Same enhancement-only shape as on_action_switch: registers ONLY
 --- when the seam exists and returns whether it did - the veto is a hook inside best_cover(), nothing
 --- script-side can imitate it, so on an older demonized exe this returns false and the caller degrades
 --- (the mod runs unchanged, cover behaviour stays vanilla). The probe touches callbacks_gameobject
@@ -1091,7 +1108,7 @@ end
 --- xcombat registers nothing on its own behalf: fn is the caller's, registered at the caller's call.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path (no crash on old exes)
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
---- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick functor); xray gamedata callbacks_gameobject.script (AddScriptCallback + forwarder)
+--- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick) + update_best_cover_actuality (standing invalidators); xray gamedata callbacks_gameobject.script (forwarder)
 --- @param fn function subscriber fn(npc, flags)
 --- @return boolean true when registered on the engine callback, false when this exe has no veto seam
 function xcombat.on_cover_repick(fn)
@@ -1100,6 +1117,46 @@ function xcombat.on_cover_repick(fn)
     if type(rawget(_G, "CAI_Stalker__AllowCoverRepick")) ~= "function" then return false end
     RegisterScriptCallback("npc_on_best_cover_repick", fn)
     return true
+end
+
+-- Registers fn on one of the NPC reload-edge callbacks behind the forwarder probe (the shared body of
+-- on_reload_start / on_reload_stop).
+-- @cost O(1) | one-time registration, 2 table reads per repeat call
+local function _register_reload_edge(fn, forwarder, callback_name)
+    if type(fn) ~= "function" then return false end
+    if callbacks_gameobject == nil then return false end
+    if type(rawget(_G, forwarder)) ~= "function" then return false end
+    RegisterScriptCallback(callback_name, fn)
+    return true
+end
+
+--- Register `fn` on the NPC reload-start edge (npc_on_weapon_reload_start): fn(npc, wpn), fired when a
+--- stalker's weapon enters the reload state, on every reload path (planner reload, scripted state,
+--- tri-state shotgun, misfire clear). The actor never fires it (actor_on_weapon_reload covers him).
+--- Replaces per-NPC get_state polling with the exact edge. Same enhancement-only shape as
+--- on_action_switch: registers ONLY when the seam exists (the forwarder functor probe) and returns
+--- whether it did - on an older exe the caller degrades and the event never fires (self-gating).
+--- @safety SAFE - registers only behind the functor probe, false on any absent path
+--- @cost O(1) | one-time registration, 2 table reads per repeat call
+--- @src xray/Weapon.cpp CWeapon::OnStateSwitch (reload-edge functors); xray gamedata callbacks_gameobject.script (forwarder)
+--- @param fn function subscriber fn(npc, wpn)
+--- @return boolean true when registered, false when this exe has no reload-event seam
+function xcombat.on_reload_start(fn)
+    return _register_reload_edge(fn, "CAI_Stalker__OnWeaponReloadStart", "npc_on_weapon_reload_start")
+end
+
+--- Register `fn` on the NPC reload-stop edge (npc_on_weapon_reload_stop): fn(npc, wpn), fired when the
+--- weapon leaves the reload state for any reason (finished, interrupted). BEST-EFFORT: a weapon detached
+--- mid-reload (owner died, weapon dropped) has no stalker parent at the switch and fires nothing, so a
+--- consumer tracking reload state from the edges must bound it with a staleness window or confirm with
+--- is_reloading (the authoritative read). Probe/floor semantics identical to on_reload_start.
+--- @safety SAFE - registers only behind the functor probe, false on any absent path
+--- @cost O(1) | one-time registration, 2 table reads per repeat call
+--- @src xray/Weapon.cpp CWeapon::OnStateSwitch (reload-edge functors); xray gamedata callbacks_gameobject.script (forwarder)
+--- @param fn function subscriber fn(npc, wpn)
+--- @return boolean true when registered, false when this exe has no reload-event seam
+function xcombat.on_reload_stop(fn)
+    return _register_reload_edge(fn, "CAI_Stalker__OnWeaponReloadStop", "npc_on_weapon_reload_stop")
 end
 
 -- =========================================================================
@@ -1329,6 +1386,24 @@ end
 --- @return boolean true when the path is complete and current
 function xcombat.is_arrived(npc)
     return npc:path_completed()
+end
+
+-- CWeapon::eReload = 7: eLastBaseState = eBore = 4 (HudItem.h:50-55), then eFire=5, eFire2=6, eReload=7
+-- (Weapon.h:183-185). NOT 5 - the vanilla actor_effects.script:1105 "== 5" compare is eFire (it gates
+-- shoot_effect on an ammo-count change); the reload compare in production mods is 7 (ssfx_weapons_dof.script:282).
+local WPN_STATE_RELOAD = 7
+
+--- True while the NPC's active weapon is in the reload state - the authoritative reload read.
+--- Polls the weapon state machine directly, so it works on every exe (the npc_on_weapon_reload_* edge
+--- events are the cheap signal; this is the truth they are bounded by). False for no/non-weapon item.
+--- @safety SAFE - nil-guarded active item, IsWeapon-typed before get_state
+--- @cost O(1) | 2-3 luabind trivial (active_item: inventory field read; get_state: state field read)
+--- @src xray/script_game_object_script3.cpp:511 (get_state bind), xray/Weapon.h:185 (eReload), xray/HudItem.h:50-55 (base states)
+--- @param npc game_object stalker
+--- @return boolean true when the active weapon is reloading
+function xcombat.is_reloading(npc)
+    local wpn = npc:active_item()
+    return wpn ~= nil and IsWeapon(wpn) and wpn:get_state() == WPN_STATE_RELOAD
 end
 
 -- =========================================================================

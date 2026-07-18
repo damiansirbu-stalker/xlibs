@@ -1,10 +1,20 @@
 next
-  Summary: set_fire_queue_scale, is_monster_faction, get_section_npc_range
+  Summary: set_fire_queue_scale, reload events, is_reloading, seen-class disclosure, is_monster_faction, get_section_npc_range
 
   xcombat
     - Added set_fire_queue_scale(npc, size_k, interval_k): per-NPC scaling of the combat planner's burst
       size and inter-burst interval (PR #603), probed and no-op on exes without the bind. Applies to
       vanilla-planner fire only; state_mgr fire states bypass select_queue_params.
+    - Added on_reload_start(fn) and on_reload_stop(fn): registrars for the NPC weapon reload-edge
+      callbacks (PR #611), probed and returning false on exes without the events. The stop edge is
+      best-effort; bound edge-tracked state with a staleness window or confirm via is_reloading.
+    - Added is_reloading(npc): authoritative reload read over the active weapon's state machine,
+      works on every exe. The reload state numeric is 7 (eReload), not the 5 (eFire) circulating
+      in older comparisons.
+    - Changed disclose_enemy to also promote the disclosed enemy into SEEN memory on exes with the
+      make_enemy_visible bind (PR #613, probed): enemy selection ranks "currently seen" far above hit
+      memory, so the promotion is what makes the victim actually turn on the shooter. Floor exes keep
+      the memory-only disclosure unchanged.
 
   xcreature
     - Added is_monster_faction(faction): true when a squad_descr faction string is a monster faction
