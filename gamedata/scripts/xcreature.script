@@ -101,6 +101,20 @@ local _is_monster_faction = {
     ["monster_zombied"] = true, ["monster"] = true, ["zoo_monster"] = true,
 }
 
+--- Check if a squad_descr faction string is a monster faction
+--- The set covers every faction value monster squad sections carry in squad_descr LTX
+--- (monster_predatory_day/night, monster_vegetarian, monster_special, monster_zombied_*,
+--- monster, zoo_monster). "zombied" is NOT a monster faction (stalker combatants).
+--- Use to classify squad.player_id or xsmart.section_faction results.
+--- @safety SAFE - nil returns false
+--- @cost O(1) | 0 luabind (pure Lua table lookup)
+--- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx
+--- @param faction string|nil Faction community string
+--- @return boolean True if the faction is a monster faction
+function is_monster_faction(faction)
+    return faction ~= nil and _is_monster_faction[faction] == true
+end
+
 --- Ambiguous clsids: modded creatures that reuse vanilla clsids when their own _s clsid is not registered.
 --- Built at load time. Empty if modded exe registers proper clsids. Only these trigger section_name fallback.
 local _ambiguous_clsids = {}

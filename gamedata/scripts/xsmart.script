@@ -14,6 +14,7 @@ local STALKER_FACTIONS = {
 local _factions_cache = {}
 local _section_faction_cache = {}
 local _section_npc_max_cache = {}
+local _section_npc_range_cache = {}
 local ANOMALY_RADIUS_SQR = 2500
 
 JOB_TYPE_GENERIC_POINT = 0
@@ -506,6 +507,36 @@ function get_section_npc_max(section)
     end
     _section_npc_max_cache[section] = result
     return result
+end
+
+--- Get both bounds of a squad section's npc_in_squad field
+--- Parses "X, Y" returning (X, Y); a single "X" returns (X, X). (0, 0) when section or
+--- field missing. Same field get_section_npc_max reads; use this when the lower bound or
+--- the expected squad size ((min+max)/2 under the engine's uniform draw) is needed.
+--- @safety SAFE - returns 0, 0 when section missing, has no npc_in_squad field, or value unparseable
+--- @cost O(1) | 0 luabind cached, 1 luabind heavy on miss (ini_sys:r_string_ex: LTX section lookup + string alloc) + 1-2 pure-Lua regex matches
+--- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx, anomaly/configs/misc/squad_descr/squad_descr_default_stalkers.ltx
+--- @src anomaly/sim_squad_scripted.script(704-707) create_npc draws squad size uniformly from npc_in_squad
+--- @param section string Squad section name (e.g. "simulation_boar_3_5", "bandit_sim_squad_novice")
+--- @return number Lower bound of npc_in_squad, or 0 when section/field missing
+--- @return number Upper bound of npc_in_squad, or 0 when section/field missing
+function get_section_npc_range(section)
+    if not section then return 0, 0 end
+    local cached = _section_npc_range_cache[section]
+    if cached then return cached[1], cached[2] end
+    local raw = ini_sys:r_string_ex(section, "npc_in_squad")
+    local low, high
+    if raw and raw ~= "" then
+        low, high = string_match(raw, "(%d+)%s*,%s*(%d+)")
+        if not low then
+            low = string_match(raw, "(%d+)")
+            high = low
+        end
+    end
+    low = tonumber(low) or 0
+    high = tonumber(high) or 0
+    _section_npc_range_cache[section] = { low, high }
+    return low, high
 end
 
 --- Get stalker factions declared in smart terrain's props (LTX simulation_objects_props.ltx)

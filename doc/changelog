@@ -1,10 +1,18 @@
 next
-  Summary: set_fire_queue_scale
+  Summary: set_fire_queue_scale, is_monster_faction, get_section_npc_range
 
   xcombat
     - Added set_fire_queue_scale(npc, size_k, interval_k): per-NPC scaling of the combat planner's burst
       size and inter-burst interval (PR #603), probed and no-op on exes without the bind. Applies to
       vanilla-planner fire only; state_mgr fire states bypass select_queue_params.
+
+  xcreature
+    - Added is_monster_faction(faction): true when a squad_descr faction string is a monster faction
+      (monster_*, zoo_monster). Exposes the set get_mutant_species already used for its player_id fast reject.
+
+  xsmart
+    - Added get_section_npc_range(section): both bounds of a squad section's npc_in_squad field, cached.
+      Pairs with get_section_npc_max when the lower bound or the expected squad size is needed.
 
 1.8.2
   Summary: get_faction_smart_count, is_companion, is_unscriptable_se, dist_flat_sqr, set_combat fire discipline, fire queue bands, cover-repick veto
