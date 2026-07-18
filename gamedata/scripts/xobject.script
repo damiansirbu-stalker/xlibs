@@ -61,3 +61,14 @@ function go(id)
     if not id or not level.present() then return nil end
     return level.object_by_id(id)
 end
+
+--- Release a server object from the alife simulation
+--- Nil-guarded wrapper over alife_release, whose engine binding THROWs on a nil object; the entity is removed on the next alife update
+--- @safety SAFE - nil-guarded before the bridge (CALifeSimulator__release THROWs on nil)
+--- @cost O(1) | 1 luabind medium (alife():release removes the object from the registry)
+--- @src anomaly/_g.script(2172), xray/xrGame/alife_simulator_script.cpp(288)
+--- @param se_obj userdata Server object to release
+function release(se_obj)
+    if not se_obj then return end
+    alife_release(se_obj)
+end
