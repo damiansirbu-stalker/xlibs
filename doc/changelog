@@ -1,5 +1,5 @@
 next
-  Summary: set_fire_queue_scale, reload events, is_reloading, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline
+  Summary: set_fire_queue_scale, reload events, is_reloading, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section
 
   xcombat
     - Added set_fire_queue_scale(npc, size_k, interval_k): per-NPC scaling of the combat planner's burst
@@ -19,6 +19,19 @@ next
   xcreature
     - Added is_monster_faction(faction): true when a squad_descr faction string is a monster faction
       (monster_*, zoo_monster). Exposes the set get_mutant_species already used for its player_id fast reject.
+    - Added make_trader(npc, cfg_path, stock_now): make an online NPC a functional shopkeeper from a
+      vanilla trade config (trade_manager.trade_init + optional stock). Does not touch character_community,
+      so faction-scoped trade systems keep seeing it. Sits next to is_trader / community / the money fns.
+
+  xsmart_spawn
+    - Added set_shared_spawn_section(smart, key, section, spawn_num): additive respawn_params inject of
+      an explicit squad_descr section (vs the identity-to-pool set_shared_spawn), for injecting a
+      specific squad (e.g. a service filler) into a smart's respawn.
+
+  xlevel
+    - Added cell_key(level_id, position, cell_size): the shared density-cell partitioning ("level:x:z"
+      at a caller-chosen cell edge, switch_distance by convention), so independent density consumers
+      (culls, crowd gates) agree on what "the same area" means.
 
   xsmart
     - Added get_section_npc_range(section): both bounds of a squad section's npc_in_squad field, cached.

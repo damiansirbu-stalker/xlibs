@@ -394,6 +394,32 @@ function transfer_money(from, amount, to)
     return true
 end
 
+--- Make an online NPC a functional shopkeeper from a vanilla trade config, at runtime.
+--- Wraps trade_manager.trade_init (sets buy/sell conditions via engine buy_condition / sell_condition
+--- and registers vanilla trade save/load); when stock_now, forces an immediate stock through
+--- trade_manager.update (buy_supplies destroys + respawns the whole config supply list). Does NOT
+--- touch character_community -- the NPC keeps its faction, so faction-scoped trade systems that hook
+--- trade_manager.update (a faction market) see it with no coupling. buy_supplies is heavy; a caller
+--- stocking many traders at once must frame-spread (xslice, one per frame), never loop.
+--- @scope online - needs the game object; trade_manager operates on the online NPC
+--- @safety SAFE - nil-guarded; no-op when npc / cfg missing or trade_manager unavailable
+--- @cost O(stock) | trade_init: 2 luabind (buy_condition + sell_condition) + config parse on first cfg use; +1 buy_supplies (full stock destroy + respawn) when stock_now
+--- @src anomaly/trade_manager.script(25 trade_init, 52 setup_buy_sell_conditions, 114 update)
+--- @src xray/xrGame/script_game_object_script3.cpp(410-416) buy_condition / sell_condition / buy_supplies
+--- @param npc game_object Online NPC to make a trader
+--- @param cfg_path string Trade config path, e.g. "items\\trade\\trade_generic_medic.ltx"
+--- @param stock_now boolean|nil Force an immediate stock; omit to let the NPC stock at its online-switch
+--- @return boolean true if trade_init ran, false on nil args or missing trade_manager
+function make_trader(npc, cfg_path, stock_now)
+    if not npc or not cfg_path then return false end
+    if type(trade_manager) ~= "table" or type(trade_manager.trade_init) ~= "function" then return false end
+    trade_manager.trade_init(npc, cfg_path)
+    if stock_now and type(trade_manager.update) == "function" then
+        trade_manager.update(npc, true)
+    end
+    return true
+end
+
 -- id-yielding iterator: lets caller validate via alife_object(id) before any method call on obj
 -- gameobjects_registry (modded-exes) and db.storage (vanilla) are both id-keyed
 local _online_iter_with_id = gameobjects_registry and function()

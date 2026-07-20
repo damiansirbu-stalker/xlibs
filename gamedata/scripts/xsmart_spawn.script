@@ -73,6 +73,30 @@ function clear_shared_spawn(smart, key)
     return true
 end
 
+--- Add shared spawn entry for an EXPLICIT squad section (not an identity->pool lookup). Additive:
+--- no faction_controlled, so LTX + injected entries coexist. For callers that inject a specific
+--- squad_descr section (e.g. a service filler `<faction>_<role>` squad) rather than a faction pool.
+--- Cleared with clear_shared_spawn (same key namespace).
+--- @scope global - mutates server-entity fields directly; respawn evaluates in try_respawn (offline)
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @cost O(1) | 0 luabind (parse_condlist is pure Lua)
+--- @src anomaly/smart_terrain.script(1665-1716)
+--- @param smart se_smart_terrain Smart terrain to inject into
+--- @param key string Unique respawn_params key (e.g. "ap_service")
+--- @param section string A squad_descr section to spawn
+--- @param spawn_num number|nil Max squads for this entry (default 1)
+--- @return boolean True if applied
+function set_shared_spawn_section(smart, key, section, spawn_num)
+    if not smart or not key or not section then return false end
+    smart.respawn_params = smart.respawn_params or {}
+    smart.already_spawned = smart.already_spawned or {}
+    smart.respawn_point = true
+    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
+    smart.respawn_params[key] = { num = condlist, squads = { section } }
+    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
+    return true
+end
+
 --- Set exclusive spawn on smart terrain (suppresses original LTX entries via faction filter)
 --- Sets faction_controlled + one entry with .faction; monster factions need periodic re-apply (check_smart_faction ignores monsters; see @src line 1209-1236).
 --- @scope global - mutates server-entity fields directly; faction_controlled gate evaluates in try_respawn
