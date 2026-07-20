@@ -2,7 +2,7 @@
 
 local pairs, ipairs, next, type, alife_object, tostring = pairs, ipairs, next, type, alife_object, tostring
 local pcall, math, table, tonumber = pcall, math, table, tonumber
-local string_match, table_concat = string.match, table.concat
+local string_match, string_gsub, table_concat = string.match, string.gsub, table.concat
 local character_community = character_community
 local xobject, xsquad, xlevel, xttltable = xobject, xsquad, xlevel, xttltable
 
@@ -15,6 +15,10 @@ local _factions_cache = {}
 local _section_faction_cache = {}
 local _section_npc_max_cache = {}
 local _section_npc_range_cache = {}
+-- Static set of smarts owning an SDK-placed campfire object (named <smart>_campfire_N),
+-- keyed by smart name. Fed once per session by a consumer walking the alife pool (see
+-- note_campfire_object). Empty until fed; the Lua VM resets it each session.
+local _campfire_smarts = {}
 local ANOMALY_RADIUS_SQR = 2500
 
 JOB_TYPE_GENERIC_POINT = 0
@@ -348,19 +352,52 @@ function has_animated_stalker_jobs(smart)
     return false
 end
 
---- Check if smart terrain has a campfire
---- Reads db.campfire_table_by_smart_names populated by bind_campfire.script on net_spawn; online scope (switch_distance)
---- @scope online - per-campfire binder. Entries added at net_spawn (alife_dynamic_object.cpp:129-163),
---- removed at net_destroy (bind_campfire.script:295-302). Defaults online_distance = 675m (alife_switch_manager_inline.h:38)
+--- Record a smart as owning a map-placed campfire, derived from a campfire object's name.
+--- Mirrors bind_campfire.script:272-278 byte-for-byte: strips _campfire_%d* to the owner smart
+--- name and keeps it only if that name is a live smart in SIMBOARD.smarts_by_names (so player-
+--- dropped campfires and stray names are dropped, exactly as the online binder drops them). A
+--- consumer calls this once per session while walking the alife pool (e.g. AlifePlus ap_core_cache
+--- feeds every zone_campfire CSE during its actor_on_first_update scan) so has_campfire answers
+--- offline map campfires. Idempotent; the set resets with the Lua VM each session and is re-fed.
+--- @scope global - keyed by smart name; a fed entry is visible cross-level and offline
+--- @safety SAFE - nil-guarded; non-smart names dropped by the SIMBOARD ownership gate
+--- @cost O(1) | 1 pure-Lua gsub + 1 SIMBOARD.smarts_by_names hash read
+--- @src anomaly/bind_campfire.script(272-278) name->smart derivation + ownership gate
+--- @param obj_name string The campfire object's name (server or client :name(), <smart>_campfire_N)
+function note_campfire_object(obj_name)
+    if not obj_name then return end
+    local smart_name = string_gsub(obj_name, "_campfire_%d*", "")
+    if SIMBOARD and SIMBOARD.smarts_by_names and SIMBOARD.smarts_by_names[smart_name] then
+        _campfire_smarts[smart_name] = true
+    end
+end
+
+--- Number of smarts recorded as owning a map-placed campfire. Trace/diagnostic use only.
+--- @cost O(n) n = recorded smarts (~hundreds); call once behind a debug gate, not per-frame
+--- @return number
+function campfire_map_count()
+    local count = 0
+    for _ in pairs(_campfire_smarts) do count = count + 1 end
+    return count
+end
+
+--- Check if smart terrain has a campfire (a map-placed one at any distance, or a live one online).
+--- Consults _campfire_smarts first (the static set of smarts owning an SDK-placed campfire, fed by
+--- note_campfire_object over the alife pool), then falls back to db.campfire_table_by_smart_names
+--- (bind_campfire, online scope). The fallback means the answer degrades to live-only when no
+--- consumer has fed the set (e.g. AlifePlus absent), never worse than the pre-fix behavior.
+--- @scope global - _campfire_smarts covers offline map campfires cross-level; online table is fallback
 --- @safety SAFE - nil-guarded, next() guards empty sub-tables left by individual campfire net_destroy
---- @cost O(1) | 1 luabind heavy (smart:name() shared_str alloc) + db.campfire_table_by_smart_names hash read pure Lua
---- @src anomaly/bind_campfire.script(272-278,295-302), anomaly/axr_turn_on_campfire.script(136-137)
---- @src doc/library/modding/online-offline-scoping.md online scope
+--- @cost O(1) | 1 luabind heavy (smart:name() shared_str alloc) + 2 pure-Lua hash reads
+--- @src anomaly/bind_campfire.script(272-278,295-302) online table; note_campfire_object mirrors the mapping
+--- @src doc/library/modding/online-offline-scoping.md online scope (fallback path)
 --- @param smart smart_terrain Smart terrain to check
 --- @return boolean True if smart has campfire(s)
 function has_campfire(smart)
     if not smart then return false end
-    local tbl = db.campfire_table_by_smart_names and db.campfire_table_by_smart_names[smart:name()]
+    local name = smart:name()
+    if _campfire_smarts[name] then return true end
+    local tbl = db.campfire_table_by_smart_names and db.campfire_table_by_smart_names[name]
     return tbl and next(tbl) ~= nil or false
 end
 

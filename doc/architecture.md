@@ -300,7 +300,8 @@ local hostile = xsmart.has_enemy_squad(smart.id, "stalker")
 Smart property predicates (read from smart.props / engine fields):
 - `is_base(smart)`, `is_lair(smart)`, `is_resource(smart)`, `is_territory(smart)`
 - `has_surge_shelter(smart)` - Smart has surge shelter (emission-safe indoor)
-- `has_campfire(smart)` - Has at least one online campfire (online scope)
+- `has_campfire(smart)` - Has a map-placed campfire (any distance) or a live online one; static map fed via `note_campfire_object`, online table as fallback
+- `note_campfire_object(obj_name)` - Record a smart as owning a map-placed campfire from a `<smart>_campfire_N` object name (fed once per session over the alife pool); `campfire_map_count()` reports the set size for tracing
 - `has_anomaly(smart)` - Within 50m of any online anomaly zone
 - `has_animated_stalker_jobs(smart)` - Has any non-stub stalker job (excludes generic_point / campfire_point stubs)
 - `accepts_faction(smart, faction)` - Engine target_precondition Tier 1: props.all OR props.all_stalker/all_monster OR props[faction]

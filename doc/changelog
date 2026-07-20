@@ -1,5 +1,5 @@
 next
-  Summary: set_fire_queue_scale, reload events, is_reloading, seen-class disclosure, is_monster_faction, get_section_npc_range
+  Summary: set_fire_queue_scale, reload events, is_reloading, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline
 
   xcombat
     - Added set_fire_queue_scale(npc, size_k, interval_k): per-NPC scaling of the combat planner's burst
@@ -23,6 +23,9 @@ next
   xsmart
     - Added get_section_npc_range(section): both bounds of a squad section's npc_in_squad field, cached.
       Pairs with get_section_npc_max when the lower bound or the expected squad size is needed.
+    - Changed has_campfire to consult a static map-campfire set first and fall back to the online table,
+      so it answers offline map campfires once a consumer feeds the set via the new
+      note_campfire_object(obj_name). Added campfire_map_count() for diagnostics.
 
 1.8.2
   Summary: get_faction_smart_count, is_companion, is_unscriptable_se, dist_flat_sqr, set_combat fire discipline, fire queue bands, cover-repick veto
