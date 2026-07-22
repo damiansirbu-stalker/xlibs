@@ -1,7 +1,20 @@
 next
-  Summary: set_fire_queue_scale, reload events, is_reloading, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section
+  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section
 
   xcombat
+    - Added actor_can_hit(npc, cone_deg): true when the ACTOR could plausibly land a shot on the NPC -
+      holds a firearm, facing within the cone, shot line clear (the actor-side mirror of fire_make_sense,
+      built from the facing read + the target-capped ray). For exposure gates; pays a raycast, call on
+      edges or feasibility checks, never per frame.
+    - Changed set_combat's fire discipline: a FIRE/SNIPE intent degrades to READY while the NPC is
+      reloading (new gate verdict "reloading"). A fire goal issued mid-reload cancels the engine reload,
+      so periodic re-appliers were killing reloads over and over; the degrade lets the reload finish and
+      fire resumes on the caller's next re-apply.
+    - Changed set_combat: a SNIPE intent no longer enables the engine's sniper_fire_mode flag, and the
+      takeover finalize no longer clears it. The flag replaces the fired direction with the sight's target
+      angles and discards recoil (a non-converged shooter hits a target his model does not face), and is
+      story-scene machinery vanilla combat never sets. SNIPE now means the sniper states alone: aimed pose,
+      single shots on the state_mgr sniper cadence, normal direction and dispersion.
     - Added set_fire_queue_scale(npc, size_k, interval_k): per-NPC scaling of the combat planner's burst
       size and inter-burst interval (PR #603), probed and no-op on exes without the bind. Applies to
       vanilla-planner fire only; state_mgr fire states bypass select_queue_params.

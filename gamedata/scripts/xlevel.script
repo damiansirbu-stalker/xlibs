@@ -1,6 +1,7 @@
 --- xlevel: Level/map and time queries
 
 local pcall, pairs = pcall, pairs
+local math_floor = math.floor
 
 local gg = nil
 local _vertex_level = {}
@@ -64,6 +65,22 @@ function get_actor_level_id()
     local graph = get_game_graph()
     if not graph then return nil end
     return graph:vertex(gvid):level_id()
+end
+
+--- Build a density-cell key partitioning a level into square cells of cell_size meters.
+--- The shared spatial convention for offline density work: one grid, keyed "level:x:z",
+--- so independent consumers (density culls, crowd gates) agree on what "the same area"
+--- means and their thresholds compare like for like. Pass cell_size =
+--- alife():switch_distance() for the standard grid.
+--- @safety SAFE - returns nil when position is missing or cell_size is not positive
+--- @cost O(1) | 2 luabind trivial (vector .x/.z field reads); pure arithmetic + concat
+--- @param level_id number Level ID (xlevel.get_level_id)
+--- @param position vector World position (only x and z are read)
+--- @param cell_size number Cell edge in meters (> 0); alife():switch_distance() is the standard
+--- @return string|nil Cell key "level:x:z", or nil on missing input
+function cell_key(level_id, position, cell_size)
+    if not (level_id and position and cell_size and cell_size > 0) then return nil end
+    return level_id .. ":" .. math_floor(position.x / cell_size) .. ":" .. math_floor(position.z / cell_size)
 end
 
 local _level_names = nil
