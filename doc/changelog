@@ -1,5 +1,5 @@
 next
-  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section
+  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered
 
   xcombat
     - Added actor_can_hit(npc, cone_deg): true when the ACTOR could plausibly land a shot on the NPC -
@@ -40,6 +40,10 @@ next
     - Added set_shared_spawn_section(smart, key, section, spawn_num): additive respawn_params inject of
       an explicit squad_descr section (vs the identity-to-pool set_shared_spawn), for injecting a
       specific squad (e.g. a service filler) into a smart's respawn.
+    - Added set_exclusive_spawn_tiered(smart, key, faction, spawn_num): the exclusive faction inject
+      with the squad tier read from the smart's own danger rung (spawn_all_weak fields novice squads,
+      _normal novice/advanced, _hard advanced/veteran, _worst veteran only, per-smart _c_ variants
+      matched by prefix). No rung declared falls back to the full 3-tier pool.
     - Added set_exclusive_spawn_section(smart, key, section, spawn_num): inject of an explicit
       squad_descr section tagged with the smart's owner faction so it passes the faction gate on an
       exclusive smart, where a plain shared-section entry (no .faction) would be suppressed. Passenger

@@ -2,7 +2,7 @@
 --- spawn (suppresses LTX entries via faction_controlled gate). Mirrors smart_terrain.script's
 --- respawn_params field shape so try_respawn picks the entries up natively.
 
-local pairs, tostring = pairs, tostring
+local pairs, tostring, type = pairs, tostring, type
 
 --- Faction -> generic simulation squad sections (novice, advanced, veteran). Copy of smart_terrain.script:16-29.
 SQUADS_BY_FACTION = {
@@ -126,6 +126,20 @@ function set_exclusive_spawn_section(smart, key, section, spawn_num)
     return true
 end
 
+-- Shared writer for the exclusive (faction_controlled) form: sets the gate + owner faction and
+-- installs the entry. Callers resolve the squads array (full identity pool or a tier subset).
+local function _write_exclusive(smart, key, identity, squads, spawn_num)
+    smart.faction_controlled = key
+    smart.faction = identity
+    smart.respawn_params = smart.respawn_params or {}
+    smart.already_spawned = smart.already_spawned or {}
+    smart.respawn_point = true
+    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
+    smart.respawn_params[key] = { num = condlist, squads = squads, faction = identity }
+    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
+    return true
+end
+
 --- Set exclusive spawn on smart terrain (suppresses original LTX entries via faction filter)
 --- Sets faction_controlled + one entry with .faction; monster factions need periodic re-apply (check_smart_faction ignores monsters; see @src line 1209-1236).
 --- @scope global - mutates server-entity fields directly; faction_controlled gate evaluates in try_respawn
@@ -141,15 +155,63 @@ function set_exclusive_spawn(smart, key, identity, spawn_num)
     if not smart or not key then return false end
     local squads = _SQUADS_BY_IDENTITY[identity]
     if not squads then return false end
-    smart.faction_controlled = key
-    smart.faction = identity
-    smart.respawn_params = smart.respawn_params or {}
-    smart.already_spawned = smart.already_spawned or {}
-    smart.respawn_point = true
-    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
-    smart.respawn_params[key] = { num = condlist, squads = squads, faction = identity }
-    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
-    return true
+    return _write_exclusive(smart, key, identity, squads, spawn_num)
+end
+
+-- Danger rungs a smart's own LTX respawn sections name (spawn_all_weak / _normal / _hard / _worst,
+-- including the per-smart _c_ variants -- prefix match covers spawn_all_hard_c_2_1). Checked from
+-- most to least dangerous; tiers index the {novice, advanced, veteran} faction pool.
+local _RUNGS = {
+    { prefix = "spawn_all_worst",  tiers = { 3 } },
+    { prefix = "spawn_all_hard",   tiers = { 2, 3 } },
+    { prefix = "spawn_all_normal", tiers = { 1, 2 } },
+    { prefix = "spawn_all_weak",   tiers = { 1 } },
+}
+
+-- Most dangerous rung named in the smart's respawn_params keys; nil when the smart declares no
+-- spawn_all_* section (mutant lairs, special smarts) -- callers fall back to the full pool. The
+-- engine rebuilds respawn_params from LTX on every load and injected keys never delete originals,
+-- so the rung keys are always present.
+-- @cost O(rungs x keys) pure-Lua prefix compares (~4 x ~6)
+local function _smart_rung(smart)
+    local params = smart.respawn_params
+    if not params then return nil end
+    for i = 1, #_RUNGS do
+        local rung = _RUNGS[i]
+        local prefix = rung.prefix
+        local plen = #prefix
+        for key in pairs(params) do
+            if type(key) == "string" and key:sub(1, plen) == prefix then return rung end
+        end
+    end
+    return nil
+end
+
+--- Exclusive faction spawn with the squad tier picked by the smart's own danger rung: a smart whose
+--- LTX declares spawn_all_weak fields novice squads, spawn_all_normal novice/advanced, spawn_all_hard
+--- advanced/veteran, spawn_all_worst veteran only -- the map's south-to-north danger ladder read
+--- per smart from the data. No rung declared -> full 3-tier pool (identical to set_exclusive_spawn).
+--- Faction identities only (SQUADS_BY_FACTION); species pools are single-section, use set_exclusive_spawn.
+--- @scope global - mutates server-entity fields directly; faction_controlled gate evaluates in try_respawn
+--- @safety SAFE - pure Lua table writes on smart terrain object
+--- @cost O(1) | 0 luabind (rung scan + parse_condlist are pure Lua)
+--- @src anomaly/smart_terrain.script(1665-1672,1716-1720) gate + uniform pick from the squads array
+--- @param smart se_smart_terrain Smart terrain to mutate
+--- @param key string Unique respawn_params key (e.g. "ap_conquest")
+--- @param faction string Stalker community (SQUADS_BY_FACTION lookup)
+--- @param spawn_num number|nil Max squads for this entry (default 1)
+--- @return boolean True if applied
+function set_exclusive_spawn_tiered(smart, key, faction, spawn_num)
+    if not smart or not key then return false end
+    local pool = SQUADS_BY_FACTION[faction]
+    if not pool then return false end
+    local rung = _smart_rung(smart)
+    local squads = pool
+    if rung then
+        squads = {}
+        for i = 1, #rung.tiers do squads[i] = pool[rung.tiers[i]] end
+    end
+    return _write_exclusive(smart, key, faction, squads, spawn_num)
 end
 
 --- Clear exclusive spawn from smart terrain, restoring original LTX spawning
