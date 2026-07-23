@@ -355,7 +355,7 @@ end
 -- initialize (the engine calls it ONCE, when the action activates) joins the squad combat group and issues the
 -- maneuver via spec.on_begin - the single place AT touches the engine, set once. execute (the engine calls it
 -- every frame) does NOTHING: the engine's own state machine carries the maneuver, AT runs no per-frame logic.
--- finalize leaves the group and clears the sniper flag so a handed-back NPC is not stranded in precision-fire mode.
+-- finalize leaves the group.
 class "xcombat_takeover_action" (action_base)
 function xcombat_takeover_action:__init(name) super(nil, name) end
 function xcombat_takeover_action:initialize()
@@ -384,7 +384,6 @@ function xcombat_takeover_action:finalize()
     action_base.finalize(self)
     local npc = self.object
     xcombat.unregister_in_combat(npc)
-    npc:sniper_fire_mode(false)
 end
 
 --- Graft the takeover onto a stalker: add the gate evaluator + the consumer action and precondition-block the
@@ -606,17 +605,23 @@ end
 -- the target's visible point for 1500ms when the check fails (sight_action.cpp:395-455) - so the
 -- gate muted fire through the engine's normal lag-and-displace windows: 73% of reads blocked (1053
 -- of 1443, many at body-angle 0-5deg), NPCs silent at close range where vanilla blazes. Never re-add.
--- Returns (fire to apply, fire-gate verdict: "seen" = visible, fired as asked; "memory" = blind,
--- firing at last-known (the 10s auto-weapon window); "hold" = blind and no shot makes sense, READY).
--- @cost O(1) | 1 luabind (see) when seen; + the fire_make_sense reads when blind
+-- A RELOADING weapon cannot shoot, and a fire goal issued onto it CANCELS the engine reload
+-- (proven 2026-07-21: chained maneuver applications killed reloads at ~116ms held, over and over,
+-- leaving the NPC racking an empty gun), so the discipline degrades to READY first: the engine
+-- finishes the reload undisturbed and fire resumes on the caller's next periodic re-apply.
+-- Returns (fire to apply, fire-gate verdict: "reloading" = mid-reload, READY so the reload
+-- survives; "seen" = visible, fired as asked; "memory" = blind, firing at last-known (the 10s
+-- auto-weapon window); "hold" = blind and no shot makes sense, READY).
+-- @cost O(1) | 1-2 luabind (reload state) + 1 luabind (see) when seen; + the fire_make_sense reads when blind
 local function _resolve_fire(npc, requested, enemy)
+    if xcombat.is_reloading(npc) then return xcombat.READY, "reloading" end
     if enemy and xcombat.sees(npc, enemy) then return requested, "seen" end
     if enemy and xcombat.fire_make_sense(npc, enemy) then return requested, "memory" end
     return xcombat.READY, "hold"
 end
 
 --- Drive the NPC's combat state - the one command for weapon mode, posture, movement, and fire discipline.
---- Replaces raw state_mgr / set_body_state / set_movement_type / sniper_fire_mode calls with three safe
+--- Replaces raw state_mgr / set_body_state / set_movement_type calls with three safe
 --- orthogonal knobs plus the enemy: opts.fire is the caller's INTENT, and a FIRE/SNIPE intent resolves
 --- through the engine's own discipline (_resolve_fire: seen -> as asked, blind -> fire_make_sense, else
 --- READY weapon-up) before any state applies - the caller holds no fire logic. The look_object follows the
@@ -626,14 +631,14 @@ end
 --- touching the NPC when the engine ships no state for the resolved combo. opts.state names any state_lib
 --- state directly for the rare case the knobs do not cover, keeping every engine state reachable.
 --- @safety SAFE - returns false on an unsupported combo; the engine calls are SAFE_WRAPped
---- @cost O(1) | 1 state_mgr dispatch + 2 luabind trivial (set_body_state, set_movement_type) + 1 sniper toggle; + the _resolve_fire reads on a FIRE/SNIPE intent
---- @src anomaly/state_lib.script (bundles), anomaly/state_mgr.script:503 (set_state)
---- @src xray/script_game_object_script2.cpp:282-283 (body/movement), xray/script_game_object_script3.cpp:453 (sniper)
+--- @cost O(1) | 1 state_mgr dispatch + 2 luabind trivial (set_body_state, set_movement_type); + the _resolve_fire reads on a FIRE/SNIPE intent
+--- @src anomaly/state_lib.script (bundles), anomaly/state_mgr.script:503 (set_state), :319-321 (sniper_fire states = single shots, randomized 500-1500ms aim)
+--- @src xray/script_game_object_script2.cpp:282-283 (body/movement)
 --- @src xray/stalker_combat_actions.cpp:483-496 (seen -> fire, the anti-wall order), :906-914 (blind fire_make_sense)
 --- @param npc game_object
 --- @param opts table { fire = intent, posture, movement, enemy = game_object|nil, state = string|nil }
 --- @return string|boolean applied fire ("FIRE"/"SNIPE"/"READY"/"STOW") when a state was applied, false when the combo has no state
---- @return string fire-gate verdict: "seen"/"memory"/"hold" when the intent was FIRE/SNIPE, "na" otherwise
+--- @return string fire-gate verdict: "reloading"/"seen"/"memory"/"hold" when the intent was FIRE/SNIPE, "na" otherwise
 function xcombat.set_combat(npc, opts)
     local intent = opts.fire
     local fire, gate = intent, "na"
@@ -658,7 +663,13 @@ function xcombat.set_combat(npc, opts)
     if fire == "STOW" then
         npc:set_sight(look.path_dir, nil, 0)
     end
-    npc:sniper_fire_mode(fire == "SNIPE")
+    -- SNIPE deliberately does NOT touch npc:sniper_fire_mode. That engine flag is story-scene stagecraft:
+    -- its 3 read sites (g_fireParams, ai_stalker_fire.cpp:193,225,239) replace the fired direction with the
+    -- sight's TARGET angles and discard the recoil effector, so a non-converged shooter hits a target his
+    -- model does not face. Vanilla combat never sets it (the camper scheme uses the sniper states alone,
+    -- xr_camper.script:191-193); SNIPE means the sniper STATES - aimed pose + the state_mgr sniper cadence
+    -- (single shots, randomized 500-1500ms aim, state_mgr.script:319-321) - with direction and dispersion
+    -- as normal fire.
     return fire, gate
 end
 
@@ -729,6 +740,25 @@ end
 --- @return boolean true if a wall or object blocks the shot before it reaches the target
 function xcombat.has_obstacle_to_target(start_pos, target_pos)
     return _ray_blocked(start_pos, target_pos, SELF_CLEARANCE_M, ENEMY_BODY_CLEARANCE_M)
+end
+
+--- True when the ACTOR could plausibly land a shot on this NPC right now: he holds a firearm, his
+--- facing is within cone_deg of the NPC, and the shot line between them is clear. The actor-side
+--- mirror of fire_make_sense - the actor has no AI planner to ask, so the read is built from his
+--- facing and the shot-line ray. Consumers gate exposure decisions on it ("am I in the player's
+--- line of fire"); call it on event edges or feasibility checks, never per frame (it pays a raycast).
+--- @safety SAFE - false when the actor is absent or unarmed
+--- @cost O(1) | 3-4 luabind (weapon kind cached, facing reads) + 1 raycast
+--- @param npc game_object the NPC asking whether the player can hit him
+--- @param cone_deg number the actor's facing offset to the NPC must be within this many degrees
+--- @return boolean
+function xcombat.actor_can_hit(npc, cone_deg)
+    local actor = db.actor
+    if not actor then return false end
+    if not xcombat.get_weapon_kind(actor) then return false end
+    local npos = npc:position()
+    if xcombat.get_facing_offset(actor, npos) > cone_deg then return false end
+    return not xcombat.has_obstacle_to_target(actor:position(), npos)
 end
 
 -- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
