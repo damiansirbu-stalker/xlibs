@@ -1,5 +1,5 @@
 next
-  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered
+  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered, danger_tier
 
   xcombat
     - Added actor_can_hit(npc, cone_deg): true when the ACTOR could plausibly land a shot on the NPC -
@@ -41,9 +41,16 @@ next
       an explicit squad_descr section (vs the identity-to-pool set_shared_spawn), for injecting a
       specific squad (e.g. a service filler) into a smart's respawn.
     - Added set_exclusive_spawn_tiered(smart, key, faction, spawn_num): the exclusive faction inject
-      with the squad tier read from the smart's own danger rung (spawn_all_weak fields novice squads,
-      _normal novice/advanced, _hard advanced/veteran, _worst veteran only, per-smart _c_ variants
-      matched by prefix). No rung declared falls back to the full 3-tier pool.
+      with the squad tiers capped by the level's danger tier (xlevel.get_danger_tier), cumulative:
+      rookie maps field novice squads only, early maps novice/advanced, mid maps and north the full
+      pool. Unknown levels read as the shared mid default (novice/advanced).
+
+  xlevel
+    - Added DANGER_TIER + get_danger_tier(level): curated 0-5 danger tier per level (rookie Cordon/
+      Marsh up to endgame CNPP), accepting a level id or raw engine name, nil for unknown map-pack
+      levels, with DANGER_TIER_DEFAULT (mid) as the shared fallback so new-map addons never read as
+      rookie or endgame. Cross-validated against the GAMMA progression guide, community consensus,
+      and the per-level rank weights of the NPC Rank Based Travelling mod.
     - Added set_exclusive_spawn_section(smart, key, section, spawn_num): inject of an explicit
       squad_descr section tagged with the smart's owner faction so it passes the faction gate on an
       exclusive smart, where a plain shared-section entry (no .faction) would be suppressed. Passenger

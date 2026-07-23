@@ -1,6 +1,6 @@
 --- xlevel: Level/map and time queries
 
-local pcall, pairs = pcall, pairs
+local pcall, pairs, type = pcall, pairs, type
 local math_floor = math.floor
 
 local gg = nil
@@ -220,6 +220,57 @@ function get_level_id_by_name(name)
     end
     _level_id_by_name = map
     return map[name]
+end
+
+--- Danger tier per level, 0 (rookie) to 5 (endgame), keyed by raw engine level name.
+--- Curated from three agreeing sources: the GAMMA progression guide + community consensus
+--- (Rostok/Agroprom are early-mid hubs, not rookie or endgame), the per-level rank weights in
+--- the NPC Rank Based Travelling reference mod (target_prior.script), and vanilla per-smart
+--- spawn_all_* sections where those are meaningful (they encode respawn balance, not danger --
+--- Zaton/Jupiter respawn weak filler -- so they corroborate only the south and CNPP).
+--- Placement judgment calls: y04_pole beside the swamps; labs tied to their surface region.
+--- Absent levels (map packs) return nil from get_danger_tier; consumers fall back to
+--- DANGER_TIER_DEFAULT so an unknown map reads as mid, never rookie or endgame.
+DANGER_TIER = {
+    -- 0 rookie
+    ["l01_escape"] = 0, ["k00_marsh"] = 0,
+    -- 1 early
+    ["l02_garbage"] = 1, ["k01_darkscape"] = 1, ["l04_darkvalley"] = 1, ["y04_pole"] = 1,
+    -- 2 early-mid
+    ["l06_rostok"] = 2, ["l05_bar"] = 2, ["l03_agroprom"] = 2, ["l03u_agr_underground"] = 2,
+    ["l04u_labx18"] = 2,
+    -- 3 mid
+    ["l07_military"] = 3, ["l08_yantar"] = 3, ["l08u_brainlab"] = 3,
+    ["k02_trucks_cemetery"] = 3, ["l09_deadcity"] = 3,
+    -- 4 late
+    ["l10_red_forest"] = 4, ["l10_radar"] = 4, ["l10u_bunker"] = 4,
+    ["l10_limansk"] = 4, ["l11_hospital"] = 4,
+    -- 5 endgame
+    ["zaton"] = 5, ["jupiter"] = 5, ["jupiter_underground"] = 5,
+    ["pripyat"] = 5, ["l11_pripyat"] = 5,
+    ["l12_stancia"] = 5, ["l12_stancia_2"] = 5, ["l12u_sarcofag"] = 5,
+    ["l12u_control_monolith"] = 5, ["l13_generators"] = 5, ["l13u_warlab"] = 5,
+}
+
+--- Default tier for levels absent from DANGER_TIER (new-map addons): mid. One shared decision
+--- so every consumer treats an unknown map the same way.
+DANGER_TIER_DEFAULT = 2
+
+--- Danger tier of a level: 0 (rookie) to 5 (endgame), nil for unknown levels (map packs).
+--- Resolves a numeric level id to its raw engine name via sim:level_name, then reads the curated
+--- DANGER_TIER table; consumers scale spawns / rewards / pacing off the tier and treat nil as
+--- "no data" -- fall back to DANGER_TIER_DEFAULT unless the consumer has a better idea.
+--- @safety SAFE - nil-guarded; number input needs a live alife() for the name lookup
+--- @cost O(1) | 1 luabind medium (sim:level_name) on number input, 0 on string input
+--- @see xray/xrGame/alife_simulator_script.cpp(313) level_name binding; xsmart_spawn.set_exclusive_spawn_tiered (first consumer); DANGER_TIER above for the curation sources
+--- @param level number|string Level id, or raw engine level name (sim:level_name format)
+--- @return number|nil 0-5, or nil when the level is not in DANGER_TIER
+function get_danger_tier(level)
+    if type(level) == "number" then
+        local sim = alife()
+        level = sim and sim:level_name(level) or nil
+    end
+    return level and DANGER_TIER[level] or nil
 end
 
 local _neighbors_cache = {}

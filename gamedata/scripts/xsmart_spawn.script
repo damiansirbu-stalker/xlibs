@@ -2,7 +2,7 @@
 --- spawn (suppresses LTX entries via faction_controlled gate). Mirrors smart_terrain.script's
 --- respawn_params field shape so try_respawn picks the entries up natively.
 
-local pairs, tostring, type = pairs, tostring, type
+local pairs, tostring = pairs, tostring
 
 --- Faction -> generic simulation squad sections (novice, advanced, veteran). Copy of smart_terrain.script:16-29.
 SQUADS_BY_FACTION = {
@@ -158,43 +158,20 @@ function set_exclusive_spawn(smart, key, identity, spawn_num)
     return _write_exclusive(smart, key, identity, squads, spawn_num)
 end
 
--- Danger rungs a smart's own LTX respawn sections name (spawn_all_weak / _normal / _hard / _worst,
--- including the per-smart _c_ variants -- prefix match covers spawn_all_hard_c_2_1). Checked from
--- most to least dangerous; tiers index the {novice, advanced, veteran} faction pool.
-local _RUNGS = {
-    { prefix = "spawn_all_worst",  tiers = { 3 } },
-    { prefix = "spawn_all_hard",   tiers = { 2, 3 } },
-    { prefix = "spawn_all_normal", tiers = { 1, 2 } },
-    { prefix = "spawn_all_weak",   tiers = { 1 } },
-}
+-- Squad-tier ceiling per xlevel danger tier: a map spawns every faction tier UP TO its danger
+-- (cumulative -- rookies exist everywhere the ceiling allows, veterans only from mid maps north).
+-- Indexes the {novice, advanced, veteran} SQUADS_BY_FACTION pool.
+local _TIER_CEILING = { [0] = 1, [1] = 2, [2] = 2, [3] = 3, [4] = 3, [5] = 3 }
 
--- Most dangerous rung named in the smart's respawn_params keys; nil when the smart declares no
--- spawn_all_* section (mutant lairs, special smarts) -- callers fall back to the full pool. The
--- engine rebuilds respawn_params from LTX on every load and injected keys never delete originals,
--- so the rung keys are always present.
--- @cost O(rungs x keys) pure-Lua prefix compares (~4 x ~6)
-local function _smart_rung(smart)
-    local params = smart.respawn_params
-    if not params then return nil end
-    for i = 1, #_RUNGS do
-        local rung = _RUNGS[i]
-        local prefix = rung.prefix
-        local plen = #prefix
-        for key in pairs(params) do
-            if type(key) == "string" and key:sub(1, plen) == prefix then return rung end
-        end
-    end
-    return nil
-end
-
---- Exclusive faction spawn with the squad tier picked by the smart's own danger rung: a smart whose
---- LTX declares spawn_all_weak fields novice squads, spawn_all_normal novice/advanced, spawn_all_hard
---- advanced/veteran, spawn_all_worst veteran only -- the map's south-to-north danger ladder read
---- per smart from the data. No rung declared -> full 3-tier pool (identical to set_exclusive_spawn).
---- Faction identities only (SQUADS_BY_FACTION); species pools are single-section, use set_exclusive_spawn.
+--- Exclusive faction spawn with the squad tiers capped by the level's danger tier
+--- (xlevel.get_danger_tier): rookie maps field novice squads only, early maps novice/advanced,
+--- mid maps and north the full pool -- cumulative, the ceiling rises with the map, lower tiers
+--- always stay in. Unknown levels (new-map addons) read as xlevel.DANGER_TIER_DEFAULT (mid:
+--- novice/advanced, no veterans). Faction identities only (SQUADS_BY_FACTION); species pools
+--- are single-section, use set_exclusive_spawn.
 --- @scope global - mutates server-entity fields directly; faction_controlled gate evaluates in try_respawn
---- @safety SAFE - pure Lua table writes on smart terrain object
---- @cost O(1) | 0 luabind (rung scan + parse_condlist are pure Lua)
+--- @safety SAFE - pure Lua table writes on smart terrain object; tier lookup nil-guarded
+--- @cost O(1) | 2-4 luabind (xlevel.get_level_id + sim:level_name) + parse_condlist pure Lua
 --- @src anomaly/smart_terrain.script(1665-1672,1716-1720) gate + uniform pick from the squads array
 --- @param smart se_smart_terrain Smart terrain to mutate
 --- @param key string Unique respawn_params key (e.g. "ap_conquest")
@@ -205,11 +182,12 @@ function set_exclusive_spawn_tiered(smart, key, faction, spawn_num)
     if not smart or not key then return false end
     local pool = SQUADS_BY_FACTION[faction]
     if not pool then return false end
-    local rung = _smart_rung(smart)
+    local tier = xlevel.get_danger_tier(xlevel.get_level_id(smart)) or xlevel.DANGER_TIER_DEFAULT
+    local ceiling = _TIER_CEILING[tier] or #pool
     local squads = pool
-    if rung then
+    if ceiling < #pool then
         squads = {}
-        for i = 1, #rung.tiers do squads[i] = pool[rung.tiers[i]] end
+        for i = 1, ceiling do squads[i] = pool[i] end
     end
     return _write_exclusive(smart, key, faction, squads, spawn_num)
 end
