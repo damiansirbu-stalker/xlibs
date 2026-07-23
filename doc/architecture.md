@@ -98,6 +98,7 @@ local name = xcreature.get_name(entity_id)
 
 - `is_stalker(input)`, `is_mutant(input)`, `is_npc(input)` - Entity type checks
 - `is_trader(input)` - True if entity is Script_Trader CSE (clsid 37 / 36); catches Sidorovich-class
+- `make_trader(npc, cfg_path, stock_now)` - Make an online NPC a functional shopkeeper from a vanilla trade config (trade_manager.trade_init + optional immediate stock); never touches character_community, so faction-scoped trade systems keep seeing it
 - `community(input)` - Get faction community
 - `get_name(input)` - Translated name; translate-first for mutants (inv_name, then section key, then the English hash), memoized per section. Returns nil for nil entities and nameless stalkers - callers pick the fallback
 - `get_money(obj)`, `give_money(obj, amount)`, `transfer_money(from, amount, to)` - Ruble reads and moves, u32-underflow guarded
@@ -348,7 +349,7 @@ Section metadata (LTX squad_descr):
 Diagnostic:
 - `dump_smarts(level_id)` - Per-smart faction + service role inventory (filtered by level when given)
 
-Spawn helpers (set / clear shared / exclusive spawn, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
+Spawn helpers (set / clear shared / exclusive spawn, set_shared_spawn_section for injecting an explicit squad_descr section rather than an identity->pool lookup, set_exclusive_spawn_section for a faction-tagged explicit section that rides the exclusive gate as a passenger to an owner, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
 
 ### xstash.script - Stash Operations
 
