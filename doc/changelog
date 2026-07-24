@@ -1,72 +1,54 @@
-next
-  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered, danger_tier
+1.8.3
+  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered, runtime_job, danger_tier, release
 
   xcombat
-    - Added actor_can_hit(npc, cone_deg): true when the ACTOR could plausibly land a shot on the NPC -
-      holds a firearm, facing within the cone, shot line clear (the actor-side mirror of fire_make_sense,
-      built from the facing read + the target-capped ray). For exposure gates; pays a raycast, call on
-      edges or feasibility checks, never per frame.
-    - Changed set_combat's fire discipline: a FIRE/SNIPE intent degrades to READY while the NPC is
-      reloading (new gate verdict "reloading"). A fire goal issued mid-reload cancels the engine reload,
-      so periodic re-appliers were killing reloads over and over; the degrade lets the reload finish and
-      fire resumes on the caller's next re-apply.
-    - Changed set_combat: a SNIPE intent no longer enables the engine's sniper_fire_mode flag, and the
-      takeover finalize no longer clears it. The flag replaces the fired direction with the sight's target
-      angles and discards recoil (a non-converged shooter hits a target his model does not face), and is
-      story-scene machinery vanilla combat never sets. SNIPE now means the sniper states alone: aimed pose,
-      single shots on the state_mgr sniper cadence, normal direction and dispersion.
-    - Added set_fire_queue_scale(npc, size_k, interval_k): per-NPC scaling of the combat planner's burst
-      size and inter-burst interval (PR #603), probed and no-op on exes without the bind. Applies to
-      vanilla-planner fire only; state_mgr fire states bypass select_queue_params.
-    - Added on_reload_start(fn) and on_reload_stop(fn): registrars for the NPC weapon reload-edge
-      callbacks (PR #611), probed and returning false on exes without the events. The stop edge is
-      best-effort; bound edge-tracked state with a staleness window or confirm via is_reloading.
-    - Added is_reloading(npc): authoritative reload read over the active weapon's state machine,
-      works on every exe. The reload state numeric is 7 (eReload), not the 5 (eFire) circulating
-      in older comparisons.
-    - Changed disclose_enemy to also promote the disclosed enemy into SEEN memory on exes with the
-      make_enemy_visible bind (PR #613, probed): enemy selection ranks "currently seen" far above hit
-      memory, so the promotion is what makes the victim actually turn on the shooter. Floor exes keep
-      the memory-only disclosure unchanged.
+    - Added actor_can_hit(npc, cone_deg): true when the ACTOR could plausibly land a shot on the NPC - holds a firearm, facing within the cone, shot line clear
+      (the actor-side mirror of fire_make_sense, built from the facing read + the target-capped ray). For exposure gates. Pays a raycast, call on edges or feasibility checks, never per frame.
+    - Changed set_combat's fire discipline: a FIRE/SNIPE intent degrades to READY while the NPC is reloading (new gate verdict "reloading"). A fire goal issued mid-reload cancels the engine reload,
+      so periodic re-appliers were killing reloads over and over. The degrade lets the reload finish and fire resumes on the caller's next re-apply.
+    - Changed set_combat: a SNIPE intent no longer enables the engine's sniper_fire_mode flag, and the takeover finalize no longer clears it.
+      The flag replaces the fired direction with the sight's target angles and discards recoil (a non-converged shooter hits a target his model does not face),
+      and is story-scene machinery vanilla combat never sets. SNIPE now means the sniper states alone: aimed pose, single shots on the state_mgr sniper cadence, normal direction and dispersion.
+    - Added set_fire_queue_scale(npc, size_k, interval_k): per-NPC scaling of the combat planner's burst size and inter-burst interval (PR #603), probed and no-op on exes without the bind.
+      Applies to vanilla-planner fire only. The state_mgr fire states bypass select_queue_params.
+    - Added on_reload_start(fn) and on_reload_stop(fn): registrars for the NPC weapon reload-edge callbacks (PR #611), probed and returning false on exes without the events.
+      The stop edge is best-effort. Bound edge-tracked state with a staleness window or confirm via is_reloading.
+    - Added is_reloading(npc): authoritative reload read over the active weapon's state machine, works on every exe.
+      The reload state numeric is 7 (eReload), not the 5 (eFire) circulating in older comparisons.
+    - Changed disclose_enemy to also promote the disclosed enemy into SEEN memory on exes with the make_enemy_visible bind (PR #613, probed): enemy selection ranks "currently seen" far above hit memory,
+      so the promotion is what makes the victim actually turn on the shooter. Floor exes keep the memory-only disclosure unchanged.
 
   xcreature
-    - Added is_monster_faction(faction): true when a squad_descr faction string is a monster faction
-      (monster_*, zoo_monster). Exposes the set get_mutant_species already used for its player_id fast reject.
-    - Added make_trader(npc, cfg_path, stock_now): make an online NPC a functional shopkeeper from a
-      vanilla trade config (trade_manager.trade_init + optional stock). Does not touch character_community,
-      so faction-scoped trade systems keep seeing it. Sits next to is_trader / community / the money fns.
+    - Added is_monster_faction(faction): true when a squad_descr faction string is a monster faction (monster_*, zoo_monster).
+      Exposes the set get_mutant_species already used for its player_id fast reject.
+    - Added make_trader(npc, cfg_path, stock_now): make an online NPC a functional shopkeeper from a vanilla trade config (trade_manager.trade_init + optional stock).
+      Does not touch character_community, so faction-scoped trade systems keep seeing it. Sits next to is_trader / community / the money fns.
 
   xsmart_spawn
-    - Added set_shared_spawn_section(smart, key, section, spawn_num): additive respawn_params inject of
-      an explicit squad_descr section (vs the identity-to-pool set_shared_spawn), for injecting a
-      specific squad (e.g. a service filler) into a smart's respawn.
-    - Added set_exclusive_spawn_tiered(smart, key, faction, spawn_num): the exclusive faction inject
-      with the squad tiers capped by the level's danger tier (xlevel.get_danger_tier), cumulative:
-      rookie maps field novice squads only, early maps novice/advanced, mid maps and north the full
-      pool. Unknown levels read as the shared mid default (novice/advanced).
+    - Added set_shared_spawn_section(smart, key, section, spawn_num): additive respawn_params inject of an explicit squad_descr section (vs the identity-to-pool set_shared_spawn),
+      for injecting a specific squad (e.g. a service filler) into a smart's respawn.
+    - Added set_exclusive_spawn_section(smart, key, section, spawn_num): inject of an explicit squad_descr section tagged with the smart's owner faction
+      so it passes the faction gate on an exclusive smart, where a plain shared-section entry (no .faction) would be suppressed.
+    - Added set_exclusive_spawn_tiered(smart, key, faction, spawn_num): the exclusive faction inject with the squad tiers capped by the level's danger tier (xlevel.get_danger_tier), cumulative:
+      rookie maps field novice squads only, early maps novice/advanced, mid maps and north the full pool. Unknown levels read as the shared mid default (novice/advanced).
+    - Added add_runtime_job(smart, opts) and remove_runtime_job(smart, section): push a self-contained exclusive job into a smart's job list from caller-supplied logic text, priority, and precondition,
+      then pull it back out and free any NPC that held it. Jobs rebuild on load, so callers re-ensure on their own cadence. No-op for smarts off the actor level.
 
   xlevel
-    - Added DANGER_TIER + get_danger_tier(level): curated 0-5 danger tier per level (rookie Cordon/
-      Marsh up to endgame CNPP), accepting a level id or raw engine name, nil for unknown map-pack
-      levels, with DANGER_TIER_DEFAULT (mid) as the shared fallback so new-map addons never read as
-      rookie or endgame. Cross-validated against the GAMMA progression guide, community consensus,
-      and the per-level rank weights of the NPC Rank Based Travelling mod.
-    - Added set_exclusive_spawn_section(smart, key, section, spawn_num): inject of an explicit
-      squad_descr section tagged with the smart's owner faction so it passes the faction gate on an
-      exclusive smart, where a plain shared-section entry (no .faction) would be suppressed. Passenger
-      to an exclusive owner (reads smart.faction).
-
-  xlevel
-    - Added cell_key(level_id, position, cell_size): the shared density-cell partitioning ("level:x:z"
-      at a caller-chosen cell edge, switch_distance by convention), so independent density consumers
-      (culls, crowd gates) agree on what "the same area" means.
+    - Added DANGER_TIER + get_danger_tier(level): curated 0-5 danger tier per level (rookie Cordon/Marsh up to endgame CNPP), accepting a level id or raw engine name, nil for unknown map-pack levels,
+      with DANGER_TIER_DEFAULT (mid) as the shared fallback so new-map addons never read as rookie or endgame.
+      Cross-validated against the GAMMA progression guide, community consensus, and the per-level rank weights of the NPC Rank Based Travelling mod.
+    - Added cell_key(level_id, position, cell_size): the shared density-cell partitioning ("level:x:z" at a caller-chosen cell edge, switch_distance by convention),
+      so independent density consumers (culls, crowd gates) agree on what "the same area" means.
 
   xsmart
-    - Added get_section_npc_range(section): both bounds of a squad section's npc_in_squad field, cached.
-      Pairs with get_section_npc_max when the lower bound or the expected squad size is needed.
+    - Added get_section_npc_range(section): both bounds of a squad section's npc_in_squad field, cached. Pairs with get_section_npc_max when the lower bound or the expected squad size is needed.
     - Changed has_campfire to consult a static map-campfire set first and fall back to the online table,
-      so it answers offline map campfires once a consumer feeds the set via the new
-      note_campfire_object(obj_name). Added campfire_map_count() for diagnostics.
+      so it answers offline map campfires once a consumer feeds the set via the new note_campfire_object(obj_name). Added campfire_map_count() for diagnostics.
+
+  xobject
+    - Added release(se_obj): nil-guarded wrapper over alife_release, whose CALifeSimulator__release binding throws on a nil object.
+      Sits next to se and go so consumers stop caching the raw alife_release global at module level.
 
 1.8.2
   Summary: get_faction_smart_count, is_companion, is_unscriptable_se, dist_flat_sqr, set_combat fire discipline, fire queue bands, cover-repick veto
