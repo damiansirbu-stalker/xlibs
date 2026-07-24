@@ -3,6 +3,7 @@
 --- respawn_params field shape so try_respawn picks the entries up natively.
 
 local pairs, tostring = pairs, tostring
+local table_sort, table_remove = table.sort, table.remove
 
 --- Faction -> generic simulation squad sections (novice, advanced, veteran). Copy of smart_terrain.script:16-29.
 SQUADS_BY_FACTION = {
@@ -250,5 +251,70 @@ function repopulate()
     reset_spawns()
     SIMBOARD.start_position_filled = false
     SIMBOARD:fill_start_position()
+    return true
+end
+
+-- Sort comparator shared with gulag_general.load_job (smart.stalker_jobs stays priority-sorted).
+-- gulag_general resolved at call time (module-level alias may capture nil before auto-load).
+local function _job_prior_desc(a, b)
+    return gulag_general.get_job_prior(a) > gulag_general.get_job_prior(b)
+end
+
+--- Add a runtime job to a smart: a self-contained exclusive-style entry whose ini is built
+--- from caller-supplied logic text (create_ini_file), with caller-supplied priority and
+--- precondition. The text must be self-contained: setup_logic reads job.ltx INSTEAD of the
+--- smart blob for the job's sections. Idempotent per (smart, name). Jobs rebuild on game load
+--- (load_jobs at on_register), so callers re-ensure on their own cadence. No-op for smarts
+--- whose jobs are not loaded (off actor level).
+--- @safety SAFE - nil-guarded on smart/stalker_jobs and opts; pure Lua table insert + sort
+--- @cost O(jobs log jobs) on insert (sort) | 1 luabind heavy on first add (create_ini_file)
+--- @src anomaly/gulag_general.script(1183-1238) exclusive entry shape, anomaly/smart_terrain.script(1378) job.ltx override
+--- @param smart table Smart terrain server object with loaded jobs
+--- @param opts table { name = unique job name (section becomes "logic@<name>"), text = full ini text,
+---   prior = number, precondition_fn = function(se_obj, smart, job, npc_info) -> boolean, job_type = string (default "point_job") }
+--- @return string|nil The job section name, nil when jobs are not loaded or opts incomplete
+function add_runtime_job(smart, opts)
+    if not smart or not smart.stalker_jobs then return nil end
+    if not opts or not opts.name or not opts.text or not opts.prior then return nil end
+    local section = "logic@" .. opts.name
+    for i = 1, #smart.stalker_jobs do
+        if smart.stalker_jobs[i].section == section then return section end
+    end
+    smart.stalker_jobs[#smart.stalker_jobs + 1] = {
+        section = section, ini_path = "*" .. opts.name, ltx = create_ini_file(opts.text),
+        job_type = opts.job_type or "point_job", prior = opts.prior,
+        precondition_params = {}, precondition_function = opts.precondition_fn,
+        exclusive = true,
+    }
+    table_sort(smart.stalker_jobs, _job_prior_desc)
+    return section
+end
+
+--- Remove a runtime job by section and free any NPC holding it (job fields cleared; the
+--- smart's update loop reselects jobs for registered NPCs every pass).
+--- @safety SAFE - nil-guarded; pure Lua table ops
+--- @cost O(jobs) + O(registered NPCs)
+--- @src anomaly/smart_terrain.script(611-615) continuous select_npc_job over npc_info
+--- @param smart table Smart terrain server object
+--- @param section string Job section name returned by the add call
+--- @return boolean True when the job was present and removed
+function remove_runtime_job(smart, section)
+    if not smart or not smart.stalker_jobs or not section then return false end
+    local removed = false
+    for i = #smart.stalker_jobs, 1, -1 do
+        if smart.stalker_jobs[i].section == section then
+            table_remove(smart.stalker_jobs, i)
+            removed = true
+        end
+    end
+    if not removed then return false end
+    for _, info in pairs(smart.npc_info or {}) do
+        if info.job and info.job.section == section then
+            info.job = nil
+            info.job_id = nil
+            info.begin_job = false
+            info.need_job = "nil"
+        end
+    end
     return true
 end

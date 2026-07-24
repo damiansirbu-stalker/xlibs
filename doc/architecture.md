@@ -349,7 +349,7 @@ Section metadata (LTX squad_descr):
 Diagnostic:
 - `dump_smarts(level_id)` - Per-smart faction + service role inventory (filtered by level when given)
 
-Spawn helpers (set / clear shared / exclusive spawn, set_shared_spawn_section for injecting an explicit squad_descr section rather than an identity->pool lookup, set_exclusive_spawn_section for a faction-tagged explicit section that rides the exclusive gate as a passenger to an owner, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
+Spawn helpers (set / clear shared / exclusive spawn, set_shared_spawn_section for injecting an explicit squad_descr section rather than an identity->pool lookup, set_exclusive_spawn_section for a faction-tagged explicit section that rides the exclusive gate as a passenger to an owner, reset_spawns, repopulate) extracted to `xsmart_spawn.script`. It also owns the runtime job injector (add_runtime_job / remove_runtime_job): a self-contained exclusive-style entry pushed into smart.stalker_jobs, built from caller-supplied logic text, priority, and precondition (the caller owns the job content; the injector owns the engine mechanics) -- legal because the engine honors per-entry values for exclusive entries (gulag_general get_job_precondition/prior/type) and setup_logic reads job.ltx over the smart blob (smart_terrain.script:1378); jobs rebuild on load, so callers re-ensure on their own cadence.
 
 ### xstash.script - Stash Operations
 
