@@ -1,3 +1,11 @@
+next
+  Summary: protected item classes
+
+  xinventory
+    - Added policy-declared protected item classes: configs/xlibs/xinventory_protected.ltx lists kinds, section prefixes, and exact sections
+      that classify as "untouchable" in get_section_category, so every policy-kernel consumer (culling, corpse-loot trim, stash, barter, trade, market) skips them
+      and the items stay on their carrier. Ships protecting artefacts (kind i_arty), binoculars, and night-vision torches; DLTX-overridable per modpack.
+
 1.8.3
   Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered, runtime_job, danger_tier, release
 

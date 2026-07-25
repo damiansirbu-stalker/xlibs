@@ -94,6 +94,52 @@ local function _ensure_blacklist()
 end
 
 -- ============================================================================
+-- PROTECTED CLASSES (configs\xlibs\xinventory_protected.ltx)
+-- Policy-declared item classes that classify as "untouchable", so every policy-kernel
+-- consumer (culling, loot trim, stash, barter, trade, market) skips them and the items
+-- stay on their carrier. DLTX-overridable; no consumer carries its own exemption logic.
+-- ============================================================================
+
+local PROTECTED_LTX = "xlibs\\xinventory_protected.ltx"
+local string_find = string.find
+
+local _protected_kinds, _protected_prefixes, _protected_sections
+-- Read one line-list section into out (set mode) or append to out (array mode).
+-- @cost O(lines) ini reads, load-time only
+local function _read_line_list(ini, section, out, as_array)
+    if not ini:section_exist(section) then return end
+    for i = 0, ini:line_count(section) - 1 do
+        local _, id = ini:r_line_ex(section, i, "", "")
+        if id and id ~= "" then
+            if as_array then out[#out + 1] = id else out[id] = true end
+        end
+    end
+end
+
+-- Lazy-load the protected-classes declaration on first call. Idempotent.
+-- @cost O(lines) on first call; O(1) thereafter
+local function _ensure_protected()
+    if _protected_kinds then return end
+    _protected_kinds, _protected_prefixes, _protected_sections = {}, {}, {}
+    local ini = ini_file(PROTECTED_LTX)
+    if not ini then return end
+    _read_line_list(ini, "protected_kinds",    _protected_kinds)
+    _read_line_list(ini, "protected_prefixes", _protected_prefixes, true)
+    _read_line_list(ini, "protected_sections", _protected_sections)
+end
+
+-- True when the section matches a protected class (exact section, kind, or name prefix).
+-- @cost O(prefixes) string finds + 1 hash + cached kind lookup
+local function _is_protected(sec)
+    _ensure_protected()
+    if _protected_sections[sec] then return true end
+    for i = 1, #_protected_prefixes do
+        if string_find(sec, _protected_prefixes[i], 1, true) == 1 then return true end
+    end
+    return false
+end
+
+-- ============================================================================
 -- KIND CACHE (per-section ini_sys:r_string_ex("kind") lookup, cached)
 -- ============================================================================
 
@@ -533,12 +579,14 @@ end
 -- ============================================================================
 
 --- Resolve category from a section name (no item required)
---- Untouchables (quest / anim / blacklisted) gate first. Ammo always returns
---- "ammo_not_equipped"; per-NPC tier resolution lives in get_category. Weapon detected by
---- class prefix "WP_" (no Parse_ITM bucket exists for weapons; vanilla weapon_classes is
---- clsid-only). Hand grenades detected via _grenade_set hand-curated lookup.
+--- Untouchables (quest / anim / blacklisted / protected classes) gate first; protected
+--- classes come from configs\xlibs\xinventory_protected.ltx (section, kind, or prefix -
+--- policy-declared, DLTX-overridable). Ammo always returns "ammo_not_equipped"; per-NPC tier
+--- resolution lives in get_category. Weapon detected by class prefix "WP_" (no Parse_ITM
+--- bucket exists for weapons; vanilla weapon_classes is clsid-only). Hand grenades detected
+--- via _grenade_set hand-curated lookup.
 --- @safety SAFE - nil-guarded sec
---- @cost O(1) | up to ~14 hash lookups + 1 luabind heavy on cache miss (kind, class via cached _get_kind / _get_class)
+--- @cost O(1) | up to ~16 hash lookups + prefix finds + 1 luabind heavy on cache miss (kind, class via cached _get_kind / _get_class)
 --- @see get_category (adds per-NPC opts for equipped + ammo tier)
 --- @see is_in_category (predicate wrapper)
 --- @param sec string Item section name
@@ -550,6 +598,7 @@ function get_section_category(sec)
     if IsItem("quest", sec) or IsItem("anim", sec) then return "untouchable" end
     _ensure_blacklist()
     if _blacklist_set[sec] then return "untouchable" end
+    if _is_protected(sec) then return "untouchable" end
 
     -- Granular consumables (hand-maintained sets)
     if _medkit_set[sec]   then return "medkit"  end
@@ -559,8 +608,10 @@ function get_section_category(sec)
     if _pill_set[sec]     then return "pill"    end
     if _grenade_set[sec]  then return "grenade" end
 
-    -- Kind-tagged consumables
+    -- Kind-tagged: protected kinds gate before the consumable buckets (same untouchable
+    -- semantics as above; the kind read is needed here anyway)
     local kind = _get_kind(sec)
+    if kind and _protected_kinds[kind] then return "untouchable" end
     if kind == "i_food" or kind == "i_mutant_cooked" then return "food"  end
     if kind == "i_drink"                              then return "drink" end
 
