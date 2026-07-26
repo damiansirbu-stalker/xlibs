@@ -280,8 +280,17 @@ function add_runtime_job(smart, opts)
     for i = 1, #smart.stalker_jobs do
         if smart.stalker_jobs[i].section == section then return section end
     end
+    -- The ini goes in db.dynamic_ltx under the job name as well as on the entry, because the two
+    -- consumers read it from different places. smart_terrain:setup_logic takes job.ltx directly
+    -- (smart_terrain.script:1378), but xr_logic.initialize_obj re-resolves a saved ini_filename, and
+    -- a leading "*" sends it to db.dynamic_ltx[name] (xr_logic.script:1234-1236). Without the
+    -- registration that lookup returns nil on the next load and configure_schemes indexes it
+    -- (xr_logic.script:81) -- an engine fatal, field-crashed 2026-07-26. Vanilla registers a smart's
+    -- own job ini the same way (gulag_general.script:1331).
+    local ltx = create_ini_file(opts.text)
+    db.dynamic_ltx[opts.name] = ltx
     smart.stalker_jobs[#smart.stalker_jobs + 1] = {
-        section = section, ini_path = "*" .. opts.name, ltx = create_ini_file(opts.text),
+        section = section, ini_path = "*" .. opts.name, ltx = ltx,
         job_type = opts.job_type or "point_job", prior = opts.prior,
         precondition_params = {}, precondition_function = opts.precondition_fn,
         exclusive = true,
