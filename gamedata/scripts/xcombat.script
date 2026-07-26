@@ -398,6 +398,13 @@ end
 -- value serves both, matching the proven v1 graft). 188200 is free; xr_danger.actid is 188113.
 local TAKEOVER_ID = 188200
 
+--- The grafted action's GOAP id, exported because a consumer has to declare it to vanilla's state_mgr:
+--- its idle evaluator forces its own combat flag false whenever the current action is absent from
+--- state_mgr.combat_action_ids, which leaves state_mgr_to_idle_combat applicable for the whole takeover.
+--- Read-only by convention; writing it does not move the graft, which reads the local.
+--- @src anomaly/state_mgr.script:10-18 (the table and vanilla's own note on who belongs in it)
+xcombat.TAKEOVER_ID = TAKEOVER_ID
+
 local _takeover_spec = nil
 local _takeover_installed = {}
 
