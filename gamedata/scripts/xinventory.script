@@ -6,6 +6,7 @@ local string_match, string_sub = string.match, string.sub
 local parse_list, alife_release_id, alife_create_item, alife_object = parse_list, alife_release_id, alife_create_item, alife_object
 local level, ini_sys, ini_file, xlevel = level, ini_sys, ini_file, xlevel
 local get_object_story_id, se_load_var = get_object_story_id, se_load_var
+local table_concat = table.concat
 
 -- ============================================================================
 -- ENGINE SLOT CONSTANTS (xrServerEntities/inventory_space.h:7-43)
@@ -1079,4 +1080,39 @@ end
 --- @param flags table the before_move callback's 1st arg
 function deny_move(flags)
     if flags then flags.ret_value = false end
+end
+
+-- ============================================================================
+-- INVENTORY DUMP (diagnostic)
+-- ============================================================================
+
+-- Tally one item's section into counts/order (order preserves first-seen for a stable line).
+local function _dump_add(sec, counts, order)
+    counts[sec] = (counts[sec] or 0) + 1
+    if counts[sec] == 1 then order[#order + 1] = sec end
+end
+
+--- Dump an NPC's inventory to a log function as ONE aggregated line, reusable for any trader. The
+--- single write, not one per item, is what keeps it light even for a hub trader's full stock; the
+--- per-item section reads are cheap luabind, and iterate_inventory is atomic so it cannot be spread
+--- across frames anyway. Output is per-section counts, e.g.
+--- "inv_dump(trade) npc=123 n=214 [ammo_9x18_fmj x120, medkit x8, ...]". Call it behind the calling
+--- mod's own debug gate; it does no gating itself.
+--- @safety SAFE - nil-guarded npc and log_fn
+--- @cost O(inventory): 1 walk + 1 section read per item + 1 write
+--- @see xray/xrGame/script_game_object_inventory_owner.cpp:256 (iterate_inventory)
+--- @param npc game_object trader or NPC to dump
+--- @param tag string label for the log line (the calling feature: "trade", "market", "service", ...)
+--- @param log_fn function(fmt, ...) sink, called once with the summary (a mod's own debug logger)
+--- @return nil
+function dump(npc, tag, log_fn)
+    if not (npc and log_fn) then return end
+    local counts, order, total = {}, {}, 0
+    npc:iterate_inventory(function(_, it)
+        total = total + 1
+        _dump_add(it:section(), counts, order)
+    end, npc)
+    local parts = {}
+    for k = 1, #order do parts[k] = order[k] .. " x" .. counts[order[k]] end
+    log_fn("inv_dump(%s) npc=%d n=%d [%s]", tag, npc:id(), total, table_concat(parts, ", "))
 end
