@@ -1,3 +1,20 @@
+next
+  Summary: takeover late-bind top-up, takeover-current read, validated flee-lane fallback, spatial-query position guard
+
+  xcombat
+    - Added topup_takeover_block(npc): re-applies the takeover's blocking precondition to any listed action present on the NPC's manager but not yet blocked.
+      install_takeover seeds a per-NPC blocked set and applies through it, and a consumer re-runs the top-up at each seize,
+      so a scheme whose action binds after the graft (a later gulag job change re-running scheme setup) no longer escapes the block for the NPC's life.
+    - Added is_takeover_current(npc): true while the grafted takeover action is the manager's current top-level action -
+      the live "does the takeover actually hold this NPC" read, for consumers detecting an unlisted action holding the slot under an open transaction.
+    - Changed find_flee_lane's last-resort fallback to validate its run lane like the fan phases: the farthest reachable partial is now obstacle-checked,
+      and the search returns nil instead of a lane through a tree or crate when nothing clear validates.
+
+  xmath
+    - Added check_pos(where, pos): a position-type guard the spatial-query entry points now run on their argument.
+      find_smart, find_friendly_base, is_near_campfire, find_squad, find_squads, has_squad, find_stashes, cell_key, and is_indoor now reject a non-vector position
+      instead of crashing on it, logging its type and a caller traceback. A foreign mod that shadows an object's position field with a method no longer crashes the game through these calls.
+
 1.8.3
   Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered, runtime_job, danger_tier, release
 

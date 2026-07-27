@@ -4,7 +4,7 @@ local pairs, ipairs, next, type, alife_object, tostring = pairs, ipairs, next, t
 local pcall, math, table, tonumber = pcall, math, table, tonumber
 local string_match, string_gsub, table_concat = string.match, string.gsub, table.concat
 local character_community = character_community
-local xobject, xsquad, xlevel, xttltable = xobject, xsquad, xlevel, xttltable
+local xobject, xsquad, xlevel, xttltable, xmath = xobject, xsquad, xlevel, xttltable, xmath
 
 --- Stalker faction community names used as props keys in simulation_objects_props.ltx
 local STALKER_FACTIONS = {
@@ -415,7 +415,7 @@ end
 --- @param radius number Meters
 --- @return boolean True if position is within radius of any bound campfire
 function is_near_campfire(smart, position, radius)
-    if not smart or not position then return false end
+    if not smart or not xmath.check_pos("xsmart.is_near_campfire", position) then return false end
     local fires = db.campfire_table_by_smart_names and db.campfire_table_by_smart_names[smart:name()]
     if not fires then return false end
     local r2 = radius * radius
@@ -877,7 +877,7 @@ end
 ---   Use AlifePlus ap_core_cache.smarts_on_level(level_id) to fetch a per-level bucket.
 --- @return smart_terrain|nil Nearest matching smart
 function find_smart(pos, opts)
-    if not pos or not opts then return nil end
+    if not xmath.check_pos("xsmart.find_smart", pos) or not opts then return nil end
     local pool = opts.source or (SIMBOARD and SIMBOARD.smarts_by_names)
     if not pool then return nil end
 
@@ -970,11 +970,11 @@ end
 ---   rear-hemisphere bias, min_distance = number|nil metres floor so only bases at least that far qualify }
 --- @return smart_terrain|nil nearest qualifying non-enemy-held base, or nil
 function find_friendly_base(community, pos, opts)
-    if not community or not pos then return nil end
+    if not community or not xmath.check_pos("xsmart.find_friendly_base", pos) then return nil end
     opts = opts or {}
     local away_from_pos = opts.away_from_pos
     local ax, az
-    if away_from_pos then
+    if away_from_pos and xmath.check_pos("xsmart.find_friendly_base.away", away_from_pos) then
         ax, az = pos.x - away_from_pos.x, pos.z - away_from_pos.z
         if (ax * ax + az * az) < 1 then ax = nil end
     end

@@ -7,7 +7,7 @@ local type, rawget, assert, pairs = type, rawget, assert, pairs
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
 local move, state_mgr = move, state_mgr
-local db, alife_object, ini_sys, IsWeapon = db, alife_object, ini_sys, IsWeapon
+local db, alife_object, ini_sys, IsWeapon, xmath = db, alife_object, ini_sys, IsWeapon, xmath
 
 xcombat = xcombat or {}
 
@@ -407,6 +407,14 @@ xcombat.TAKEOVER_ID = TAKEOVER_ID
 
 local _takeover_spec = nil
 local _takeover_installed = {}
+-- npc id -> { [action_id] = true }: which blocked-list ids have received the TAKEOVER_ID==false
+-- precondition on THIS NPC's manager. The block list is applied at install AND topped up at each
+-- consumer seize (topup_takeover_block), because a scheme can bind to an NPC after install (a gulag
+-- job change re-runs configure_schemes, xr_logic.script:279-295) and would otherwise stay unblocked
+-- for the NPC's life. The set is what makes the top-up idempotent: add_condition THROWs on a
+-- duplicate condition id in debug and silently skips in release (condition_state_inline.h:44-53),
+-- so an id is never re-added. Cleared with the install guard on release/unregister.
+local _takeover_blocked = {}
 
 -- The gate evaluator: true exactly while the consumer's gate is raised for this NPC. The brain polls it every
 -- plan solve, so it is a flag read - the consumer decides off the hot path and the gate is a cached lookup.
@@ -490,12 +498,53 @@ function xcombat.install_takeover(npc, spec)
     action:add_effect(world_property(TAKEOVER_ID, false))
     manager:add_action(TAKEOVER_ID, action)
 
+    _takeover_blocked[id] = {}
+    xcombat.topup_takeover_block(npc)
+    return true
+end
+
+--- Apply the TAKEOVER_ID==false precondition to every blocked-list action present on this NPC's
+--- manager that has not received it yet - the late-bind closure (t148). install_takeover runs it
+--- once at graft time; the consumer re-runs it at each seize, the only moment the hole matters, so a
+--- scheme whose action bound AFTER the graft (a later configure_schemes from a gulag job change,
+--- xr_logic.script:279-295) is blocked before the gate goes up. Idempotent per NPC via the
+--- per-NPC blocked set (a duplicate add_condition THROWs in debug builds, so the set is load-bearing,
+--- not an optimization). No-op for an NPC that was never grafted.
+--- @safety SAFE - nil/ungrafted/manager guarded; every id type-checked by get_blocked_planners
+--- @cost O(b) blocked ids | one manager:action lookup per id still missing (ids already blocked cost a table read)
+--- @src anomaly/xr_logic.script:279-295 (the once-per-NPC bind guard and the late-registration hole)
+--- @src xray/condition_state_inline.h:44-53 (duplicate condition THROW - why the set gates the add)
+--- @param npc game_object stalker previously passed to install_takeover
+function xcombat.topup_takeover_block(npc)
+    if not npc then return end
+    local done = _takeover_blocked[npc:id()]
+    if not done then return end
+    local manager = npc:motivation_action_manager()
+    if not manager then return end
     local blocked = xcombat.get_blocked_planners()
     for i = 1, #blocked do
-        local act = manager:action(blocked[i])
-        if act then act:add_precondition(world_property(TAKEOVER_ID, false)) end
+        local aid = blocked[i]
+        local act = not done[aid] and manager:action(aid) or nil
+        if act then
+            act:add_precondition(world_property(TAKEOVER_ID, false))
+            done[aid] = true
+        end
     end
-    return true
+end
+
+--- True while the grafted takeover action is the manager's CURRENT top-level action - the live
+--- "does AT actually hold this NPC right now" read, the boolean form of get_operator == "takeover"
+--- without the label table. Consumers pair it with an open gate to detect a denylist escape (an
+--- unblocked action holding the slot under an open maneuver).
+--- @safety SAFE - nil-guarded manager + initialized check, false when unreadable
+--- @cost O(1) | 3 luabind trivial (motivation_action_manager, initialized, current_action_id)
+--- @param npc game_object stalker
+--- @return boolean true when the takeover action is current
+function xcombat.is_takeover_current(npc)
+    if not npc then return false end
+    local mgr = npc:motivation_action_manager()
+    if not (mgr and mgr:initialized()) then return false end
+    return mgr:current_action_id() == TAKEOVER_ID
 end
 
 --- Drop the install-tracking for an NPC so a respawned id re-grafts; call on net_destroy.
@@ -507,7 +556,9 @@ end
 --- @param npc game_object
 function xcombat.release_takeover(npc)
     if not npc then return end
-    _takeover_installed[npc:id()] = nil
+    local id = npc:id()
+    _takeover_installed[id] = nil
+    _takeover_blocked[id] = nil
 end
 
 --- Id-keyed sibling of release_takeover for callers holding no game_object (server-side unregister).
@@ -520,6 +571,7 @@ end
 function xcombat.release_takeover_id(id)
     if not id then return end
     _takeover_installed[id] = nil
+    _takeover_blocked[id] = nil
 end
 
 --- The combat planner's stored cover bookkeeping for a stalker: (in_cover, looked_out, position_held).
@@ -1346,6 +1398,10 @@ end
 
 --- Firing vertex at the nearest cover: best_cover locates the obstacle, then a ring sweep around it returns
 --- the nearest free vertex with a clear shot. The NPC stands there with the obstacle adjacent to duck behind.
+--- NOT the engine's own cover pick: the engine searches twice (g_ai_cover_search_near_radius then
+--- far_radius, ai_stalker_cover.cpp:180,189) and passes minimum_enemy_distance to its evaluator, while
+--- the Lua best_cover bind hardcodes 0 for that argument (script_game_object3.cpp:77) and this runs ONE
+--- pass at COVER_RADIUS - a deliberate, cheaper approximation, not a reimplementation.
 --- @safety SAFE - nil when no cover near or nothing around it can see the enemy
 --- @cost O(covers-in-radius + rings*PROBE_DIRS) | 1 best_cover heavy (scans + accessible()-checks every cover
 ---   in COVER_RADIUS, worst when it finds none), then up to (rings*PROBE_DIRS) raycasts only when cover is found
@@ -1388,6 +1444,22 @@ local function _probe_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
     return vid
 end
 
+-- The validated stub fallback (f005): farthest reachable partial along `dir` whose run lane is ALSO
+-- clear - _probe_flee_lane (accessible + has_obstacle_between raycast) at decreasing lengths, where
+-- the old _find_toward fallback checked accessibility only and could send a flee straight into a tree
+-- trunk or crate the navmesh routes around (the Georg Bumper snag, 2026-07-26). nil when no clear
+-- partial validates, so the caller declines instead of taking an unvalidated lane.
+-- @cost O(s/2) steps | up to step/2 (vertex_in_direction + accessible + raycast) each
+local function _find_toward_clear(npc, own_lvid, npc_pos, dir, step)
+    local step_m = step
+    while step_m >= STEP_DECREMENT_M do
+        local vid = _probe_flee_lane(npc, own_lvid, npc_pos, dir, step_m)
+        if vid then return vid end
+        step_m = step_m - STEP_DECREMENT_M
+    end
+    return nil
+end
+
 -- Try one fan offset to both sides of away_dir (straight-away when offset is 0); the first side whose run lane
 -- is clear for the full distance wins, else nil. The XZ rotation of away_dir by +-offset is the 2D rotation
 -- matrix, no atan2.
@@ -1408,10 +1480,11 @@ end
 --- reachable vertex that far out with no wall or object on the straight line to it). Two-phase search:
 --- fan candidate headings from away_dir in `arc_deg` steps to +-`max_spread_deg` at the FULL distance,
 --- straight-away first, first clear lane wins; nothing clear at full length re-fans at HALF length (a
---- clear half-distance diagonal beats a short straight stub - the boxed-in case). Only then fall back to
---- the farthest reachable partial along away_dir, so a fleeing NPC keeps moving unless it is fully
---- walled (then nil, the caller holds via send_to).
---- @safety SAFE - nil only when no vertex validates along away_dir at all
+--- clear half-distance diagonal beats a short straight stub - the boxed-in case). Only then fall back
+--- to the farthest reachable partial along away_dir whose run lane is CLEAR (raycast-validated like
+--- the fan phases - f005; the old accessibility-only fallback could return a lane through a tree or
+--- crate), so a fleeing NPC keeps moving unless it is genuinely walled (then nil, the caller declines).
+--- @safety SAFE - nil when no clear lane validates along away_dir at all
 --- @cost O(n) headings | up to 2*(2*max_spread/arc + 1) (vertex_in_direction + accessible + raycast)
 --- @src xray/level_script.cpp:410 (vertex_in_direction)
 --- @param npc game_object
@@ -1441,7 +1514,7 @@ function xcombat.find_flee_lane(npc, away_dir, distance_m, arc_deg, max_spread_d
             offset_deg = offset_deg + arc_deg
         end
     end
-    return _find_toward(npc, own, away_dir, distance_m)
+    return _find_toward_clear(npc, own, npc_pos, away_dir, distance_m)
 end
 
 --- Move the NPC toward `vid`, routing to the nearest accessible node if vid itself is blocked.
@@ -1568,6 +1641,7 @@ end
 --- @return boolean true if enclosed (underground level, or roofed-and-walled outdoor spot)
 function xcombat.is_indoor(pos)
     if xcombat.INDOOR_LEVELS[level.name()] then return true end
+    if not xmath.check_pos("xcombat.is_indoor", pos) then return false end
     local probe = vector():set(pos.x, pos.y + INDOOR_PROBE_Y, pos.z)
     if not _static_hit(probe, vector():set(0, 1, 0), INDOOR_ROOF_M) then return false end
     local walls = 0
