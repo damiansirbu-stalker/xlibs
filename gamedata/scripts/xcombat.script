@@ -1656,11 +1656,14 @@ end
 --- @cost O(1) | 2 luabind trivial + 1 probed read, worst case
 --- @param npc game_object stalker
 --- @return boolean true while the body is owned by a transient animation
+--- @return string|nil which term tripped ("stagger"/"overlay"/"flinch"), nil when free - the
+---   consumer's trace breakdown (the seize-deferral tuning question runs on these counts)
 function xcombat.body_busy(npc)
     if not npc then return false end
-    if xcombat.is_staggering(npc) then return true end
-    if npc:animation_count() > 0 then return true end
-    return xcombat.is_flinching(npc)
+    if xcombat.is_staggering(npc) then return true, "stagger" end
+    if npc:animation_count() > 0 then return true, "overlay" end
+    if xcombat.is_flinching(npc) then return true, "flinch" end
+    return false
 end
 
 -- CWeapon::eReload = 7: eLastBaseState = eBore = 4 (HudItem.h:50-55), then eFire=5, eFire2=6, eReload=7
