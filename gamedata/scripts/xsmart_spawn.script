@@ -317,12 +317,9 @@ function remove_runtime_job(smart, section)
         end
     end
     if not removed then return false end
-    for _, info in pairs(smart.npc_info or {}) do
+    for id, info in pairs(smart.npc_info or {}) do
         if info.job and info.job.section == section then
-            info.job = nil
-            info.job_id = nil
-            info.begin_job = false
-            info.need_job = "nil"
+            xsmart.clear_npc_job(smart, id)
         end
     end
     return true

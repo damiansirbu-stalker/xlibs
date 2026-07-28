@@ -109,6 +109,27 @@ function get_job_for_npc(smart, npc_id)
     return info and info.job
 end
 
+--- Clear an NPC's job assignment at a smart so the smart's next pass reselects one
+--- Clears the four npc_info fields select_npc_job reads (job, job_id, begin_job, need_job); update_jobs
+--- then treats the NPC as needing a job and reassigns the highest-priority one whose precondition
+--- admits it. No-op when the smart holds no npc_info entry for the id.
+--- @safety SAFE - nil-guarded on smart/npc_info/entry; pure Lua field writes
+--- @cost O(1) | 0 luabind (npc_info is a Lua table on the server object)
+--- @src anomaly/smart_terrain.script(582 update_jobs, 626 select_npc_job)
+--- @param smart smart_terrain Smart the NPC is registered to
+--- @param npc_id number NPC id
+--- @return boolean True when a job entry was cleared, false when none was present
+function clear_npc_job(smart, npc_id)
+    if not smart or not smart.npc_info or not npc_id then return false end
+    local info = smart.npc_info[npc_id]
+    if not info then return false end
+    info.job = nil
+    info.job_id = nil
+    info.begin_job = false
+    info.need_job = "nil"
+    return true
+end
+
 --- Lazy per-NPC role cache. Roles are immutable in practice (section, community, and bound
 --- logic block don't change at runtime for service NPCs), so entries are populated on first
 --- query. The engine recycles freed server-entity ids (see the clsid guard in
