@@ -19,7 +19,7 @@ local xobject, xlevel, xmath = xobject, xlevel, xmath
 ---   the caller should gate on nil and skip the call rather than fall through to the global walk.
 --- @return table Array of stash {id, position, filled}
 function find_stashes(pos, opts)
-    if not xmath.check_pos("xstash.find_stashes", pos) or not opts or not opts.max_distance then return {} end
+    if not xmath.check_pos(pos) or not opts or not opts.max_distance then return {} end
     if not treasure_manager or not treasure_manager.caches then return {} end
 
     local pool = opts.source or treasure_manager.caches

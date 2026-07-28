@@ -523,7 +523,7 @@ end
 ---   Use AlifePlus ap_core_cache.squads_on_level(level_id) to fetch a per-level bucket.
 --- @return table|nil Nearest matching squad
 function find_squad(pos, opts)
-    if not xmath.check_pos("xsquad.find_squad", pos) or not opts or not opts.max_distance then return nil end
+    if not xmath.check_pos(pos) or not opts or not opts.max_distance then return nil end
     local pool = opts.source or (SIMBOARD and SIMBOARD.squads)
     if not pool then return nil end
 
@@ -568,7 +568,7 @@ end
 --- @return table Array of squad server objects, sized uniformly random 1..max_count (empty when no candidate)
 --- @return number Count of candidates skipped by the is_protected filter
 function find_squads(pos, opts)
-    if not xmath.check_pos("xsquad.find_squads", pos) or not opts or not opts.max_distance then return {} end
+    if not xmath.check_pos(pos) or not opts or not opts.max_distance then return {} end
     local pool = opts.source or (SIMBOARD and SIMBOARD.squads)
     if not pool then return {} end
 
@@ -624,7 +624,7 @@ end
 ---   match: optional function(squad) -> boolean per-squad predicate evaluated after distance gate.
 --- @return boolean True on first matching squad, false after walking pool
 function has_squad(pos, opts)
-    if not xmath.check_pos("xsquad.has_squad", pos) or not opts or not opts.max_distance then return false end
+    if not xmath.check_pos(pos) or not opts or not opts.max_distance then return false end
     local pool = opts.source or (SIMBOARD and SIMBOARD.squads)
     if not pool then return false end
 

@@ -80,7 +80,7 @@ end
 --- @return string|nil Cell key "level:x:z", or nil on missing input
 function cell_key(level_id, position, cell_size)
     if not (level_id and cell_size and cell_size > 0) then return nil end
-    if not xmath.check_pos("xlevel.cell_key", position) then return nil end
+    if not xmath.check_pos(position) then return nil end
     return level_id .. ":" .. math_floor(position.x / cell_size) .. ":" .. math_floor(position.z / cell_size)
 end
 

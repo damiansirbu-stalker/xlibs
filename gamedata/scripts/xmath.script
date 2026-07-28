@@ -15,34 +15,22 @@ function dist_flat_sqr(a, b)
     return dx * dx + dz * dz
 end
 
-local _bad_pos_seen = {}
-
 --- Validate a caller-supplied position argument at a public spatial-query boundary.
 --- Returns true iff `pos` is a luabind vector (userdata). A nil returns false silently (an
 --- expected empty-input path). Any other non-vector type (function, table, number) is the
 --- signature of a foreign mod shadowing an object's C++ `position` member with a Lua method:
 --- luabind resolves the instance/class table before the C++ member (class_rep.cpp:1216-1253),
 --- so `obj.position` returns the function and every downstream `pos:distance_to_sqr()` / `pos.x`
---- crashes with "attempt to index a function value". On that case this logs the offending type
---- plus a stack traceback naming the caller (once per `where` per session) and returns false, so
---- the caller returns its own empty result instead of a CTD.
+--- crashes with "attempt to index a function value". Returning false on that case lets the
+--- caller return its own empty result instead of a CTD.
 --- @src xray-monolith class_rep.cpp(1216-1253) instance/class table lookup precedes m_getters;
 ---   xrServer_Objects_script.cpp(114) position is a def_readwrite C++ member on cse_abstract
---- @safety SAFE - pure type() check; the log path allocates a traceback only on the error edge
---- @cost O(1) | 0 luabind on the hot path (type() is a VM primitive); log only on the error edge
---- @param where string call-site label for the log line and the once-per-session dedup key
+--- @safety SAFE - pure type() check
+--- @cost O(1) | 0 luabind (type() is a VM primitive)
 --- @param pos any value to validate
 --- @return boolean true if pos is a vector
-function check_pos(where, pos)
-    if type(pos) == "userdata" then return true end
-    if pos ~= nil and not _bad_pos_seen[where] then
-        _bad_pos_seen[where] = true
-        -- debug is stripped in some release builds (vanilla utils_data.script guards it the same way)
-        local trace = (type(debug) == "table" and debug.traceback) and debug.traceback() or "(no traceback)"
-        printf("! [xlibs] %s: position is %s, not a vector (foreign shadow of obj.position); query skipped\n%s",
-            where, type(pos), trace)
-    end
-    return false
+function check_pos(pos)
+    return type(pos) == "userdata"
 end
 
 --- Return random element from array

@@ -1,10 +1,9 @@
 --- xchange: Liquibase-style data migrations. Register changesets by id, run once per save.
 
-local type, tostring, os_time = type, tostring, os.time
+local type, os_time = type, os.time
 
 local _registry = {}
 local _ids = {}
-local _logger = xlog.get_logger("xchange", { level = "WARN" })
 local LOG_KEY = "xchange_log"
 
 -- Apply one changeset if not already in log; stamp os.time on success.
@@ -16,15 +15,15 @@ local function _apply(m_data, log, cs)
 end
 
 --- Register a changeset. Append-only registry; declaration order is run order.
---- Rejects bad input and duplicate ids with a warn so caller bugs surface at load time.
+--- Silently rejects bad input and duplicate ids (a library never logs).
 --- @safety SAFE - pure table push, guards bad input
 --- @cost O(1) | 0 luabind
 --- @param id string Globally unique changeset id (e.g. "ap_v12_to_v13_release_orphaned_squads")
 --- @param fn function(m_data) Apply the change to m_data
 function register(id, fn)
-    if type(id) ~= "string" or id == "" then _logger.warn("[xchange] register: bad id %s", tostring(id)) return end
-    if type(fn) ~= "function" then _logger.warn("[xchange] register: bad fn for id=%s", id) return end
-    if _ids[id] then _logger.warn("[xchange] register: duplicate id=%s, skipped", id) return end
+    if type(id) ~= "string" or id == "" then return end
+    if type(fn) ~= "function" then return end
+    if _ids[id] then return end
     _ids[id] = true
     _registry[#_registry + 1] = { id = id, fn = fn }
 end

@@ -1743,7 +1743,7 @@ end
 --- @return boolean true if enclosed (underground level, or roofed-and-walled outdoor spot)
 function xcombat.is_indoor(pos)
     if xcombat.INDOOR_LEVELS[level.name()] then return true end
-    if not xmath.check_pos("xcombat.is_indoor", pos) then return false end
+    if not xmath.check_pos(pos) then return false end
     local probe = vector():set(pos.x, pos.y + INDOOR_PROBE_Y, pos.z)
     if not _static_hit(probe, vector():set(0, 1, 0), INDOOR_ROOF_M) then return false end
     local walls = 0
