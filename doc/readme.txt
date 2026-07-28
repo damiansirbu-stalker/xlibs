@@ -1,5 +1,5 @@
 xlibs: Shared utility library for STALKER Anomaly modding, by Damian
-Version: next
+Version: 1.8.4
 GitHub: https://github.com/damiansirbu-stalker/xlibs
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
@@ -14,6 +14,7 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 Features:
 
 Entity and World:
+  xactor       Actor info portions, talking/trading partner, state queries
   xcreature    Creature identification, type checks, translated names, money primitives
   xsquad       Squad search, scripted control, release, chase, iteration
   xsmart       Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation

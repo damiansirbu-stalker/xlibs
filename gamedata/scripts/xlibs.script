@@ -1,6 +1,6 @@
 --- xlibs: Package metadata
 local tonumber = tonumber
-local _VERSION = "next"
+local _VERSION = "1.8.4"
 
 --- The unreleased development build. Between releases every mod's own version reads this instead of
 --- the last released number, so a log says at a glance whether a tester runs a release or a dev

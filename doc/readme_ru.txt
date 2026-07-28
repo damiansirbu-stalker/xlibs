@@ -1,5 +1,5 @@
 xlibs: Разделяемая библиотека утилит для моддинга STALKER Anomaly, автор Damian
-Версия: next
+Версия: 1.8.4
 GitHub: https://github.com/damiansirbu-stalker/xlibs
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 English: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme.txt
@@ -14,6 +14,7 @@ xlibs — набор инструментов моддера, покрывающ
 Возможности:
 
 Сущности и мир:
+  xactor       Инфопорции актора, партнёр по диалогу и торговле, запросы состояния
   xcreature    Определение существ, проверки типов, переведённые имена, примитивы для денег
   xsquad       Поиск отрядов, скриптовый контроль, освобождение, преследование, перебор
   xsmart       Запросы к смарт-террейнам, определение фракции, вместимость, прибытие, захват, распределение работ
