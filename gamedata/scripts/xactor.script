@@ -15,3 +15,15 @@ function give_info(info_id)
     actor:give_info_portion(info_id)
     return true
 end
+
+--- Actor's current talk/trade partner (dialog or open trade window), or nil when not talking.
+--- Wraps db.actor:get_talking_npc with a nil guard on db.actor (NULL during boot/transitions)
+--- @safety SAFE - nil-guarded on actor; engine smart_casts to CInventoryOwner, returns its GetTalkPartner game object (nil when none)
+--- @cost O(1) | 1 luabind (get_talking_npc: smart_cast CInventoryOwner + GetTalkPartner + cast_game_object)
+--- @src xray/xrGame/script_game_object2.cpp(744), xray/xrGame/script_game_object_script3.cpp(681)
+--- @return game_object|nil The NPC the actor is talking or trading with, nil when none
+function get_talking_npc()
+    local actor = db.actor
+    if not actor then return nil end
+    return actor:get_talking_npc()
+end
