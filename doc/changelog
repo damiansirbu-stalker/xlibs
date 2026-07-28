@@ -17,6 +17,11 @@ next
     - Added get_sight_target(npc): the sight manager's current sight object id and mode (sight_params m_object/m_sight_type) -
       the identity+mode pair the state machinery's direction evaluator gates fire on for a look order (the body angle is never measured).
       For traces and consumers asking whether a look_object order was actually accepted.
+    - Fixed a takeover-held NPC staying sight-glued to his PREVIOUS enemy: the engine sight slot has no expiry, so the old fight's stare
+      survived the takeover and the state machinery could not replace it while any of its direction preconditions hung - the NPC held
+      a maneuver facing the wrong man and never fired (the counterflank freeze). set_combat now sets the sight at the committed target
+      on every firing apply, the exact call and branch the state machinery itself uses, so the two writers agree; the mode stamp is
+      written alongside, so fire releases once the body converges. The fire-side twin of the existing stowed-rout path-sight assert.
 
   xmath
     - Added check_pos(where, pos): a position-type guard the spatial-query entry points now run on their argument.

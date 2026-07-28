@@ -6,7 +6,7 @@ local time_global, tostring, tonumber = time_global, tostring, tonumber
 local type, rawget, assert, pairs = type, rawget, assert, pairs
 local level_object_by_id = level.object_by_id
 local vector, level = vector, level
-local move, state_mgr = move, state_mgr
+local move, state_mgr, state_mgr_direction = move, state_mgr, state_mgr_direction
 local db, alife_object, ini_sys, IsWeapon, xmath = db, alife_object, ini_sys, IsWeapon, xmath
 
 xcombat = xcombat or {}
@@ -758,6 +758,34 @@ end
 -- survives; "seen" = visible, fired as asked; "memory" = blind, firing at last-known (the 10s
 -- auto-weapon window); "hold" = blind and no shot makes sense, READY).
 -- @cost O(1) | 1-2 luabind (reload state) + 1 luabind (see) when seen; + the fire_make_sense reads when blind
+-- Set the sight at the committed target - the missing half of taking an NPC (f015). The engine
+-- sight manager is a single slot with NO expiry (CSightControlAction duration u32(-1),
+-- sight_manager.cpp:242): when the takeover blocks the planners, the previous owner's sight
+-- action - kill_enemy's fire-object stare at the OLD enemy - survives in the slot, and the state
+-- machinery's own look order cannot replace it while any direction_turn precondition
+-- (weapon/animation/movement, state_mgr_goap.script:468-481) hangs: the NPC stays sight-glued to
+-- the old fight for the whole hold (the counterflank zero-shot freeze; 16 of 16 glued samples,
+-- 2026-07-28). Every engine combat action's first act on initialize is sight().setup - this is
+-- that write. Mirrors look_at_object (state_mgr_direction.script) exactly: the same
+-- look_object_type branch picks the same sight class, so when turn() also runs the two writers
+-- issue the identical action and CSightAction's operator== (sight_action_inline.h:87-111) makes
+-- the repeat a no-op inside setup - agreement, not a fight. The point_obj_dir stamp (the value
+-- turn() itself would write, guarded to OUR look order) lets the direction evaluator's mode term
+-- pass once the identity matches, so the fire gate (state_mgr.script:318) releases when the body
+-- converges even if direction_turn never ran. Equality ignores no_pitch, so the one 4-arg call
+-- covers both branches.
+-- @cost O(1) | 2 luabind (id, set_sight; set_sight dedups engine-side when unchanged)
+local function _set_committed_sight(npc, aim)
+    local st = db.storage[npc:id()]
+    local sm = st and st.state_mgr
+    local point_dir = (sm ~= nil) and state_mgr_direction.look_object_type(npc, sm) or false
+    if sm and sm.look_object == aim:id() then sm.point_obj_dir = point_dir end
+    local torso_look = true
+    local fire_object = not point_dir
+    local no_pitch = false
+    npc:set_sight(aim, torso_look, fire_object, no_pitch)
+end
+
 local function _resolve_fire(npc, requested, enemy)
     if xcombat.is_reloading(npc) then return xcombat.READY, "reloading" end
     if enemy and xcombat.sees(npc, enemy) then return requested, "seen" end
@@ -807,6 +835,11 @@ function xcombat.set_combat(npc, opts)
     -- re-assert keeps the head down the path.
     if fire == "STOW" then
         npc:set_sight(look.path_dir, nil, 0)
+    end
+    -- A firing state looks at its COMMITTED TARGET, explicitly - the fire-side twin of the STOW
+    -- branch above, closing the stale-sight glue (f015; the full mechanism on _set_committed_sight).
+    if aim then
+        _set_committed_sight(npc, aim)
     end
     -- SNIPE deliberately does NOT touch npc:sniper_fire_mode. That engine flag is story-scene stagecraft:
     -- its 3 read sites (g_fireParams, ai_stalker_fire.cpp:193,225,239) replace the fired direction with the
