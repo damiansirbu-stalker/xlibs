@@ -603,6 +603,26 @@ function xcombat.get_cover_state(npc)
     return storage:property(stalker_ids.property_in_cover), storage:property(stalker_ids.property_looked_out), storage:property(stalker_ids.property_position_holded)
 end
 
+--- The sight manager's CURRENT sight target and mode - the pair the state machinery's direction
+--- evaluator gates fire on for a look_object order (object identity + mode, never the body angle:
+--- eva_state_mgr_direction returns true when sight_params().m_object matches the ordered id and the
+--- stamped mode matches the state's, state_mgr_direction.script). A read of "whom is the sight
+--- manager actually serving": during a zero-shot hold this is the field that shows whether the
+--- ordered look_object was ever accepted.
+--- @safety SAFE - nil-guarded npc and params
+--- @cost O(1) | 2-3 luabind trivial (sight_params + field reads)
+--- @src xray/script_game_object_script3.cpp:443 (sight_params bind), anomaly/state_mgr_direction.script (the identity+mode fire gate)
+--- @param npc game_object stalker
+--- @return number|nil id of the current sight object (nil = current sight is not an object)
+--- @return number|nil m_sight_type enum value (nil when npc/params absent)
+function xcombat.get_sight_target(npc)
+    if not npc then return nil, nil end
+    local params = npc:sight_params()
+    if not params then return nil, nil end
+    local obj = params.m_object
+    return obj and obj:id() or nil, params.m_sight_type
+end
+
 -- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
 local _operators = nil
 
@@ -1562,6 +1582,52 @@ end
 --- @return boolean true when the path is complete and current
 function xcombat.is_arrived(npc)
     return npc:path_completed()
+end
+
+--- True while an engine hit flinch (the additive PlayHitMotion blend) is playing on this NPC -
+--- the n037 reader, probed per compatibility-standards; false on exes without the bind, so the
+--- term simply drops out of body_busy on release engines.
+--- @safety SAFE - nil-guarded, no-op probe below the bind
+--- @cost O(1) | 1 luabind trivial (clock compare in the engine) after the first probe
+--- @src n037 HIT_ANIM_READ_VETO_AND_MOVE_HOLD (todo-demonized-exes.md); character_hit_animations stamp
+--- @param npc game_object stalker
+--- @return boolean true while a hit flinch is blending
+function xcombat.is_flinching(npc)
+    if not npc or not _has_bind(npc, "is_hit_anim_playing") then return false end
+    return npc:is_hit_anim_playing()
+end
+
+--- True exactly while the critical-hit stagger animation plays on this NPC. The engine name is
+--- misleading: critically_wounded() is NOT the wounded-down state (IsWounded) - it is set when a
+--- heavy hit crosses the bone accumulator threshold and cleared by the stagger animation's END
+--- callback (ai_stalker_fire.cpp:1291-1320), so it reads true for the ~1s hit reaction only.
+--- Consumers PAUSE on it (animation plays, action waits); only IsWounded justifies ending work.
+--- @safety SAFE - nil-guarded
+--- @cost O(1) | 1 luabind trivial
+--- @src xray/ai_stalker_fire.cpp:1244-1320 (set/clear lifecycle), xray/stalker_animation_global.cpp:42-96 (the global-channel stagger)
+--- @param npc game_object stalker
+--- @return boolean true while the stagger animation is playing
+function xcombat.is_staggering(npc)
+    if not npc then return false end
+    return npc:critically_wounded()
+end
+
+--- True while a transient animation OWNS this body - the "never act on an animating body" gate
+--- (user design law, 2026-07-27). Three terms, cheapest first: the critical-hit stagger
+--- (is_staggering above), a script
+--- animation overlay (animation_count - a queued overlay suspends the engine's whole selection),
+--- and the additive hit flinch (probed, engine-bind exes only). Consumers gate BODY WRITERS on it
+--- (maneuver staging, state re-application); refusal-only systems (the Commitment vetoes) need no
+--- gate - they never write the body, and the crit transition already passes their watched set.
+--- @safety SAFE - nil-guarded
+--- @cost O(1) | 2 luabind trivial + 1 probed read, worst case
+--- @param npc game_object stalker
+--- @return boolean true while the body is owned by a transient animation
+function xcombat.body_busy(npc)
+    if not npc then return false end
+    if xcombat.is_staggering(npc) then return true end
+    if npc:animation_count() > 0 then return true end
+    return xcombat.is_flinching(npc)
 end
 
 -- CWeapon::eReload = 7: eLastBaseState = eBore = 4 (HudItem.h:50-55), then eFire=5, eFire2=6, eReload=7

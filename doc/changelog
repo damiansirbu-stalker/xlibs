@@ -9,6 +9,14 @@ next
       the live "does the takeover actually hold this NPC" read, for consumers detecting an unlisted action holding the slot under an open transaction.
     - Changed find_flee_lane's last-resort fallback to validate its run lane like the fan phases: the farthest reachable partial is now obstacle-checked,
       and the search returns nil instead of a lane through a tree or crate when nothing clear validates.
+    - Added body_busy(npc): true while a transient animation owns the body - the critical-hit stagger (critically_wounded, exact to the stagger anim's duration),
+      a script animation overlay, or the engine hit flinch where the exe exposes it. The "never act on an animating body" gate for consumers that write NPC state.
+    - Added is_flinching(npc): probed read of the engine hit-flinch window (is_hit_anim_playing), false on exes without the bind.
+    - Added is_staggering(npc): true exactly while the critical-hit stagger animation plays. Wraps the engine's misleadingly named
+      critically_wounded() (a ~1s hit reaction, not the wounded-down state) so consumers pause on it instead of treating it as wounded.
+    - Added get_sight_target(npc): the sight manager's current sight object id and mode (sight_params m_object/m_sight_type) -
+      the identity+mode pair the state machinery's direction evaluator gates fire on for a look order (the body angle is never measured).
+      For traces and consumers asking whether a look_object order was actually accepted.
 
   xmath
     - Added check_pos(where, pos): a position-type guard the spatial-query entry points now run on their argument.
