@@ -1083,6 +1083,25 @@ function xcombat.set_vision_speed(npc, factor)
     return true
 end
 
+--- Per-NPC view-DISTANCE factor (npc:set_view_distance_factor(factor)) - the RANGE twin of
+--- set_vision_speed. Vision speed shortens time-to-detect for a target already in line of sight; it
+--- cannot extend the distance at which detection begins. This multiplies object_visible_distance's
+--- return, so 1.0 = vanilla, higher = the NPC begins seeing a target from farther out, negative
+--- clamps to 0. Composes with the per-state max_view_distance LTX multiplier. This is what a
+--- binocular optic actually wants (range, not speed); NVG and a per-rank range curve ride it too.
+--- Not serialized: the memory manager is reconstructed on re-online, re-set on npc_on_net_spawn.
+--- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-CCustomMonster (the actor)
+--- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
+--- @src n038 BIND_NPC_VIEW_DISTANCE (todo-demonized-exes.md); mirrors set_vision_speed
+--- @param npc game_object stalker or monster
+--- @param factor number multiplier on the effective visible distance (1.0 = vanilla)
+--- @return boolean true when the engine path applied, false on a floor exe (no-op)
+function xcombat.set_view_distance_factor(npc, factor)
+    if not npc or not _has_bind(npc, "set_view_distance_factor") then return false end
+    npc:set_view_distance_factor(factor)
+    return true
+end
+
 --- Per-NPC fire-queue scaling (npc:set_fire_queue_scale(size_k, interval_k), PR #603). Scales the combat
 --- planner's selected burst band: size_k multiplies burst size (the engine clamps >= 1, so < 1 degrades
 --- to single shots, never silence), interval_k multiplies the inter-burst pause. Applied in
