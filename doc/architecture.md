@@ -244,7 +244,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - Consumer dispatch should short-circuit on `untouchable` and `equipped` before any policy lookup.
 
 **Item lifecycle**:
-- `iterate_inventory(npc_id, callback)` - online-only inventory walk (engine has no offline iteration API). Replaces `xobject.iterate_online_inventory`.
+- `iterate_inventory(npc_id, callback, max_items)` - online-only inventory walk (engine has no offline iteration API). Optional `max_items` stops the walk after that many items and returns `true` as a second value on truncation; nil = unbounded. Replaces `xobject.iterate_online_inventory`.
 - `create_item(section, npc_id, t)` - spawn item on any NPC (online / offline / cross-map via smart-terrain fallback). A requested `cond` is applied even on non-degradable sections (weapons, outfits) that itms_manager skips. Replaces `xobject.create_item`.
 - `transfer_item(from_npc, item, to_npc)` - move item between owners.
 - `release_item(item)` - alife_release_id wrapper (needs a live game_object).
@@ -252,8 +252,8 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 
 **Policy primitives** (uniform shape across consumers):
 - `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`. `entries` preserves declaration order (BUY / LOOT priority); `rules` is the hash for O(1) per-category lookup; `specials` carries numeric keys named in `specials_set` (`profit_max`, `extras_max`, `fill_max`, ...).
-- `classify(npc, opts)` - per-category count walker for an online NPC. Single iterate; ammo categories in rounds, others in items. Skips untouchable + equipped via `get_category`.
-- `iterate_surplus(npc, opts, ctx)` - surfaces items while `count > max`. `ctx = { rules, counts, on_surplus }`. Mutates `ctx.counts` in place; `ctx.on_surplus(item, cat, sec, unit)` owns the action (transfer, release, queue). Returning `true` from `on_surplus` stops iteration. Lands at exactly `max` for `unit = 1` categories; for ammo (`unit > 1`) the final count can fall short of `max` by up to `unit - 1` rounds when the boundary stack overshoots.
+- `classify(npc, opts, rules, max_items)` - per-category count walker for an online NPC. Single iterate; ammo categories in rounds, others in items. Skips untouchable + equipped via `get_category`. Optional `max_items` caps the walk and is returned as a second value on truncation.
+- `iterate_surplus(npc, opts, ctx)` - surfaces items while `count > max`. `ctx = { rules, counts, on_surplus, max_items }`. Optional `ctx.max_items` caps the walk (pass the value `classify` used so both walks cover the same first-N items). Mutates `ctx.counts` in place; `ctx.on_surplus(item, cat, sec, unit)` owns the action (transfer, release, queue). Returning `true` from `on_surplus` stops iteration. Lands at exactly `max` for `unit = 1` categories; for ammo (`unit > 1`) the final count can fall short of `max` by up to `unit - 1` rounds when the boundary stack overshoots.
 - `build_surplus_map(counts, rules)` - pure. Derives `{ [category] = surplus_count }` from counts vs rules.
 
 LTX policy file shape (consumer mods own the values):

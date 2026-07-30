@@ -733,21 +733,38 @@ end
 
 --- Iterate an NPC's inventory iff the NPC is online; nil-returns otherwise
 --- Engine exposes no Lua API for offline server-inventory walks; this wrapper makes the
---- online-only constraint explicit. Callback signature: function(npc_go, item_go).
---- Returning true from callback stops iteration (engine convention).
+--- online-only constraint explicit. Callback signature: function(npc_go, item_go); return true
+--- to stop early (engine convention). max_items bounds the walk to that many items and returns
+--- true as the second value when the cap stopped it early (the NPC held more) -- a single-frame
+--- cost ceiling for pathological inventories; nil leaves the walk unbounded.
 --- @safety SAFE - returns nil on nil npc_id / callback / offline NPC
---- @cost O(items) | 2 luabind (level.object_by_id trivial + iterate_inventory) + STL walk
---- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270)
+--- @cost O(min(items, max_items)) | 2 luabind (level.object_by_id trivial + iterate_inventory) + STL walk; +1 Lua closure alloc when max_items set
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) IterateInventory (for-loop returns on callback == true)
 --- @param npc_id number NPC entity ID
 --- @param callback function(npc_go, item_go) Invoked per item; return true to stop early
+--- @param max_items number|nil Cap on items walked; nil = unbounded
 --- @return game_object|nil The npc game_object when iteration ran; nil if offline / invalid
-function iterate_inventory(npc_id, callback)
+--- @return boolean|nil true when max_items stopped the walk early (more items remained); nil when unbounded
+function iterate_inventory(npc_id, callback, max_items)
     if not npc_id or not callback then return nil end
     if not level.present() then return nil end
     local npc_go = level.object_by_id(npc_id)
     if not npc_go then return nil end
-    npc_go:iterate_inventory(callback, npc_go)
-    return npc_go
+    if not max_items then
+        npc_go:iterate_inventory(callback, npc_go)
+        return npc_go
+    end
+    local scanned = 0
+    local hit_cap = false
+    npc_go:iterate_inventory(function(owner, item)
+        scanned = scanned + 1
+        if scanned > max_items then
+            hit_cap = true
+            return true
+        end
+        return callback(owner, item)
+    end, npc_go)
+    return npc_go, hit_cap
 end
 
 --- Force a requested condition onto a freshly created item that itms_manager.create_item ignored.
@@ -977,24 +994,27 @@ end
 --- automatically (caller never sees them). Ammo keys count in ROUNDS (sum of ammo_get_count
 --- across stacks); other keys count in ITEMS. With rules given, an item whose section is named
 --- in rules counts under its SECTION key, otherwise its category key, so a category cap sees
---- only items that have no section rule of their own.
+--- only items that have no section rule of their own. max_items bounds the walk (forwarded to
+--- iterate_inventory) and is returned as the second value when the cap truncated it.
 --- @safety SAFE - nil-guarded npc; offline npc yields empty (iterate_inventory online-only)
---- @cost O(items) | per item: policy_key + 0-1 ammo_get_count
---- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270) iterate_inventory
+--- @cost O(min(items, max_items)) | per item: policy_key + 0-1 ammo_get_count
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc); nil opts treats every ammo as ammo_not_equipped
 --- @param rules table|nil From load_policy(...).rules; nil = pure per-category counting
+--- @param max_items number|nil Cap forwarded to iterate_inventory; nil = unbounded
 --- @return table { [category|section] = count }
-function classify(npc, opts, rules)
+--- @return boolean|nil true when the walk was capped at max_items (more items remained)
+function classify(npc, opts, rules, max_items)
     local counts = {}
     if not npc then return counts end
-    iterate_inventory(npc:id(), function(_, item)
+    local _, hit_cap = iterate_inventory(npc:id(), function(_, item)
         if not item then return end
         local key, cat = policy_key(item, opts, rules)
         if not key then return end
         counts[key] = (counts[key] or 0) + _unit(cat, item)
-    end)
-    return counts
+    end, max_items)
+    return counts, hit_cap
 end
 
 --- Walk NPC inventory and surface items above their policy max
@@ -1006,15 +1026,18 @@ end
 --- For unit > 1 (ammo, in rounds) releases happen whole-stack; the final count can fall short
 --- of max by up to (unit - 1) when the boundary stack overshoots.
 --- The caller's on_surplus owns the action: trade transfers + credits, inventory-balance
---- releases. No release happens unless on_surplus does it.
+--- releases. No release happens unless on_surplus does it. ctx.max_items bounds the walk
+--- (forwarded to iterate_inventory); pass the same value classify used so both walks cover the
+--- identical first-N items (m_all order is stable across calls, no mutation between them).
 --- @safety SAFE - nil-guarded args; iterate_inventory tolerant of nil items
---- @cost O(items) | per item: policy_key + 1 hash lookup + 0-1 ammo_get_count
---- @src xray/xrGame/script_game_object_inventory_owner.cpp(256-270) iterate_inventory
+--- @cost O(min(items, max_items)) | per item: policy_key + 1 hash lookup + 0-1 ammo_get_count
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc)
 --- @param ctx table { rules = hash from load_policy(...).rules,
 ---                    counts = mutable counts from classify(npc, opts, rules),
----                    on_surplus = function(item, category, section, unit) }
+---                    on_surplus = function(item, category, section, unit),
+---                    max_items = number|nil cap forwarded to iterate_inventory }
 --- @return number Count of surplus items ctx.on_surplus was called on
 function iterate_surplus(npc, opts, ctx)
     if not npc or not ctx or not ctx.rules or not ctx.counts or not ctx.on_surplus then return 0 end
@@ -1032,7 +1055,7 @@ function iterate_surplus(npc, opts, ctx)
         counts[key] = count - unit
         invoked = invoked + 1
         return on_surplus(item, cat, sec, unit) == true
-    end)
+    end, ctx.max_items)
     return invoked
 end
 
