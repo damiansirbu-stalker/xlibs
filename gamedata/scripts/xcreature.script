@@ -12,6 +12,11 @@ ENTITY = {
     MUTANT = "mutant",
 }
 
+--- Stalker rank tier names, low to high, as returned by ranks.get_obj_rank_name. The single owner for
+--- the rank-name set: iterate it to build per-rank config keys and curve tables (mirrors the vanilla
+--- game_relations rating tiers and the mods' per-rank MCM slider suffixes).
+RANK_TIERS = { "novice", "trainee", "experienced", "professional", "veteran", "expert", "master", "legend" }
+
 --- Get class ID from entity
 --- Accepts ID, game_object, or server object; resolves to clsid via xobject.se + :clsid() luabind
 --- @safety SAFE - returns nil for invalid/missing entities, :clsid() never crashes

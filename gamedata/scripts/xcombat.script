@@ -1125,6 +1125,63 @@ function xcombat.set_fire_queue_scale(npc, size_k, interval_k)
     return true
 end
 
+--- Per-NPC passive health-restore boost (npc:set_health_restore_boost(boost)) - the passive-regen twin
+--- of the medkit action. Passive HP restore is the engine condition velocity m_fV_HealthRestore, applied
+--- every UpdateHealth while alive from health_restore_v (m_stalker.ltx = 0.00003 for stalkers); this ADDS
+--- boost to that velocity per NPC, so 0 = vanilla, higher = faster idle regeneration, mirroring the
+--- vanilla belt-artefact restore an NPC otherwise never gets. Distinct lever from the xr_eat_medkit heal
+--- action (that is an item consume; this is the standing velocity). Not serialized: the condition is
+--- reconstructed on re-online, re-set on npc_on_net_spawn.
+--- Floor fallback: NO-OP - vanilla restore IS the fallback.
+--- @safety SAFE - nil-guarded, no-op below the bind
+--- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
+--- @src n039 BIND_NPC_HEALTH_RESTORE_BOOST (todo-demonized-exes.md); xray/xrGame/EntityCondition.cpp:642
+---   (UpdateHealth applies m_fV_HealthRestore), :279 (alive gate); base health_restore_v anomaly/m_stalker.ltx:249
+--- @param npc game_object stalker
+--- @param boost number additive on the restore velocity (0 = vanilla)
+--- @return boolean true when the engine path applied, false on a floor exe (no-op)
+function xcombat.set_health_restore_boost(npc, boost)
+    if not npc or not _has_bind(npc, "set_health_restore_boost") then return false end
+    npc:set_health_restore_boost(boost)
+    return true
+end
+
+--- Scale a pending hit's damage inside a before-hit callback: shit.power = shit.power * factor. The one
+--- primitive a caller's damage effect writes through, so no consumer touches the engine hit struct
+--- directly. factor > 1 amplifies (a shooter's damage edge), < 1 mitigates (a victim's resistance); the
+--- caller resolves highest-wins and hands the final multiplier here. Composes across subscribers on the
+--- same seam - each multiplies the shared field. nil hit or nil factor is a no-op (leave vanilla damage).
+--- @safety SAFE - nil-guarded on both args; a pure Lua field write, no engine bind, works on every exe
+--- @cost O(1) | 0 luabind of its own (a field read+write on the callback-delivered CScriptHit userdata)
+--- @src xray/script_hit_script.cpp:35 (.def_readwrite("power", &CScriptHit::m_fPower)); dispatched from
+---   anomaly/scripts/_g.script:1245 (npc_on_before_hit) and :1237 (actor_on_before_hit)
+--- @param shit CScriptHit the hit object passed to the before-hit callback
+--- @param factor number|nil the damage multiplier (nil = no change)
+--- @return boolean true when a factor was applied, false when skipped
+function xcombat.scale_hit_power(shit, factor)
+    if not (shit and factor) then return false end
+    shit.power = shit.power * factor
+    return true
+end
+
+--- Scale the per-shot dispersion cone inside an npc_shot_dispersion callback: temp_disp.dispersion is
+--- multiplied by factor. The one primitive a caller's dispersion effect writes through. factor < 1
+--- tightens the cone (skill, a steadying optic), > 1 loosens it; multiple subscribers compose because
+--- each multiplies the shared field, and the engine returns the final temp_disp.dispersion to its
+--- accuracy calc. nil table, nil factor, or an unset dispersion is a no-op (leave the engine cone).
+--- @safety SAFE - nil-guarded; a pure Lua field write, no engine bind, works on every exe
+--- @cost O(1) | 0 luabind of its own (a plain table field read+write)
+--- @src anomaly/scripts/_g.script:1213-1217 (CAI_Stalker__GetWeaponAccuracy seeds temp_disp.dispersion,
+---   fires npc_shot_dispersion, returns the mutated value); base cone xray/ai/stalker/ai_stalker_fire.cpp:72-133
+--- @param temp_disp table the shared { dispersion = number } table passed to the callback
+--- @param factor number|nil the cone multiplier (nil = no change)
+--- @return boolean true when a factor was applied, false when skipped
+function xcombat.scale_dispersion(temp_disp, factor)
+    if not (temp_disp and factor and temp_disp.dispersion) then return false end
+    temp_disp.dispersion = temp_disp.dispersion * factor
+    return true
+end
+
 local FIRE_BONE = "bip01_r_finger02"
 -- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
 local INVALID_BONE_ID = 65535
