@@ -2,7 +2,7 @@
 --- spawn (suppresses LTX entries via faction_controlled gate). Mirrors smart_terrain.script's
 --- respawn_params field shape so try_respawn picks the entries up natively.
 
-local pairs, tostring = pairs, tostring
+local pairs, tostring, type = pairs, tostring, type
 local table_sort, table_remove = table.sort, table.remove
 
 --- Faction -> generic simulation squad sections (novice, advanced, veteran). Copy of smart_terrain.script:16-29.
@@ -98,7 +98,7 @@ function set_shared_spawn_section(smart, key, section, spawn_num)
     return true
 end
 
---- Add a faction-tagged spawn entry for an EXPLICIT squad section, so it passes the faction gate
+--- Add a faction-tagged spawn entry for EXPLICIT squad section(s), so it passes the faction gate
 --- on an already-exclusive smart. The entry is tagged with the smart's current owner (smart.faction);
 --- on a smart under exclusive control it spawns alongside the controlling entry, where a plain
 --- set_shared_spawn_section entry (no .faction) would be suppressed by the gate (smart_terrain.script
@@ -111,18 +111,21 @@ end
 --- @src anomaly/smart_terrain.script(1665-1672) faction gate: (faction_controlled==nil) or v.faction==self.faction
 --- @param smart se_smart_terrain Smart terrain to inject into (must be under exclusive control)
 --- @param key string Unique respawn_params key (e.g. "ap_service_trader")
---- @param section string A squad_descr section to spawn
+--- @param section string|table A squad_descr section, or an ARRAY of sections (try_respawn picks
+---   uniformly per spawn, smart_terrain.script:1716)
 --- @param spawn_num number|nil Max squads for this entry (default 1)
 --- @return boolean True if applied
 function set_exclusive_spawn_section(smart, key, section, spawn_num)
     if not smart or not key or not section then return false end
     local faction = smart.faction
     if not faction then return false end
+    local squads = (type(section) == "table") and section or { section }
+    if not squads[1] then return false end
     smart.respawn_params = smart.respawn_params or {}
     smart.already_spawned = smart.already_spawned or {}
     smart.respawn_point = true
     local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
-    smart.respawn_params[key] = { num = condlist, squads = { section }, faction = faction }
+    smart.respawn_params[key] = { num = condlist, squads = squads, faction = faction }
     smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
     return true
 end
@@ -164,6 +167,29 @@ end
 -- Indexes the {novice, advanced, veteran} SQUADS_BY_FACTION pool.
 local _TIER_CEILING = { [0] = 1, [1] = 2, [2] = 2, [3] = 3, [4] = 3, [5] = 3 }
 
+--- Faction squad pool capped by the smart's level danger tier: rookie maps yield the novice
+--- section only, early maps novice/advanced, mid maps north the full pool -- cumulative, lower
+--- tiers always stay in. Unknown levels read as xlevel.DANGER_TIER_DEFAULT. The array a caller
+--- feeds to set_exclusive_spawn_section for a tier-correct passenger entry; the full pool is
+--- returned by identity when the ceiling covers it (no copy).
+--- @safety SAFE - nil-guarded; nil for unknown factions
+--- @cost O(1) | 2-4 luabind (xlevel.get_level_id + sim:level_name on a cold tier cache)
+--- @src anomaly/smart_terrain.script(1716-1720) uniform pick from the squads array
+--- @param smart se_smart_terrain Smart terrain (tier scope)
+--- @param faction string Stalker community (SQUADS_BY_FACTION lookup)
+--- @return table|nil Array of squad sections, nil for an unknown faction
+function get_tiered_faction_squads(smart, faction)
+    if not smart then return nil end
+    local pool = SQUADS_BY_FACTION[faction]
+    if not pool then return nil end
+    local tier = xlevel.get_danger_tier(xlevel.get_level_id(smart)) or xlevel.DANGER_TIER_DEFAULT
+    local ceiling = _TIER_CEILING[tier] or #pool
+    if ceiling >= #pool then return pool end
+    local squads = {}
+    for i = 1, ceiling do squads[i] = pool[i] end
+    return squads
+end
+
 --- Exclusive faction spawn with the squad tiers capped by the level's danger tier
 --- (xlevel.get_danger_tier): rookie maps field novice squads only, early maps novice/advanced,
 --- mid maps and north the full pool -- cumulative, the ceiling rises with the map, lower tiers
@@ -181,15 +207,8 @@ local _TIER_CEILING = { [0] = 1, [1] = 2, [2] = 2, [3] = 3, [4] = 3, [5] = 3 }
 --- @return boolean True if applied
 function set_exclusive_spawn_tiered(smart, key, faction, spawn_num)
     if not smart or not key then return false end
-    local pool = SQUADS_BY_FACTION[faction]
-    if not pool then return false end
-    local tier = xlevel.get_danger_tier(xlevel.get_level_id(smart)) or xlevel.DANGER_TIER_DEFAULT
-    local ceiling = _TIER_CEILING[tier] or #pool
-    local squads = pool
-    if ceiling < #pool then
-        squads = {}
-        for i = 1, ceiling do squads[i] = pool[i] end
-    end
+    local squads = get_tiered_faction_squads(smart, faction)
+    if not squads then return false end
     return _write_exclusive(smart, key, faction, squads, spawn_num)
 end
 

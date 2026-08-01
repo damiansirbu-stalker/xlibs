@@ -1,9 +1,22 @@
 next
-  Summary: inventory walk cap
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix
 
   xinventory
     - Added an optional max_items cap to iterate_inventory, classify, and iterate_surplus. The walk stops after that many items and reports the truncation as a second return value,
       so a consumer can bound the per-NPC frame cost of a full-inventory scan. nil leaves the walk unbounded, so existing callers are unchanged.
+
+  xsquad
+    - is_task_target now also matches a squad whose id or any member is an active task's current_target (the map-marked objective), so a generic retrieve-quest target with no story_id and no
+      task_squads or bounty/hostage entry is protected. New get_active_task_targets() exposes the per-frame-cached set of those objective ids for entity-level callers.
+
+  xsmart_spawn
+    - Added get_tiered_faction_squads(smart, faction): the faction's squad pool capped by the smart's level danger tier, as an array a caller can feed to a spawn entry.
+      set_exclusive_spawn_tiered now resolves its pool through it.
+    - set_exclusive_spawn_section now also accepts an array of squad sections; the engine picks uniformly per spawn. A single section string works as before.
+
+  xsmart
+    - clear_npc_job now unlinks the NPC from the smart's job-occupancy map before clearing its job fields, mirroring vanilla clear_job,
+      so a cleared job's single-occupancy slot can no longer briefly block other NPCs from taking that job.
 
 1.8.4
   Summary: takeover late-bind top-up, takeover-current read, takeover id export, validated flee-lane fallback, spatial-query position guard, talking-npc lookup, inventory dump, clear_npc_job, runtime-job ini fix

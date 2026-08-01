@@ -110,12 +110,17 @@ function get_job_for_npc(smart, npc_id)
 end
 
 --- Clear an NPC's job assignment at a smart so the smart's next pass reselects one
---- Clears the four npc_info fields select_npc_job reads (job, job_id, begin_job, need_job); update_jobs
---- then treats the NPC as needing a job and reassigns the highest-priority one whose precondition
---- admits it. No-op when the smart holds no npc_info entry for the id.
+--- Unlinks the NPC from the occupancy map FIRST (every npc_by_job_section slot mapped to the id),
+--- then clears the four npc_info fields select_npc_job reads (job, job_id, begin_job, need_job);
+--- update_jobs then treats the NPC as needing a job and reassigns the highest-priority one whose
+--- precondition admits it. The unlink mirrors vanilla clear_job: without it a later
+--- clear_job(id, true) skips its own unlink (it walks the map only while info.job is set,
+--- smart_terrain.script:568-575), leaving a stale single-occupancy slot that other NPCs skip until
+--- the jobless-branch heal clears it (smart_terrain.script:740-742). No-op when the smart holds no
+--- npc_info entry for the id.
 --- @safety SAFE - nil-guarded on smart/npc_info/entry; pure Lua field writes
---- @cost O(1) | 0 luabind (npc_info is a Lua table on the server object)
---- @src anomaly/smart_terrain.script(582 update_jobs, 626 select_npc_job)
+--- @cost O(jobs with occupants) map walk | 0 luabind (npc_info / npc_by_job_section are Lua tables)
+--- @src anomaly/smart_terrain.script(566-580 clear_job unlink, 582 update_jobs, 626 select_npc_job)
 --- @param smart smart_terrain Smart the NPC is registered to
 --- @param npc_id number NPC id
 --- @return boolean True when a job entry was cleared, false when none was present
@@ -123,6 +128,11 @@ function clear_npc_job(smart, npc_id)
     if not smart or not smart.npc_info or not npc_id then return false end
     local info = smart.npc_info[npc_id]
     if not info then return false end
+    if smart.npc_by_job_section then
+        for sec, id in pairs(smart.npc_by_job_section) do
+            if id == npc_id then smart.npc_by_job_section[sec] = nil end
+        end
+    end
     info.job = nil
     info.job_id = nil
     info.begin_job = false
