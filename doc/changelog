@@ -1,5 +1,9 @@
 next
-  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check
+
+  xcombat
+    - Added sees_within(npc, obj, radius): true when obj is within radius metres of npc and npc sees it now.
+      The squared-distance test runs before the visibility read, so a far object costs only the distance. Range-limits the otherwise combat-distance sees for close-range checks.
 
   xinventory
     - Added an optional max_items cap to iterate_inventory, classify, and iterate_surplus. The walk stops after that many items and reports the truncation as a second return value,

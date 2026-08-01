@@ -153,7 +153,7 @@ if xcombat.fire_make_sense(npc, enemy) then ... end
 Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over the per-NPC combat-AI engine binds. Registers no callbacks and holds no game state; caches are transient (TTL, level-key) or session-stable exe probes.
 
 - `get_weapon_kind(npc)`, `get_weapon_range(kind)` - Active weapon kind (TTL-cached) and its engagement range band
-- `sees(npc, obj)`, `get_unseen_ms(npc, enemy, tg)`, `get_track_pos(npc, enemy, sees)` - Enemy-memory reads: visible right now (the engine's accumulated visible_now), any-sense recency, live-or-last-known position
+- `sees(npc, obj)`, `sees_within(npc, obj, radius)`, `get_unseen_ms(npc, enemy, tg)`, `get_track_pos(npc, enemy, sees)` - Enemy-memory reads: visible right now (the engine's accumulated visible_now), visible now AND within radius metres (distance tested first, for close-range checks where full combat-sight range is wrong), any-sense recency, live-or-last-known position
 - `disclose_enemy(npc, enemy)` - Inject a known enemy into NPC memory and register in combat, relation-clean
 - `install_takeover(npc, spec)`, `release_takeover(npc)`, `release_takeover_id(id)` - Graft the GOAP gate evaluator + action per stalker; the consumer owns policy via spec { gate, on_begin }. Single-consumer: a second differing spec asserts. release_takeover_id is the id-keyed release for server-side unregister
 - `register_in_combat(npc)`, `unregister_in_combat(npc)` - Squad memory-sharing bookkeeping the blocked combat planner no longer performs

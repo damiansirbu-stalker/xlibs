@@ -150,6 +150,23 @@ function xcombat.sees(npc, obj)
     return npc:see(obj)
 end
 
+--- True when npc is within radius (metres) of obj AND currently sees it. The squared-distance test runs
+--- first and bails before the visibility read, so a far object costs only the distance. Range-limits the
+--- otherwise combat-distance :see for close-range checks (chatter lines, interaction prompts) where a
+--- full-vision hit across the level is wrong. Occlusion and facing come from :see (visual-memory read).
+--- @safety SAFE - nil-guarded; distance and :see are both engine-SAFE_WRAPped
+--- @cost O(1) | 2 position + 1 distance_to_sqr on the far bail; + 1 see (visual-memory read) when in range
+--- @src xray/script_game_object_script2.cpp:138 (see = CheckObjectVisibility, SAFE_WRAP)
+--- @param npc game_object the perceiving NPC
+--- @param obj game_object the object under test
+--- @param radius number range in metres
+--- @return boolean true when within range and visible now
+function xcombat.sees_within(npc, obj, radius)
+    if not (npc and obj) then return false end
+    if npc:position():distance_to_sqr(obj:position()) >= radius * radius then return false end
+    return xcombat.sees(npc, obj)
+end
+
 --- Milliseconds since the NPC last perceived the enemy by ANY sense (sight, sound, or hit).
 --- memory_time aggregates the most-recent last-perceived time across visual/sound/hit memory, stamped from
 --- time_global (memory_manager.cpp:255-274, visual_memory_manager.cpp:526). Large value = unsensed (the engine
