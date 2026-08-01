@@ -4,6 +4,7 @@ local pairs, type, next, tostring = pairs, type, next, tostring
 local string_format, table_concat = string.format, table.concat
 local alife, alife_object = alife, alife_object
 local get_object_story_id, IsStalker = get_object_story_id, IsStalker
+local time_global = time_global
 local xlevel, xmath, xdata = xlevel, xmath, xdata
 
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
@@ -67,16 +68,55 @@ local function _is_task_giver(squad, squad_id, cmd_id)
     return _squad_member_in_givers(squad, givers)
 end
 
--- Fallback: check member IDs against bounties/hostages (covers timing gap before task_squads is populated)
--- @cost O(m*b) members * bounties+hostages | 1 luabind medium (npc_count: m_members.size()) + squad_members iterator
+-- Pure build (no state): the O(t) walk over active tasks, collecting each current_target objective id.
+local function _active_task_targets_now()
+    local set = {}
+    local tm = task_manager and task_manager.get_task_manager()
+    local ti = (tm and tm.task_info) or {}
+    for _, tsk in pairs(ti) do
+        local ct = tsk.current_target
+        if ct and tsk.status ~= "fail" and tsk.status ~= "completed" then
+            set[ct] = true
+        end
+    end
+    return set
+end
+
+-- Encapsulated lazy per-frame memo over _active_task_targets_now. The cache state lives ONLY in this
+-- do-block, not as module locals. time_global() is set once per engine frame (frame-stable, including
+-- across a long collect loop), so the set is built on the first call each frame and reused within it.
+do
+    local cache, cache_frame
+    --- Set of active tasks' current_target objective ids. current_target is the alife id each active
+    --- CGeneralTask points its map marker at (set at give, refreshed in CGeneralTask:check_task). It is
+    --- the only signal covering a generic quest target with no story_id and no task_squads/bounty/
+    --- hostage entry -- e.g. a retrieve-quest mutant that carries the quest item only after death.
+    --- @safety SAFE - nil-guarded (no task manager or no task_info yields an empty set)
+    --- @cost O(t) on the first call each frame, t=3-10 typical, reused within the frame | 0 luabind
+    --- @src anomaly/task_objects.script current_target, anomaly/task_manager.script task_info
+    --- @return table Set {[id]=true} of active-task objective ids (empty when none)
+    function get_active_task_targets()
+        local now = time_global()
+        if cache_frame ~= now then cache, cache_frame = _active_task_targets_now(), now end
+        return cache
+    end
+end
+
+-- Fallback: match member IDs against active task targets -- the bounty/hostage registries plus the
+-- current_target objective id -- in a single squad_members walk. Covers a quest target that is a
+-- squad member with no story_id and no task_squads entry (the mutant/NPC carrying a retrieve-quest
+-- item). Folding current_target into the existing member loop adds comparisons, not a second walk.
+-- @cost O(m*(b+h)) worst case | 1 luabind medium (npc_count) + squad_members iterator
 local function _check_member_task_target(squad)
-    if not axr_task_manager then return false, nil end
-    local bounties = axr_task_manager.bounties_by_id
-    local hostages = axr_task_manager.hostages_by_id
-    if not bounties and not hostages then return false, nil end
+    local bounties = axr_task_manager and axr_task_manager.bounties_by_id
+    local hostages = axr_task_manager and axr_task_manager.hostages_by_id
+    local targets = get_active_task_targets()
+    local has_targets = next(targets) ~= nil
+    if not bounties and not hostages and not has_targets then return false, nil end
     if squad:npc_count() == 0 then return false, nil end
     for member in squad:squad_members() do
         local member_id = member.id
+        if has_targets and targets[member_id] then return true, "current_target" end
         if bounties then for _, npc_id in pairs(bounties) do
             if npc_id == member_id then return true, "bounty" end
         end end
@@ -87,20 +127,24 @@ local function _check_member_task_target(squad)
     return false, nil
 end
 
---- Check if squad is an active task target (assault, bounty, hostage, delivery, dominance, rescue, etc.)
---- O(1) hash check against task_squads, then member-level bounty/hostage fallback for timing gaps
+--- Check if squad is an active task target (assault, bounty, hostage, delivery, dominance, rescue,
+--- retrieve, etc.). Three signals: task_squads (assault/delivery), the current_target objective id
+--- (any active CGeneralTask; covers generic retrieve-quest targets), and the bounty/hostage
+--- registries. Squad-level checks are O(1) hashes; member-level bounty/hostage/current_target share
+--- one squad_members walk in _check_member_task_target.
 --- @safety SAFE - nil-guarded, returns true for nil (fail-safe)
---- @cost O(1) typical (hash hit, pure Lua) | O(m*b) worst case via _check_member_task_target
---- @src anomaly/sim_offline_combat.script(53), anomaly/axr_task_manager.script bounties_by_id hostages_by_id
+--- @cost O(1) typical (task_squads or squad current_target hash hit) | O(m*(b+h)) worst case
+--- @src anomaly/sim_offline_combat.script(53), anomaly/task_objects.script current_target, anomaly/axr_task_manager.script bounties_by_id hostages_by_id
 --- @param squad se_squad Squad server object
 --- @return boolean True if squad is a task target (nil squad returns true for safety)
---- @return string|nil Reason: "nil", "task_squads", "bounty", "hostage"
+--- @return string|nil Reason: "nil", "task_squads", "current_target", "bounty", "hostage"
 function is_task_target(squad)
     if not squad then return true, "nil" end
     if sim_offline_combat and sim_offline_combat.task_squads
     and sim_offline_combat.task_squads[squad.id] then
         return true, "task_squads"
     end
+    if get_active_task_targets()[squad.id] then return true, "current_target" end
     return _check_member_task_target(squad)
 end
 
