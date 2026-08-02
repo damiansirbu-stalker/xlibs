@@ -130,7 +130,8 @@ xsquad.release_squad(squad)
 - `get_community_name(squad)` - Translated community name (safe, never nil)
 - `is_permanent_squad(squad)` - Static identity check (story, trader, named_npc, empty), cached
 - `has_active_role(squad)` - Dynamic role check (task_giver, companion)
-- `is_task_target(squad)` - Task target check (task_squads hash + bounty/hostage member fallback)
+- `is_task_target(squad)` - Task target check (task_squads hash + current_target objective id + bounty/hostage member fallback)
+- `get_active_task_targets()` - Per-frame-cached set {[id]=true} of active tasks' current_target objective ids, for entity-level protection lookups (e.g. an online guard's orphan path)
 - `is_scripted(squad)` - Check engine/vanilla scripting fields (scripted_target, condlist, random_targets)
 - `is_squad(obj)` - clsid guard: true only for sim_squad_scripted instances (id-recycling defense)
 - `has_squad(pos, opts)` - Short-circuiting boolean: any squad within max_distance matches?
@@ -161,6 +162,7 @@ Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over
 - `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held). Engine beliefs, not concealment geometry; nil when there is no planner to ask
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
 - `has_obstacle_between(a, b)`, `has_obstacle_to_target(a, b)`, `has_friendly_in_line(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
+- `low_cover_in_direction(lvid, dir)` - Baked cover-graph openness at crouch height toward a direction (0 walled, 1 open), the cheap posture read - static geometry only, blind to bodies (contrast the object-aware rays); see `doc/library/modding/cover-and-los-queries.md`
 - `find_cover(npc, enemy_pos, search_pos)`, `find_shot(npc, enemy_pos)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders (ring sweeps, clear-lane fans)
 - `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
 - `is_indoor(pos)` - Indoor-level table plus surge-shelter proximity

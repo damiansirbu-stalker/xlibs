@@ -937,6 +937,20 @@ function xcombat.has_obstacle_to_target(start_pos, target_pos)
     return _ray_blocked(start_pos, target_pos, SELF_CLEARANCE_M, ENEMY_BODY_CLEARANCE_M)
 end
 
+--- Baked cover-graph openness at crouch height toward `dir` from a level vertex - the cheap posture
+--- read (contrast the object-aware rays above). 0 = fully walled, 1 = fully open (raw byte /15). Yaw
+--- only, pitch ignored. Static geometry only: blind to objects and characters, so use a raycast
+--- (has_obstacle_*) when a body in the line matters.
+--- @safety SAFE - the engine returns 0 for an invalid vertex; nil-guarded to 0
+--- @cost O(1) | 1 luabind trivial (baked quadtree lookup + interpolation, ~40ns)
+--- @src xray/level_script.cpp:363 (bind), xray/level_graph_vertex_inline.h:649-660 (interpolation)
+--- @param lvid number level vertex id
+--- @param dir vector direction to read toward (yaw used, pitch discarded)
+--- @return number openness 0..1 at crouch height toward dir
+function xcombat.low_cover_in_direction(lvid, dir)
+    return level.low_cover_in_direction(lvid, dir) or 0
+end
+
 --- True when the ACTOR could plausibly land a shot on this NPC right now: he holds a firearm, his
 --- facing is within cone_deg of the NPC, and the shot line between them is clear. The actor-side
 --- mirror of fire_make_sense - the actor has no AI planner to ask, so the read is built from his
@@ -1162,6 +1176,7 @@ function xcombat.set_health_restore_boost(npc, boost)
     npc:set_health_restore_boost(boost)
     return true
 end
+
 
 --- Scale a pending hit's damage inside a before-hit callback: shit.power = shit.power * factor. The one
 --- primitive a caller's damage effect writes through, so no consumer touches the engine hit struct
