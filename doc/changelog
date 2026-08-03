@@ -1,11 +1,14 @@
 next
-  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework
 
   xcombat
     - Added sees_within(npc, obj, radius): true when obj is within radius metres of npc and npc sees it now.
       The squared-distance test runs before the visibility read, so a far object costs only the distance. Range-limits the otherwise combat-distance sees for close-range checks.
-    - Added low_cover_in_direction(lvid, dir): baked cover-graph openness at crouch height toward a direction (0 walled, 1 open), the cheap posture read.
+    - Added get_crouch_openness(lvid, dir): baked cover-graph openness at crouch height toward a direction (0 walled, 1 open), the cheap posture read.
       Routes the engine's directional-cover read through xcombat so a consumer makes no raw level combat call. Static geometry only, blind to bodies.
+    - Changed find_cover into a four-way finder: find_cover(npc, enemy_pos, opts) with opts.selection ("nearest"|"best"), opts.firing (true shoots from cover, false hides in it), opts.radius, opts.search_pos.
+      Nearest walks the baked cover points closest-first with floor and toward-enemy guards; best keeps the engine's best_cover. Absorbs the concealment finder. Signature change from find_cover(npc, enemy_pos, search_pos).
+    - Removed find_shot: the dead firing-sidestep finder had no callers. Its shot sweep stays inside find_cover.
 
   xinventory
     - Added an optional max_items cap to iterate_inventory, classify, and iterate_surplus. The walk stops after that many items and reports the truncation as a second return value,

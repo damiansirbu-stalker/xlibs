@@ -947,7 +947,7 @@ end
 --- @param lvid number level vertex id
 --- @param dir vector direction to read toward (yaw used, pitch discarded)
 --- @return number openness 0..1 at crouch height toward dir
-function xcombat.low_cover_in_direction(lvid, dir)
+function xcombat.get_crouch_openness(lvid, dir)
     return level.low_cover_in_direction(lvid, dir) or 0
 end
 
@@ -1300,8 +1300,7 @@ end
 --- enemy) so a caller can decide to REPOSITION for a clear line. It is NOT a trigger hold: the engine's own
 --- friendly-fire hold (CObjectActionFire) survives a combat-planner block and already stops the shot, so
 --- reading this to gate fire duplicates that. Positional use only.
---- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - the blocked-lane read whose reposition
---- resolver is find_shot.
+--- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - the blocked-lane read for a reposition decision.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) engine (frame-cached) | O(m) members fallback (has_friendly_in_line)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:728-731 (any non-enemy flags member); xray/object_actions.cpp:244-265 (the surviving engine hold)
@@ -1478,8 +1477,7 @@ end
 -- =========================================================================
 -- Movement targeting. _find_toward is the geometry primitive (decreasing-step search along a direction).
 -- The maneuver-facing finders all return a level vertex or nil, no side effects, uniform find_<noun> naming:
---   find_cover - a firing vertex at the nearest cover (best_cover, then a ring sweep for a clear shot)
---   find_shot  - a firing vertex around the NPC with a clear shot (the smart sidestep; no cover needed)
+--   find_cover - a cover vertex, by opts.selection (nearest|best) and opts.firing (shoot-from|hide-in)
 --   find_flee_lane - a clear run lane away from a threat (fanned headings, obstacle-rayed)
 -- =========================================================================
 
@@ -1490,6 +1488,8 @@ end
 local COVER_RADIUS         = 7
 local COVER_MIN_ENEMY_DIST = 1
 local COVER_MAX_ENEMY_DIST = 30
+local CONCEAL_THRESH       = 0.3
+local COS_30               = 0.866
 local STEP_DECREMENT_M     = 2
 local PROBE_MIN_M          = 1
 local PROBE_MAX_M          = 6
@@ -1557,39 +1557,90 @@ local function _sweep_for_shot(npc, from_lvid, enemy_pos)
     return nil
 end
 
---- Firing vertex at the nearest cover: best_cover locates the obstacle, then a ring sweep around it returns
---- the nearest free vertex with a clear shot. The NPC stands there with the obstacle adjacent to duck behind.
---- NOT the engine's own cover pick: the engine searches twice (g_ai_cover_search_near_radius then
---- far_radius, ai_stalker_cover.cpp:180,189) and passes minimum_enemy_distance to its evaluator, while
---- the Lua best_cover bind hardcodes 0 for that argument (script_game_object3.cpp:77) and this runs ONE
---- pass at COVER_RADIUS - a deliberate, cheaper approximation, not a reimplementation.
---- @safety SAFE - nil when no cover near or nothing around it can see the enemy
---- @cost O(covers-in-radius + rings*PROBE_DIRS) | 1 best_cover heavy (scans + accessible()-checks every cover
----   in COVER_RADIUS, worst when it finds none), then up to (rings*PROBE_DIRS) raycasts only when cover is found
---- @src xray/script_game_object3.cpp:66 (best_cover), xray/cover_manager_inline.h (nearest+accessible scan), xray/level_script.cpp:410 (vertex_in_direction)
---- @param npc game_object
---- @param enemy_pos vector enemy position the firing line must reach
---- @param search_pos vector|nil centre of the cover search; defaults to the NPC's position
---- @return number|nil firing vertex id at cover, or nil
-function xcombat.find_cover(npc, enemy_pos, search_pos)
-    local center = search_pos or npc:position()
-    local cover = npc:best_cover(center, enemy_pos, COVER_RADIUS, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
-    if not cover then return nil end
-    return _sweep_for_shot(npc, cover:level_vertex_id(), enemy_pos)
+-- True when the baked cover point at `vid` is walled toward `dir` - hides from an enemy in that direction.
+-- @cost O(1) | 2 baked cover reads
+local function _hides_from(vid, dir)
+    local hi = level.high_cover_in_direction(vid, dir) or 1
+    local lo = level.low_cover_in_direction(vid, dir) or 1
+    return (hi < lo and hi or lo) < CONCEAL_THRESH
 end
 
---- Firing vertex around the NPC with a clear shot - the smart sidestep to clear a blocked shot (a wall or a
---- squadmate in the firing lane). Same ring sweep as find_cover but centred on the NPC's own node, no cover.
---- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - the reposition resolver when
---- can_kill_member reports a friendly in the firing lane.
---- @safety SAFE - nil when no nearby vertex can see the enemy
---- @cost O(r*d) | up to (rings*PROBE_DIRS) raycasts
---- @src xray/level_script.cpp:410 (vertex_in_direction)
+-- True when reaching `cover_pos` means moving toward `enemy_pos` - the path runs within 30deg of the enemy
+-- and he is not far past the cover (best_cover's threat_on_the_way, cover_evaluators.cpp:172).
+-- @cost O(1) | pure vector math
+local function _toward_enemy(npc_pos, cover_pos, enemy_pos)
+    local cx, cy, cz = cover_pos.x - npc_pos.x, cover_pos.y - npc_pos.y, cover_pos.z - npc_pos.z
+    local cover_mag = math_sqrt(cx*cx + cy*cy + cz*cz)
+    local ex, ey, ez = enemy_pos.x - npc_pos.x, enemy_pos.y - npc_pos.y, enemy_pos.z - npc_pos.z
+    local threat_mag = math_sqrt(ex*ex + ey*ey + ez*ez)
+    if cover_mag < 0.1 or threat_mag < 0.1 then return false end
+    local proj = (cx*ex + cy*ey + cz*ez) / cover_mag
+    if proj / threat_mag < COS_30 then return false end
+    return proj <= cover_mag * 1.5
+end
+
+-- The fire/hide terminal check for a cover point that already passed the loop guards. Returns the vid to use -
+-- a firing vertex beside it when shooting, the cover itself when hiding - or nil.
+-- @cost O(rings) shoot / O(1) hide | _sweep_for_shot or _hides_from
+local function _cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
+    if firing then return _sweep_for_shot(npc, vid, enemy_pos) end
+    dir:set(enemy_pos.x - cpos.x, enemy_pos.y - cpos.y, enemy_pos.z - cpos.z)
+    return _hides_from(vid, dir) and vid or nil
+end
+
+-- Best-hidden reachable cover (best_cover, distance-blind, with the engine's own floor/threat/distance guards).
+-- firing=true sweeps for a firing vertex beside it; firing=false returns the cover point itself.
+-- @cost O(covers-in-radius) + O(rings) when firing | 1 best_cover heavy, then the sweep only when firing
+local function _best_cover(npc, enemy_pos, radius, search_pos, firing)
+    local cover = npc:best_cover(search_pos, enemy_pos, radius, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
+    if not cover then return nil end
+    local vid = cover:level_vertex_id()
+    if firing then return _sweep_for_shot(npc, vid, enemy_pos) end
+    return vid
+end
+
+-- Nearest reachable cover (get_nearby_covers walk), guarded to his floor and never toward the enemy. firing=true
+-- keeps the nearest whose firing vertex is clear; firing=false keeps the nearest that hides him.
+-- @cost O(covers-in-radius) walk | per nearer candidate: _cover_candidate
+local function _nearest_cover(npc, enemy_pos, radius, search_pos, firing)
+    local covers = level.get_nearby_covers(search_pos, radius)
+    local dir = vector()
+    local best_vid, best_dist_sqr = nil, radius * radius + 1
+    for vid in pairs(covers) do
+        local cpos = level.vertex_position(vid)
+        local dist_sqr = search_pos:distance_to_sqr(cpos)
+        local dy = cpos.y - search_pos.y
+        local chosen = dist_sqr < best_dist_sqr and dy < 3 and dy > -3
+            and not _toward_enemy(search_pos, cpos, enemy_pos) and npc:accessible(vid)
+            and _cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
+        if chosen then best_vid, best_dist_sqr = chosen, dist_sqr end
+    end
+    return best_vid
+end
+
+--- Find a cover vertex, four ways from two flags. `selection` picks the search: "nearest" walks the baked cover
+--- points closest-first (get_nearby_covers), "best" takes the most-occluded reachable point anywhere in radius
+--- (best_cover, distance-blind). `firing` picks the purpose: true returns a vertex you can SHOOT the enemy from
+--- (a clear shot line, the ray sweep), false returns one that HIDES you (walled toward the enemy, the baked read).
+--- The nearest walk guards to his floor and never picks cover reached by running toward the enemy; the best path
+--- inherits those guards from best_cover itself.
+--- Firing cannot use fire_make_sense or can_kill_enemy: those read the NPC's CURRENT position, not a candidate
+--- vertex (can_kill_at is unbound), so the shot check is positional - has_obstacle_to_target from the vertex.
+--- @safety SAFE - nil when nothing qualifies; asserts on a missing opt
+--- @cost see _best_cover / _nearest_cover | no raycasts on a hide search, ring-sweep raycasts on a shoot search
+--- @src xray/script_game_object3.cpp:68 (best_cover), xray/level_script.cpp:329 (get_nearby_covers)
 --- @param npc game_object
---- @param enemy_pos vector enemy position the firing line must reach
---- @return number|nil firing vertex id with a clear shot, or nil
-function xcombat.find_shot(npc, enemy_pos)
-    return _sweep_for_shot(npc, npc:level_vertex_id(), enemy_pos)
+--- @param enemy_pos vector the enemy to fight or hide from
+--- @param opts table { selection = "nearest"|"best", firing = boolean, radius = number, search_pos = vector }
+--- @return number|nil cover vertex id, or nil
+function xcombat.find_cover(npc, enemy_pos, opts)
+    assert(opts and opts.firing ~= nil and opts.radius and opts.search_pos
+        and (opts.selection == "nearest" or opts.selection == "best"),
+        "xcombat.find_cover requires opts.selection ('nearest'|'best'), opts.firing (boolean), opts.radius, opts.search_pos")
+    if opts.selection == "best" then
+        return _best_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
+    end
+    return _nearest_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
 end
 
 -- One flee-lane probe: a free reachable vertex the full `distance_m` along `dir` AND a clear straight line out

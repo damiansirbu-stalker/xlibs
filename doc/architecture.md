@@ -162,8 +162,8 @@ Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over
 - `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held). Engine beliefs, not concealment geometry; nil when there is no planner to ask
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
 - `has_obstacle_between(a, b)`, `has_obstacle_to_target(a, b)`, `has_friendly_in_line(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
-- `low_cover_in_direction(lvid, dir)` - Baked cover-graph openness at crouch height toward a direction (0 walled, 1 open), the cheap posture read - static geometry only, blind to bodies (contrast the object-aware rays); see `doc/library/modding/cover-and-los-queries.md`
-- `find_cover(npc, enemy_pos, search_pos)`, `find_shot(npc, enemy_pos)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders (ring sweeps, clear-lane fans)
+- `get_crouch_openness(lvid, dir)` - Baked cover-graph openness at crouch height toward a direction (0 walled, 1 open), the cheap posture read - static geometry only, blind to bodies (contrast the object-aware rays); see `doc/library/modding/cover-and-los-queries.md`
+- `find_cover(npc, enemy_pos, opts)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders. find_cover is four ways from `opts.selection` (nearest walks the baked cover points closest-first, best takes best_cover) and `opts.firing` (true = a vertex to shoot from, false = a vertex that hides); `opts.radius` and `opts.search_pos` required. find_flee_lane is clear-lane fans
 - `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
 - `is_indoor(pos)` - Indoor-level table plus surge-shelter proximity
 - `claim_cover(lvid, owner_id)`, `release_cover(lvid, owner_id)` - Ownership-checked cover-vertex reservation over db.used_level_vertex_ids
