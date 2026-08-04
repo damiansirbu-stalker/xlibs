@@ -687,6 +687,18 @@ function xcombat.get_operator(npc)
     return _operators[cur] or tostring(cur)
 end
 
+--- Body facing as a unit direction vector - the heading/aim read.
+--- Wraps npc:direction() so a consumer takes facing through xcombat instead of the raw engine field; get_facing_offset composes on it.
+--- @safety SAFE - nil npc returns a zero vector
+--- @cost O(1) | 1 luabind trivial (direction: field read)
+--- @src xray/script_game_object_script2.cpp:98 (direction)
+--- @param npc game_object
+--- @return vector unit facing direction
+function xcombat.get_facing(npc)
+    if not npc then return vector() end
+    return npc:direction()
+end
+
 --- Degrees the NPC's body facing is off the straight line to target_pos (0 = dead on, 180 = opposite).
 --- A combat NPC normally faces near its enemy, so a large offset is the body pointed away (the weird-aim cue).
 --- Flat XZ angle from the dot product of the unit facing and the unit direction to the target.
@@ -697,7 +709,7 @@ end
 --- @param target_pos vector world position the NPC should be facing
 --- @return number degrees in [0, 180]
 function xcombat.get_facing_offset(npc, target_pos)
-    local dir = npc:direction()
+    local dir = xcombat.get_facing(npc)
     local np = npc:position()
     local vx, vz = target_pos.x - np.x, target_pos.z - np.z
     local mag = math_sqrt(vx * vx + vz * vz)
@@ -872,7 +884,18 @@ end
 -- Geometric queries
 -- =========================================================================
 
-local CHEST_OFFSET_Y = 1.2
+-- Ray heights above npc:position() (the feet), grounded in probe_npc_heights_20260804 (n=15+ clean
+-- crouches, n=45 stands). Every combat ray takes its height from HERE, never a literal - a SHOT line
+-- starts at an EYE height (the engine fires from eye_matrix.c: ai_stalker_fire.cpp:171,208,232), a
+-- MOVEMENT lane uses the low body probe, a shot TARGETs the chest. Named by role; the engine's own
+-- stance enum is eBodyStateStand / eBodyStateCrouch.
+xcombat.BODY_Y = {
+    CROUCH_EYE = 0.93,   -- crouched eye = crouched shot origin (probe n=15 clean)
+    LANE       = 1.20,   -- movement-lane obstacle probe: low, to catch ~1m crates a higher shot ray clears
+    CHEST      = 1.51,   -- spine2 = body center / the shot TARGET point (probe n=45)
+    STAND_EYE  = 1.59,   -- standing eye = standing shot origin (probe; ai_stalker_fire.cpp:208)
+}
+local BODY_Y = xcombat.BODY_Y
 -- Every combat ray is object-aware: rqtBoth (xrCDB/xr_collide_defs.h:72-76) = the baked level-geometry CDB
 -- (walls, floors, terrain) PLUS game objects (crates, barrels, doors, NPCs). In STALKER a crate or barrel is a
 -- permanent rqtObject that stops a bullet exactly like a wall - nothing here is "transient" except a moving NPC,
@@ -883,22 +906,33 @@ local RQ_BOTH = 3
 local SELF_CLEARANCE_M       = 1.0
 local ENEMY_BODY_CLEARANCE_M = 0.75
 
--- Shared chest-height object-aware ray (rqtBoth). True if anything blocks the straight line. start_clearance
--- moves the start that far forward to skip the caster's body; end_clearance stops the ray that far short of the
--- end so a shot target's own body is never counted. Both default to 0.
-local function _ray_blocked(start_pos, end_pos, start_clearance, end_clearance)
-    local sc, ec = start_clearance or 0, end_clearance or 0
-    local sy = start_pos.y + CHEST_OFFSET_Y
-    local dx = end_pos.x - start_pos.x
-    local dy = (end_pos.y + CHEST_OFFSET_Y) - sy
-    local dz = end_pos.z - start_pos.z
+--- The ONE object-aware (rqtBoth) clearance ray: true when a wall or game object blocks the straight line
+--- from `a` to `b`, cast at CHOSEN heights - the height is DATA (BODY_Y), never a literal. A SHOT line starts
+--- at an eye height (the engine fires from eye_matrix.c); a MOVEMENT lane uses the low LANE probe. opts.from_y
+--- lifts the start above the feet and opts.to_y the end; opts.self_clear skips the caster's own body and
+--- opts.target_clear stops the ray short of the target body (both metres, zero-default). from_y and to_y are
+--- required - the caller names the height, there is no hidden chest guess.
+--- @safety SAFE - get_distance returns 0 when nothing is hit
+--- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
+--- @src xray/level_script.cpp:2633 (CRayPick), xray/xrCDB/xr_collide_defs.h:72-76 (rqtBoth = rqtObject | rqtStatic)
+--- @src xray/ai/stalker/ai_stalker_fire.cpp:171,208,232 (the engine fires from eye_matrix.c - why a shot ray starts at an eye height)
+--- @param a vector start position (feet); lifted by opts.from_y
+--- @param b vector end position (feet); lifted by opts.to_y
+--- @param opts table { from_y = BODY_Y.*, to_y = BODY_Y.*, self_clear = metres|nil, target_clear = metres|nil }
+--- @return boolean true when the line is blocked
+function xcombat.is_line_blocked(a, b, opts)
+    local sc, tc = opts.self_clear or 0, opts.target_clear or 0
+    local sy = a.y + opts.from_y
+    local dx = b.x - a.x
+    local dy = (b.y + opts.to_y) - sy
+    local dz = b.z - a.z
     local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
-    local range = dist - sc - ec
+    local range = dist - sc - tc
     if range < 1 then return false end
     local ux, uy, uz = dx/dist, dy/dist, dz/dist
     local ray = ray_pick()
     ray:set_flags(RQ_BOTH)
-    ray:set_position(vector():set(start_pos.x + ux*sc, sy + uy*sc, start_pos.z + uz*sc))
+    ray:set_position(vector():set(a.x + ux*sc, sy + uy*sc, a.z + uz*sc))
     ray:set_direction(vector():set(ux, uy, uz))
     ray:set_range(range)
     ray:query()
@@ -906,49 +940,64 @@ local function _ray_blocked(start_pos, end_pos, start_clearance, end_clearance)
     return hit > 0 and hit < range - 1.0
 end
 
---- True if a wall OR a game object (crate, barrel, door, NPC) blocks the full straight line between two points.
---- Object-aware (rqtBoth): props that are level objects and not baked geometry block it too, so a movement
---- destination on open ground is only accepted when nothing stands in the run lane. Starts SELF_CLEARANCE_M
---- forward so the caster's own body is not the hit. Both endpoints are lifted a fixed chest height, so it is
---- posture-coarse (it does not model a crouched body clearing a low wall a standing one would not). This is the
---- MOVEMENT-line test; for a shot at an enemy use has_obstacle_to_target, which stops short of the target body.
---- @safety SAFE - get_distance returns 0 when nothing is hit
---- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
---- @src xray/level_script.cpp:2633 (CRayPick binding), xray/xrCDB/xr_collide_defs.h:72-76 (rqtBoth = rqtObject | rqtStatic)
---- @param start_pos vector start (chest offset added internally)
---- @param end_pos vector destination (chest offset added internally)
---- @return boolean true if a wall or object blocks the line
+--- True if a wall or game object blocks a MOVEMENT lane between two points - the run-lane test, cast at the
+--- low LANE height so a ~1m crate or barrel the navmesh routes through is caught (a shot-height ray would
+--- clear it). For a SHOT at an enemy use has_obstacle_to_target instead.
+--- @safety SAFE - see is_line_blocked
+--- @cost O(1) | 6 luabind (one is_line_blocked ray)
+--- @param start_pos vector start (feet)
+--- @param end_pos vector destination (feet)
+--- @return boolean true if a wall or object blocks the lane
 function xcombat.has_obstacle_between(start_pos, end_pos)
-    return _ray_blocked(start_pos, end_pos, SELF_CLEARANCE_M, nil)
+    return xcombat.is_line_blocked(start_pos, end_pos, { from_y = BODY_Y.LANE, to_y = BODY_Y.LANE, self_clear = SELF_CLEARANCE_M })
 end
 
---- True if a wall or game object blocks the SHOT line from a firing position to a target - the same object-aware
---- ray as has_obstacle_between but capped ENEMY_BODY_CLEARANCE_M short of the target, so the target's own body
---- and the cover it hugs are never the blocker (an uncapped ray toward an enemy always hits the enemy). A crate
---- or barrel BETWEEN the shooter and the target does block it - the whole point, since those stop a bullet. Use
---- this to pick a firing vertex with a genuinely clear shot; use has_obstacle_between for a movement destination.
---- @safety SAFE - get_distance returns 0 when nothing is hit
---- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
---- @src xray/xrCDB/xr_collide_defs.h:72-76 (rqtBoth = rqtObject | rqtStatic)
---- @param start_pos vector firing position (chest offset added internally)
---- @param target_pos vector target position (chest offset added internally); the ray stops short of its body
---- @return boolean true if a wall or object blocks the shot before it reaches the target
-function xcombat.has_obstacle_to_target(start_pos, target_pos)
-    return _ray_blocked(start_pos, target_pos, SELF_CLEARANCE_M, ENEMY_BODY_CLEARANCE_M)
+--- True if a wall or game object blocks the SHOT line from a firing position (at eye height `eye_y`) to the
+--- target's CHEST, capped ENEMY_BODY_CLEARANCE_M short so the target's own body and the cover it hugs are never
+--- the blocker. `eye_y` is a BODY_Y height - STAND_EYE for a standing shooter, CROUCH_EYE for a crouched one -
+--- so ONE check serves a stand shot AND a "could I shoot from a crouch" posture test. A crate or barrel BETWEEN
+--- shooter and target DOES block it. Use to pick a firing vertex, or to decide a firing posture, with a clear shot.
+--- @safety SAFE - see is_line_blocked
+--- @cost O(1) | 6 luabind (one is_line_blocked ray)
+--- @param start_pos vector firing position (feet); the ray starts at eye_y over it
+--- @param target_pos vector target position (feet); the ray aims at CHEST and stops short of the body
+--- @param eye_y number the shooter's eye height (BODY_Y.STAND_EYE or BODY_Y.CROUCH_EYE)
+--- @return boolean true if the shot is blocked before it reaches the target
+function xcombat.has_obstacle_to_target(start_pos, target_pos, eye_y)
+    return xcombat.is_line_blocked(start_pos, target_pos, { from_y = eye_y, to_y = BODY_Y.CHEST, self_clear = SELF_CLEARANCE_M, target_clear = ENEMY_BODY_CLEARANCE_M })
 end
 
---- Baked cover-graph openness at crouch height toward `dir` from a level vertex - the cheap posture
---- read (contrast the object-aware rays above). 0 = fully walled, 1 = fully open (raw byte /15). Yaw
---- only, pitch ignored. Static geometry only: blind to objects and characters, so use a raycast
---- (has_obstacle_*) when a body in the line matters.
+--- DEFENSIVE hide read: from `lvid`, is a static wall in the way at CROUCH height toward `dir`.
+--- NOT a line of fire - it never traces to the enemy and does NOT say whether you can shoot from here; for a
+--- shot, raycast (has_obstacle_to_target / can_kill_enemy). Returns 0..1: 0 = walled (hidden crouched),
+--- 1 = open (exposed), higher = more exposed. Baked 4 quadrant bytes per vertex interpolated by YAW only
+--- (pitch discarded), static geometry only - blind to bodies, props, slope. Pair with get_stand_openness for a
+--- waist-high wall (crouch walled + stand open). Sign tested in game 2026-08-02 (open ~0.60, wall ~0.08-0.19),
+--- see doc/library/modding/cover-and-los-queries.md.
 --- @safety SAFE - the engine returns 0 for an invalid vertex; nil-guarded to 0
---- @cost O(1) | 1 luabind trivial (baked quadtree lookup + interpolation, ~40ns)
---- @src xray/level_script.cpp:363 (bind), xray/level_graph_vertex_inline.h:649-660 (interpolation)
+--- @cost O(1) | 1 luabind trivial (baked quadtree lookup + yaw interpolation, ~40ns)
+--- @src xray/level_script.cpp:363 (bind), :371 (yaw-only getHP), xray/level_graph_vertex_inline.h:649-660 (interpolates NORMALIZE_NODE_COVER_LOW quadrant bytes)
 --- @param lvid number level vertex id
 --- @param dir vector direction to read toward (yaw used, pitch discarded)
---- @return number openness 0..1 at crouch height toward dir
+--- @return number 0 = walled/hidden crouched, 1 = open/exposed (higher = more exposed)
 function xcombat.get_crouch_openness(lvid, dir)
     return level.low_cover_in_direction(lvid, dir) or 0
+end
+
+--- DEFENSIVE hide read: from `lvid`, is a static wall in the way at STANDING height toward `dir`. The standing
+--- twin of get_crouch_openness - same baked, yaw-only, static read, same 0..1 meaning (0 = walled/hidden
+--- standing, 1 = open/exposed), same limit: NOT a line of fire, does NOT say whether you can shoot from here.
+--- Read both to classify the spot: crouch walled + stand open = a waist-high wall (hide crouched, stand to
+--- shoot over); both walled = a tall wall (can't shoot from either stance); both open = no cover. Confirm any
+--- shot with a raycast (has_obstacle_to_target / can_kill_enemy).
+--- @safety SAFE - the engine returns 0 for an invalid vertex; nil-guarded to 0
+--- @cost O(1) | 1 luabind trivial (baked quadtree lookup + yaw interpolation, ~40ns)
+--- @src xray/level_script.cpp:351 (bind), :359 (yaw-only getHP), xray/level_graph_vertex_inline.h:636-647 (interpolates NORMALIZE_NODE_COVER_HIGH quadrant bytes)
+--- @param lvid number level vertex id
+--- @param dir vector direction to read toward (yaw used, pitch discarded)
+--- @return number 0 = walled/hidden standing, 1 = open/exposed (higher = more exposed)
+function xcombat.get_stand_openness(lvid, dir)
+    return level.high_cover_in_direction(lvid, dir) or 0
 end
 
 --- True when the ACTOR could plausibly land a shot on this NPC right now: he holds a firearm, his
@@ -967,7 +1016,7 @@ function xcombat.actor_can_hit(npc, cone_deg)
     if not xcombat.get_weapon_kind(actor) then return false end
     local npos = npc:position()
     if xcombat.get_facing_offset(actor, npos) > cone_deg then return false end
-    return not xcombat.has_obstacle_to_target(actor:position(), npos)
+    return not xcombat.has_obstacle_to_target(actor:position(), npos, BODY_Y.STAND_EYE)
 end
 
 -- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
@@ -1224,14 +1273,15 @@ local INVALID_BONE_ID = 65535
 local FRIENDLY_LANE_THRESH_M = 1.5
 
 -- Fire origin: the weapon-hand bone position (Useful Idiots rx_ff.check_in_los precedent; the bone-id
--- guard mirrors utils_obj.safe_bone_pos), chest height over npc:position() when the skeleton lacks the bone.
+-- guard mirrors utils_obj.safe_bone_pos), STAND_EYE height over npc:position() when the skeleton lacks the
+-- bone (the engine fires from eye_matrix.c, ai_stalker_fire.cpp:208).
 -- @cost O(1) | 2-3 luabind trivial (get_bone_id + bone_position, or position)
 local function _fire_origin(npc)
     if npc:get_bone_id(FIRE_BONE) ~= INVALID_BONE_ID then
         return npc:bone_position(FIRE_BONE)
     end
     local pos = npc:position()
-    return vector():set(pos.x, pos.y + CHEST_OFFSET_Y, pos.z)
+    return vector():set(pos.x, pos.y + BODY_Y.STAND_EYE, pos.z)
 end
 
 -- Capped fire-clearance ray from `origin` toward the enemy chest: rqtBoth (walls AND objects), starts
@@ -1242,7 +1292,7 @@ end
 -- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query + get_distance)
 local function _fire_lane_hit_m(origin, enemy_pos)
     local dx = enemy_pos.x - origin.x
-    local dy = (enemy_pos.y + CHEST_OFFSET_Y) - origin.y
+    local dy = (enemy_pos.y + BODY_Y.CHEST) - origin.y
     local dz = enemy_pos.z - origin.z
     local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
     local range = dist - ENEMY_BODY_CLEARANCE_M - SELF_CLEARANCE_M
@@ -1529,7 +1579,7 @@ end
 local function _probe_firing_vid(npc, from_lvid, dir, step, enemy_pos)
     local vid = level.vertex_in_direction(from_lvid, dir, step)
     if not vid or vid >= INVALID_LVID or vid == from_lvid or not _is_free(npc, vid) then return nil end
-    if xcombat.has_obstacle_to_target(level.vertex_position(vid), enemy_pos) then return nil end
+    if xcombat.has_obstacle_to_target(level.vertex_position(vid), enemy_pos, BODY_Y.STAND_EYE) then return nil end
     return vid
 end
 
@@ -1560,8 +1610,8 @@ end
 -- True when the baked cover point at `vid` is walled toward `dir` - hides from an enemy in that direction.
 -- @cost O(1) | 2 baked cover reads
 local function _hides_from(vid, dir)
-    local hi = level.high_cover_in_direction(vid, dir) or 1
-    local lo = level.low_cover_in_direction(vid, dir) or 1
+    local hi = xcombat.get_stand_openness(vid, dir)
+    local lo = xcombat.get_crouch_openness(vid, dir)
     return (hi < lo and hi or lo) < CONCEAL_THRESH
 end
 
@@ -1776,6 +1826,19 @@ function xcombat.is_arrived(npc)
     return npc:path_completed()
 end
 
+--- Health as a 0..1 fraction (1 = full, 0 = dead) - the combat need's hurt input.
+--- A single game_object property, wrapped so the maneuver rows read health through xcombat like every other
+--- combat input instead of touching the engine field raw; the "how low is hurt" threshold stays with the caller.
+--- @safety SAFE - nil npc reads as full health (1), so a phantom object never trips a hurt-gated maneuver
+--- @cost O(1) | 1 luabind trivial (health property read)
+--- @src xray/script_game_object_script2.cpp:74 (.property("health", GetHealth/SetHealth) - 0..1 normalized condition health)
+--- @param npc game_object
+--- @return number health fraction 0..1
+function xcombat.get_health_frac(npc)
+    if not npc then return 1 end
+    return npc.health
+end
+
 --- True while an engine hit flinch (the additive PlayHitMotion blend) is playing on this NPC -
 --- the n037 reader, probed per compatibility-standards; false on exes without the bind, so the
 --- term simply drops out of body_busy on release engines.
@@ -1865,7 +1928,7 @@ xcombat.INDOOR_LEVELS = {
 -- below is what tells a building (roof + walls) from a tree (roof, open sides).
 local RQ_STATIC          = 2
 -- cast from chest height (skip ground clutter, reach a normal ceiling)
-local INDOOR_PROBE_Y     = 1.2
+local INDOOR_PROBE_Y     = BODY_Y.CHEST
 -- a static hit straight up within this = a roof overhead
 local INDOOR_ROOF_M      = 4
 -- a static hit sideways within this = an enclosing wall
