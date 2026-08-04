@@ -1132,13 +1132,19 @@ end
 --- @cost O(1) | 1 luabind trivial (4 field writes) on the engine path, 0 on the floor
 --- @src PR themrdemonized/xray-monolith#594; xray/ai_stalker.h:817-845 (sentinel fields), xray/sight_manager.cpp:80-101 (select_speed consumption)
 --- @param npc game_object stalker
---- @param max_angle number radians - sight diffs above this swing at full speed (negative = global cvar)
---- @param min_angle number radians - sight diffs below this cap at min_speed (negative = global cvar)
+--- @param max_angle number radians in [0,PI], or negative for the global cvar - diffs above this swing at full speed (asserts if > PI)
+--- @param min_angle number radians in [0,PI], or negative for the global cvar - diffs below this cap at min_speed (asserts if > PI)
 --- @param min_speed number rad/s fine-tracking speed cap (negative = global cvar)
 --- @param predict_time number seconds of target lead (negative = global cvar)
 --- @return boolean true when the engine path applied, false on a floor exe (no-op)
 function xcombat.set_aim_params(npc, max_angle, min_angle, min_speed, predict_time)
     if not npc or not _has_bind(npc, "set_aim_params") then return false end
+    -- max_angle/min_angle are radians; the largest possible sight gap is PI, so a positive angle past
+    -- PI is meaningless - it collapses the deceleration band to always-on and silently does nothing
+    -- (the game's hardcore-aim option abuses exactly this with 17). Crash loudly rather than let a bad
+    -- config pass unseen; negative (the -1 global-cvar sentinel) is exempt.
+    assert(not (max_angle > 3.14159265), "xcombat.set_aim_params: max_angle > PI (radians, bounded by PI; use <=0.785 or -1 for the global)")
+    assert(not (min_angle > 3.14159265), "xcombat.set_aim_params: min_angle > PI (radians, bounded by PI; use <=0.785 or -1 for the global)")
     npc:set_aim_params(max_angle, min_angle, min_speed, predict_time)
     return true
 end
