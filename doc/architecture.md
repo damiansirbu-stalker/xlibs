@@ -459,8 +459,8 @@ Source: xray-monolith/src/xrServerEntities/script_engine_script.cpp:127-196
 
 ### xtrace.script - Tracing
 
-- `new()`, `new_if(condition)` -> `.id`, `.path`, `:push(op)`, `:pop(segment)`
-- `new_if(false)` returns NOOP singleton (zero overhead)
+- `new()`, `new_if(condition)` -> `.id` (a monotonic correlation id; no path / span hierarchy)
+- `new_if(false)` returns the null singleton `{ id = 0 }` (zero allocation)
 
 ### xinspect.script - Debug
 
