@@ -63,6 +63,9 @@ Disable or remove in MO2. Any mod depending on xlibs will stop working.
 Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
+Performance:
+Performance comes first, ahead of any feature. A wrapper costs only the bridge call it wraps and adds no work of its own; when something cannot fit the budget it is reworked, replaced, or removed with an X-Ray engine modification rather than allowed to slow the game. Features are negotiable; the frame budget is not.
+
 Compatibility:
 Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
 Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start; everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
@@ -71,6 +74,7 @@ Development:
 Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
 Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
 The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
+Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case; the optimized multithreaded build you run is always faster.
 Full report in doc/test-report.log.
 
 FAQ:
