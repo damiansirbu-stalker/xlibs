@@ -1,95 +1,95 @@
 --- xpda: PDA map marker helpers. Transient: do nothing. Persistent: save in save_state, hydrate in actor_on_first_update.
 
-local pairs, pcall = pairs, pcall
+local pairs = pairs
 
 local DEFAULT_MARKER_TYPE = "red_location"
 local squad_markers = {}
 
 --- Remove map marker from squad
---- Calls level.map_remove_object_spot via pcall; clears stored marker_type from squad_markers table
---- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- Guards level.present() (Level() is NULL during transitions, where map_remove is a C++ NULL deref
+--- pcall cannot catch; the guard returns before the deref), then removes the spot and clears the ledger.
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot: Level().MapManager().RemoveMapLocation lookup + erase)
---- @src xray/xrGame/level_script.cpp(456)
+--- @src xray/xrGame/level_script.cpp(459,535)
 --- @param squad_id number Squad ID
 function unmark_squad(squad_id)
     if not squad_id then return end
     local stored_type = squad_markers[squad_id]
     if not stored_type then return end
-    pcall(function() level.map_remove_object_spot(squad_id, stored_type) end)
+    if level.present() then level.map_remove_object_spot(squad_id, stored_type) end
     squad_markers[squad_id] = nil
 end
 
 --- Add map marker to squad
---- Removes existing marker if any, then calls level.map_add_object_spot via pcall
---- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
---- @cost O(1) | 1-2 luabind heavy (each: CMapLocation construction + MapManager container insert + SetHint shared_str)
---- @src xray/xrGame/level_script.cpp(431,456)
+--- Removes any prior stored spot, adds the new one, then returns whether the spot actually EXISTS
+--- (map_has_object_spot != 0) instead of merely whether the call did not error -- a rejected add surfaces.
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- @cost O(1) | 3 luabind heavy (map_remove + map_add + map_has verify)
+--- @src xray/xrGame/level_script.cpp(434,459,505,535)
 --- @param squad_id number Squad ID
 --- @param opts table { label, marker_type }
---- @return boolean Success (false during transitions)
+--- @return boolean True if the spot exists after the add (false during transitions or if rejected)
 function mark_squad(squad_id, opts)
     if not squad_id then return false end
+    if not level.present() then return false end
     opts = opts or {}
     local marker_type = opts.marker_type or DEFAULT_MARKER_TYPE
     local label = opts.label or "Squad"
-
-    -- Remove existing marker if any
     local stored_type = squad_markers[squad_id]
-    if stored_type then
-        pcall(function() level.map_remove_object_spot(squad_id, stored_type) end)
-    end
-
-    local ok = pcall(function() level.map_add_object_spot(squad_id, marker_type, label) end)
-
-    if ok then
+    if stored_type then level.map_remove_object_spot(squad_id, stored_type) end
+    level.map_add_object_spot(squad_id, marker_type, label)
+    if level.map_has_object_spot(squad_id, marker_type) ~= 0 then
         squad_markers[squad_id] = marker_type
         return true
     end
-
     return false
 end
 
 --- Clear all squad markers
---- Iterates squad_markers table and removes each via pcall; resets table
---- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- Removes each stored spot (level.present()-guarded) and empties the ledger; used on a full reset.
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) markers | 1 luabind medium per marker (map_remove_object_spot)
---- @src xray/xrGame/level_script.cpp(456)
+--- @src xray/xrGame/level_script.cpp(459,535)
 function clear_squad_markers()
-    for sid, marker_type in pairs(squad_markers) do
-        pcall(level.map_remove_object_spot, sid, marker_type)
+    if level.present() then
+        for sid, marker_type in pairs(squad_markers) do
+            level.map_remove_object_spot(sid, marker_type)
+        end
     end
     squad_markers = {}
 end
 
 --- Mark an entity (NPC, long-lived marker - caller owns persistence)
---- Removes existing marker of same type then adds new one via pcall
---- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
---- @cost O(1) | 2 luabind heavy (map_remove + map_add: CMapLocation ctor + container ops + SetHint)
---- @src xray/xrGame/level_script.cpp(431,456)
+--- Removes any existing spot of this type, adds the new one, then returns whether the spot actually
+--- EXISTS (map_has_object_spot != 0) -- so a rejected add (bad spot type, invalid object) surfaces to the caller.
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- @cost O(1) | 3 luabind heavy (map_remove + map_add + map_has verify)
+--- @src xray/xrGame/level_script.cpp(434,459,505,535)
 --- @param id number Entity ID
 --- @param opts table { marker_type, label }
---- @return boolean Success (false during transitions)
+--- @return boolean True if the spot exists after the add (false during transitions or if rejected)
 function mark_entity(id, opts)
     if not id then return false end
+    if not level.present() then return false end
     opts = opts or {}
     local marker_type = opts.marker_type or DEFAULT_MARKER_TYPE
     local label = opts.label or "Entity"
-    pcall(function() level.map_remove_object_spot(id, marker_type) end)
-    local ok = pcall(function() level.map_add_object_spot(id, marker_type, label) end)
-    return ok
+    level.map_remove_object_spot(id, marker_type)
+    level.map_add_object_spot(id, marker_type, label)
+    return level.map_has_object_spot(id, marker_type) ~= 0
 end
 
 --- Remove entity marker
---- Calls level.map_remove_object_spot via pcall with marker_type
---- @safety pcall: map_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- Guards level.present() then removes the object's spot of this type (no ledger; caller owns lifetime).
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot)
---- @src xray/xrGame/level_script.cpp(456)
+--- @src xray/xrGame/level_script.cpp(459,535)
 --- @param id number Entity ID
 --- @param marker_type string|nil Marker type (default: red_location)
 function unmark_entity(id, marker_type)
     if not id then return end
     marker_type = marker_type or DEFAULT_MARKER_TYPE
-    pcall(function() level.map_remove_object_spot(id, marker_type) end)
+    if level.present() then level.map_remove_object_spot(id, marker_type) end
 end
 
 --- Send PDA message (dumb pipe, no sound, no color)

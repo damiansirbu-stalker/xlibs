@@ -1,6 +1,6 @@
 --- xstash: Stash/treasure operations
 
-local pairs, pcall, type, table_concat = pairs, pcall, type, table.concat
+local pairs, type, table_concat = pairs, type, table.concat
 local xobject, xlevel, xmath = xobject, xlevel, xmath
 
 --- Find stashes matching criteria
@@ -92,9 +92,9 @@ end
 
 --- Loot stash contents (marks as looted, returns item list)
 --- Reads comma-separated contents string, marks as looted, removes map spot
---- @safety pcall: map_remove_object_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) items (str_explode) | 1 luabind medium (map_remove_object_spot)
---- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(456)
+--- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(459,535)
 --- @param stash_id number Stash object ID
 --- @return table|nil Array of section names
 function loot_stash(stash_id)
@@ -107,16 +107,16 @@ function loot_stash(stash_id)
     local items = str_explode(contents, ",")
 
     treasure_manager.caches[stash_id] = true
-    pcall(function() level.map_remove_object_spot(stash_id, "treasure") end)
+    if level.present() then level.map_remove_object_spot(stash_id, "treasure") end
 
     return items
 end
 
 --- Fill stash with items (always safe to call)
 --- Appends to existing contents string or creates new; optionally adds "treasure" map spot
---- @safety pcall: map_add_object_spot crashes during transitions, see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) items (table_concat) | 0-1 luabind heavy (map_add_object_spot if add_marker: CMapLocation construction + insert)
---- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(431)
+--- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(434,535)
 --- @param stash_id number Stash object ID
 --- @param items table Array of section names
 --- @param add_marker boolean|nil Add map marker (default false)
@@ -135,8 +135,8 @@ function fill_stash(stash_id, items, add_marker)
         treasure_manager.caches[stash_id] = new_contents
     end
 
-    if add_marker then
-        pcall(function() level.map_add_object_spot(stash_id, "treasure", "") end)
+    if add_marker and level.present() then
+        level.map_add_object_spot(stash_id, "treasure", "")
     end
 
     return true
