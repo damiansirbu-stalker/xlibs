@@ -286,6 +286,32 @@ function goodwill_to_actor(obj)
     return obj:general_goodwill(actor)
 end
 
+--- Relation between two online objects: "enemy" | "neutral" | "friend", or nil if unresolvable.
+--- The general form of relation_to_actor: per-NPC engine relation (honours individual overrides), NOT community.
+--- @safety SAFE - nil-guarded on both objects and the method
+--- @cost O(1) | 1 luabind (game_object:relation)
+--- @src xray/script_game_object_script2.cpp:133 (game_object:relation = CScriptGameObject::GetRelationType)
+--- @param a game_object online object whose view is taken
+--- @param b game_object online target object
+--- @return string|nil "enemy" | "neutral" | "friend", or nil
+function relation(a, b)
+    if not (a and b and a.relation) then return nil end
+    local rel = a:relation(b)
+    if rel >= game_object.enemy then return "enemy" end
+    if rel <= game_object.friend then return "friend" end
+    return "neutral"
+end
+
+--- True if object a is an enemy of object b (per-NPC relation, not community). See relation.
+--- @safety SAFE - delegates to relation
+--- @cost O(1) | 1 luabind
+--- @param a game_object online object
+--- @param b game_object online target
+--- @return boolean
+function is_enemy(a, b)
+    return relation(a, b) == "enemy"
+end
+
 -- Mutant section prefix -> display name (inv_name often missing for mutants)
 local MUTANT_NAMES = {
     gigant = "Pseudogiant",
