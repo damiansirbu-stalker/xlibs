@@ -246,6 +246,46 @@ function community(input)
     return alife_character_community(entity)
 end
 
+--- Relation of an online object to the actor: "enemy" | "neutral" | "friend", or nil if unresolvable.
+--- Uses the engine PER-NPC relation (what damage/hit decisions use), NOT faction community - so it honours
+--- individual overrides. nil when there is no actor or the object has no relation (e.g. an offline server obj).
+--- @safety SAFE - nil-guarded on actor; caller passes a live game_object
+--- @cost O(1) | 1 luabind (game_object:relation)
+--- @see xray/script_game_object_script2.cpp:133 (game_object:relation = CScriptGameObject::GetRelationType)
+--- @src anomaly game_object:relation; the >= game_object.enemy pattern (AlifePlus ap_ext_loot_claim.script:184)
+--- @param obj game_object online object (NPC / monster)
+--- @return string|nil "enemy" | "neutral" | "friend", or nil
+function relation_to_actor(obj)
+    local actor = db.actor
+    if not (obj and actor and obj.relation) then return nil end
+    local rel = obj:relation(actor)
+    if rel >= game_object.enemy then return "enemy" end
+    if rel <= game_object.friend then return "friend" end
+    return "neutral"
+end
+
+--- True if an online object is an enemy of the actor (per-NPC relation, not community). See relation_to_actor.
+--- @safety SAFE - delegates to relation_to_actor
+--- @cost O(1) | 1 luabind
+--- @param obj game_object online object
+--- @return boolean
+function is_enemy_to_actor(obj)
+    return relation_to_actor(obj) == "enemy"
+end
+
+--- Numeric per-NPC goodwill of an online object toward the actor (engine general_goodwill), or nil.
+--- Per-NPC attitude the vanilla PDA-icon gate reads (icon hidden while <= -1000), NOT faction community.
+--- @safety SAFE - nil-guarded on actor and the method; caller passes a live game_object
+--- @cost O(1) | 1 luabind (general_goodwill: GetAttitude)
+--- @src xray/script_game_object_script3.cpp:304 (general_goodwill = CScriptGameObject::GetAttitude)
+--- @param obj game_object online object (NPC)
+--- @return number|nil goodwill value, or nil if unresolvable
+function goodwill_to_actor(obj)
+    local actor = db.actor
+    if not (obj and actor and obj.general_goodwill) then return nil end
+    return obj:general_goodwill(actor)
+end
+
 -- Mutant section prefix -> display name (inv_name often missing for mutants)
 local MUTANT_NAMES = {
     gigant = "Pseudogiant",
