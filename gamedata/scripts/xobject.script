@@ -62,11 +62,14 @@ function go(id)
     return level.object_by_id(id)
 end
 
---- Release a server object from the alife simulation
---- Nil-guarded wrapper over alife_release, whose engine binding THROWs on a nil object; the entity is removed on the next alife update
---- @safety SAFE - nil-guarded before the bridge (CALifeSimulator__release THROWs on nil)
---- @cost O(1) | 1 luabind medium (alife():release removes the object from the registry)
---- @src anomaly/_g.script(2172), xray/xrGame/alife_simulator_script.cpp(288)
+--- Release a server object via the anomaly alife_release dispatcher (NOT a raw alife():release).
+--- alife_release routes by class: a grouped NPC through squad:remove_npc (proper member detach), a
+--- squad through remove_squad, other classes through alife():release, and it fires
+--- server_entity_on_unregister for registered classes. A caller needing the raw engine destroy that
+--- bypasses this dispatch (e.g. an entity whose group_id is a non-squad group) must call alife():release directly.
+--- @safety SAFE - nil-guarded; alife_release itself prints an error on a nil server object
+--- @cost O(1) | 1-3 luabind (clsid dispatch + remove_npc / remove_squad / alife():release)
+--- @src anomaly/_g.script(2196 alife_release), xray/xrGame/alife_simulator_script.cpp(288 CALifeSimulator__release)
 --- @param se_obj userdata Server object to release
 function release(se_obj)
     if not se_obj then return end
