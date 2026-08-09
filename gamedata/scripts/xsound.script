@@ -13,7 +13,7 @@ local math_abs = math.abs
 
 --- Verified-safe sound paths. Sourced from vanilla scripts and configs/misc/sound/*.ltx.
 --- Usage: xsound.acquire(xsound.SND.PSY_ANTENNA_L, { volume = 0.7 })
---- Missing paths play silently (no fatal error like .ppe), but waste a handle slot.
+--- Missing paths log a Lua "File not found" error and fall back to $no_sound (no crash, script_sound.cpp:25), but waste a handle slot.
 --- @src anomaly/sr_psy_antenna.script(42): PSY_ANTENNA_L, PSY_ANTENNA_R
 --- @src anomaly/psi_storm_manager.script(384): PSI_STORM
 --- @src anomaly/bind_anomaly_field.script(283-284): EMI_BLOWOUT, EMI_BLOWOUT_FAR
@@ -39,21 +39,26 @@ SND = {
     LIGHT_HUMMING     = "ambient\\special\\light_humming",
 }
 
---- Play a one-shot sound (no looping, no handle, no lerp).
---- For short notification cues; use acquire/release for looping sounds with volume control.
+--- Play a one-shot sound (fire-and-forget: no handle, no lerp).
+--- Uses play_no_feedback so the emitter is engine-owned and is NOT cut when the Lua object is
+--- garbage-collected -- play()/play_at_pos() set a feedback handle that ~CScriptSound stops on GC.
+--- For short cues and positional one-shots; use acquire/release for looping sounds with volume control.
 --- @safety SAFE - nil-guarded on db.actor and sound_object_t constructor
---- @cost O(1) | 1 luabind heavy (sound_object ctor + play)
---- @src xray/xrGame/script_sound_script.cpp sound_object bindings, anomaly/utils_obj.script(834)
+--- @cost O(1) | 1 luabind heavy (sound_object ctor + play_no_feedback)
+--- @src xray/xrGame/script_sound_script.cpp:51 (play_no_feedback); xrSound/SoundRender_Core.cpp:353-381 (detaches the emitter to engine ownership)
 --- @param snd_path string Sound path (e.g. "affects\\tinnitus3a", xsound.SND.*)
---- @param opts table|nil { volume (default 1.0) }
+--- @param opts table|nil { volume (default 1.0), position (vector -> 3D at that point; omit for 2D at-ear), freq (default 1.0) }
 --- @return boolean True if sound was played
 function play(snd_path, opts)
     local actor = db.actor
     if not actor then return false end
     local snd = sound_object_t(snd_path)
     if not snd then return false end
-    snd:play(actor, 0, sound_object_t.s2d)
-    snd.volume = (opts and opts.volume) or 1.0
+    opts = opts or {}
+    local pos = opts.position
+    local flags = sound_object_t.s2d
+    if pos then flags = sound_object_t.s3d end
+    snd:play_no_feedback(actor, flags, 0, pos or vector():set(0, 0, 0), opts.volume or 1.0, opts.freq or 1.0)
     return true
 end
 
