@@ -584,7 +584,7 @@ end
 --- @src anomaly/simulation_objects.script(117), anomaly/smart_terrain.script(1534)
 --- @param smart smart_terrain Smart terrain to check
 --- @return table Faction set {[faction]=true, ...} or empty table
-local function get_declared_factions(smart)
+function get_declared_factions(smart)
     if not smart then return {} end
     local cached = _factions_cache[smart.id]
     if cached then return cached end
