@@ -1,5 +1,5 @@
 next
-  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, facing read, standing-cover read, eye-height ray, offline campfire set
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard
 
   xcombat
     - Added sees_within(npc, obj, radius): true when obj is within radius metres of npc and npc sees it now.
@@ -28,6 +28,9 @@ next
     - Added get_tiered_faction_squads(smart, faction): the faction's squad pool capped by the smart's level danger tier, as an array a caller can feed to a spawn entry.
       set_exclusive_spawn_tiered now resolves its pool through it.
     - set_exclusive_spawn_section now also accepts an array of squad sections; the engine picks uniformly per spawn. A single section string works as before.
+    - Removed add_runtime_job and remove_runtime_job, the runtime exclusive-job injector, now that its only consumer no longer uses it.
+    - The spawn writers (set_shared_spawn, set_shared_spawn_section, set_exclusive_spawn, set_exclusive_spawn_tiered, set_exclusive_spawn_section) now drop squad sections absent from the system ini before writing the respawn row,
+      so an injected entry can never name a section the engine cannot spawn. An entry left with no valid section is not written.
 
   xsmart
     - clear_npc_job now unlinks the NPC from the smart's job-occupancy map before clearing its job fields, mirroring vanilla clear_job,
