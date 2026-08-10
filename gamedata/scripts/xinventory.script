@@ -977,7 +977,7 @@ end
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | get_category cost (which also returns the section) + 1 hash lookup
 --- @src xray/xrGame/script_game_object_script.cpp section()
---- @see get_category (resolves the category + section), classify / iterate_surplus / collect_surplus (callers)
+--- @see get_category (resolves the category + section), classify / iterate_surplus (callers)
 --- @param item game_object Inventory item
 --- @param opts table|nil From get_category_opts(npc)
 --- @param rules table|nil From load_policy(...).rules; nil = category key only
@@ -1058,61 +1058,6 @@ function iterate_surplus(npc, opts, ctx)
         return on_surplus(item, cat, sec, unit) == true
     end, ctx.max_items)
     return invoked
-end
-
---- Count an NPC's inventory per policy key and release its surplus in a SINGLE walk
---- The single-walk form of classify + iterate_surplus for the common "count and release the same
---- NPC's surplus" case. One iterate_inventory pass builds the per-key counts and, in m_all order,
---- the list of releasable-key items; a second pure-Lua pass walks that list and, with the identical
---- whole-stack decrement, hands each over-max item to on_surplus in the identical m_all order. So it
---- is a drop-in for classify + iterate_surplus -- same released set, same order, same post-release
---- counts, same hit_cap -- at half the per-item walk cost (one engine walk, one policy_key, one
---- _unit per item instead of two). Untouchable / equipped items and keys without a rule.max never
---- reach on_surplus (policy_key drops the former, the rule gate the latter). on_surplus owns the
---- action (release / transfer / credit); returning true stops the release early. counts is returned
---- post-release so a caller can drive a follow-up pass (e.g. a BUY pass) off it. Release happens
---- after the walk, over the captured list -- never during a live iterate_inventory -- so it cannot
---- perturb the walk. max_items bounds the walk (forwarded to iterate_inventory).
---- @safety SAFE - nil-guarded npc / rules / on_surplus; iterate tolerant of nil items
---- @cost O(min(items, max_items)) | per item: policy_key + 1 _unit + 1 hash; then 0-N on_surplus
---- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
---- @see classify (count only), iterate_surplus (caller-owned counts, streamed release), build_surplus_map
---- @param npc game_object Online NPC
---- @param opts table|nil From get_category_opts(npc)
---- @param ctx table { rules = hash from load_policy(...).rules,
----                    on_surplus = function(item, category, section, unit) (return true to stop early),
----                    max_items = number|nil cap forwarded to iterate_inventory }
---- @return number Count of surplus items on_surplus was called on
---- @return table Post-release per-key counts (identical to classify then iterate_surplus)
---- @return boolean|nil true when the walk was capped at max_items (more items remained)
-function collect_surplus(npc, opts, ctx)
-    local counts = {}
-    if not npc or not ctx or not ctx.rules or not ctx.on_surplus then return 0, counts, nil end
-    local rules, on_surplus = ctx.rules, ctx.on_surplus
-    local list = {}
-    local _, hit_cap = iterate_inventory(npc:id(), function(_, item)
-        if not item then return end
-        local key, cat, sec = policy_key(item, opts, rules)
-        if not key then return end
-        local unit = _unit(cat, item)
-        counts[key] = (counts[key] or 0) + unit
-        local rule = rules[key]
-        if rule and rule.max then
-            list[#list + 1] = { item = item, key = key, cat = cat, sec = sec, unit = unit, max = rule.max }
-        end
-    end, ctx.max_items)
-
-    local released = 0
-    for i = 1, #list do
-        local entry = list[i]
-        local count = counts[entry.key]
-        if count > entry.max then
-            counts[entry.key] = count - entry.unit
-            released = released + 1
-            if on_surplus(entry.item, entry.cat, entry.sec, entry.unit) == true then break end
-        end
-    end
-    return released, counts, hit_cap
 end
 
 --- Derive surplus per policy key from counts vs rules (pure)
