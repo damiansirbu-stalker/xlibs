@@ -1935,16 +1935,21 @@ xcombat.INDOOR_LEVELS = {
 local RQ_STATIC          = 2
 -- cast from chest height (skip ground clutter, reach a normal ceiling)
 local INDOOR_PROBE_Y     = BODY_Y.CHEST
--- a static hit straight up within this = a roof overhead
+-- is_indoor (tight) thresholds: roof within 4m, walls within 3m, at least 2 of 4 cardinals walled
 local INDOOR_ROOF_M      = 4
--- a static hit sideways within this = an enclosing wall
 local INDOOR_WALL_M      = 3
--- need at least this many of the 4 cardinal directions walled
 local INDOOR_MIN_WALLS   = 2
+-- get_enclosure reach (crystallized from AlifeSpooks probe, 31 snapshots 2026-08-08): roof to 12m catches
+-- a high hall ceiling (a 7m hangar), walls to 40m grade tight vs huge; open sky/ground reads no hit.
+local ENC_ROOF_RANGE     = 18
+local ENC_WALL_RANGE     = 40
+-- a wall within this counts toward "building" (>=3) vs "tunnel" (2)
+local ENC_BUILD_M        = 8
 
--- One static-geometry ray from `pos` along `dir`; true if it hits the level mesh within range.
+-- Distance to the first static-mesh hit from `pos` along `dir` within `range`, or nil (rqtStatic = baked
+-- level mesh only, so objects/NPCs never count as a wall).
 -- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
-local function _static_hit(pos, dir, range)
+local function _static_dist(pos, dir, range)
     local ray = ray_pick()
     ray:set_flags(RQ_STATIC)
     ray:set_position(pos)
@@ -1952,7 +1957,38 @@ local function _static_hit(pos, dir, range)
     ray:set_range(range)
     ray:query()
     local hit = ray:get_distance()
-    return hit > 0 and hit <= range
+    return (hit > 0 and hit <= range) and hit or nil
+end
+
+--- Measure enclosure geometry at `pos`: a roof up-ray plus 4 cardinal wall-rays, returning hit DISTANCES.
+--- roof / nearest_wall are nil when nothing is hit (open sky / open sides). The caller classifies from the
+--- raw distances (roof <= ~10m = enclosed; nearest_wall < 2m = tight; walls all far = huge; wall_count >= 3
+--- = building, 2 = tunnel; no roof + near walls = roofless ruin). EXPENSIVE relative to a table read - the
+--- caller MUST cache it by a position cell and never call it per frame.
+--- @safety SAFE - world positions only, nil on a bad position
+--- @cost O(1) | up to 5 ray_pick queries
+--- @src AlifeSpooks probe 2026-08-08 (31 snapshots) - the ranges and thresholds
+--- @param pos vector world position
+--- @return table|nil { roof=dist|nil, walls={4 dists|nil}, nearest_wall=dist|nil, wall_count=int }
+function xcombat.get_enclosure(pos)
+    if not xmath.check_pos(pos) then return nil end
+    local chest = vector():set(pos.x, pos.y + INDOOR_PROBE_Y, pos.z)
+    local roof = _static_dist(chest, vector():set(0, 1, 0), ENC_ROOF_RANGE)
+    local walls = {
+        _static_dist(chest, vector():set( 1, 0,  0), ENC_WALL_RANGE),
+        _static_dist(chest, vector():set(-1, 0,  0), ENC_WALL_RANGE),
+        _static_dist(chest, vector():set( 0, 0,  1), ENC_WALL_RANGE),
+        _static_dist(chest, vector():set( 0, 0, -1), ENC_WALL_RANGE),
+    }
+    local nearest, count = nil, 0
+    for i = 1, 4 do
+        local dist = walls[i]
+        if dist then
+            if not nearest or dist < nearest then nearest = dist end
+            if dist <= ENC_BUILD_M then count = count + 1 end
+        end
+    end
+    return { roof = roof, walls = walls, nearest_wall = nearest, wall_count = count }
 end
 
 --- True if `pos` is inside tight geometry: an underground/lab level, or a spot on an outdoor level with
@@ -1972,14 +2008,13 @@ end
 --- @validated 2026-08-06 (probe stealth_lum, 10 Cordon spots): true for every real enclosure (house, basement, lit bunker), correctly false in the open and for a broken-roof structure. No false positive.
 function xcombat.is_indoor(pos)
     if xcombat.INDOOR_LEVELS[level.name()] then return true end
-    if not xmath.check_pos(pos) then return false end
-    local probe = vector():set(pos.x, pos.y + INDOOR_PROBE_Y, pos.z)
-    if not _static_hit(probe, vector():set(0, 1, 0), INDOOR_ROOF_M) then return false end
+    local enc = xcombat.get_enclosure(pos)
+    if not enc or not enc.roof or enc.roof > INDOOR_ROOF_M then return false end
     local walls = 0
-    if _static_hit(probe, vector():set( 1, 0,  0), INDOOR_WALL_M) then walls = walls + 1 end
-    if _static_hit(probe, vector():set(-1, 0,  0), INDOOR_WALL_M) then walls = walls + 1 end
-    if _static_hit(probe, vector():set( 0, 0,  1), INDOOR_WALL_M) then walls = walls + 1 end
-    if _static_hit(probe, vector():set( 0, 0, -1), INDOOR_WALL_M) then walls = walls + 1 end
+    for i = 1, 4 do
+        local dist = enc.walls[i]
+        if dist and dist <= INDOOR_WALL_M then walls = walls + 1 end
+    end
     return walls >= INDOOR_MIN_WALLS
 end
 
