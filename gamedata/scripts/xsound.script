@@ -62,6 +62,20 @@ function play(snd_path, opts)
     return true
 end
 
+--- Duration of a sound file in milliseconds, WITHOUT playing it. Constructs the sound_object (loads the
+--- source and its handle length), reads length(), then lets it GC -- no play means no feedback, so the
+--- collect is safe (~CScriptSound has nothing to cut). For spacing one-shots by their own length.
+--- @safety SAFE - no play, no retained handle, no db.actor needed
+--- @cost O(1) | 1 luabind heavy (sound_object ctor) + 1 length read
+--- @src xray/xrGame/script_sound_inline.h:11-15 (Length = iFloor(get_length_sec*1000)); xray/xrGame/script_sound.cpp:30-37 (GC-safe with no feedback)
+--- @param snd_path string Sound path (backslashes, no .ogg)
+--- @return number Duration in ms (0 if it could not load)
+function length(snd_path)
+    local snd = sound_object_t(snd_path)
+    if not snd then return 0 end
+    return snd:length() or 0
+end
+
 -- Step current toward target by smoothing per second
 -- @cost O(1) | 0 luabind
 local function _step(current, target, smoothing, dt_sec)
