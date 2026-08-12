@@ -20,6 +20,5 @@ end
 --- @param condition boolean
 --- @return table Trace or null trace
 function new_if(condition)
-    if not condition then return _NULL end
-    return new()
+    return condition and new() or _NULL
 end

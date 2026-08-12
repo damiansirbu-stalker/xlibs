@@ -284,10 +284,10 @@ end
 
 -- =========================================================================
 -- GOAP takeover - the planner block list and the squad combat-mask lifecycle. The takeover grafts one
--- evaluator + one action per stalker (the AT policy half) and adds world_property(EVAL_ID, false) as a
+-- evaluator + one action per stalker (the AT policy half) and adds world_property(TAKEOVER_ID, false) as a
 -- precondition to every planner in get_blocked_planners(), so while the flag holds the vanilla
 -- combat/danger/state/alife chain is gated off and the grafted action is the only producer of the
--- EVAL_ID=false the brain now requires. register/unregister replicate the squad memory-sharing bookkeeping
+-- TAKEOVER_ID=false the brain now requires. register/unregister replicate the squad memory-sharing bookkeeping
 -- the blocked CStalkerCombatPlanner no longer performs (its initialize register / finalize unregister).
 -- =========================================================================
 
@@ -412,8 +412,12 @@ end
 -- =========================================================================
 
 -- GOAP id shared by the grafted evaluator and action (the evaluator and action id-spaces are separate, so one
--- value serves both, matching the proven v1 graft). 188200 is free; xr_danger.actid is 188113.
-local TAKEOVER_ID = 188200
+-- value serves both, matching the proven v1 graft). It must dodge the vanilla scheme cluster (188111-188125,
+-- xr_danger.actid is 188113) AND third-party scheme ids: 188200 was NOT free - it collided with an external
+-- companion surge-shelter scheme's evaluator on the shared action manager, so a grafted-but-dormant NPC (a
+-- companion, never seized) starved that scheme's action and its shelter never fired. 188347 was verified
+-- unused across the installed mod set. RESERVED: no other GOAP scheme on the stalker manager may reuse it.
+local TAKEOVER_ID = 188347
 
 --- The grafted action's GOAP id, exported because a consumer has to declare it to vanilla's state_mgr:
 --- its idle evaluator forces its own combat flag false whenever the current action is absent from
@@ -676,7 +680,7 @@ function xcombat.get_operator(npc)
             _assign_variants(_operators, name, aid)
         end
         if xr_danger.actid and _operators[xr_danger.actid] == nil then _operators[xr_danger.actid] = "danger_s" end
-        -- The grafted takeover action itself: without this the label reads as a bare 188200 exactly when a
+        -- The grafted takeover action itself: without this the label reads as a bare 188347 exactly when a
         -- trace is asking who holds the slot.
         _operators[TAKEOVER_ID] = "takeover"
     end
@@ -890,10 +894,14 @@ end
 -- MOVEMENT lane uses the low body probe, a shot TARGETs the chest. Named by role; the engine's own
 -- stance enum is eBodyStateStand / eBodyStateCrouch.
 xcombat.BODY_Y = {
-    CROUCH_EYE = 0.93,   -- crouched eye = crouched shot origin (probe n=15 clean)
-    LANE       = 1.20,   -- movement-lane obstacle probe: low, to catch ~1m crates a higher shot ray clears
-    CHEST      = 1.51,   -- spine2 = body center / the shot TARGET point (probe n=45)
-    STAND_EYE  = 1.59,   -- standing eye = standing shot origin (probe; ai_stalker_fire.cpp:208)
+    -- crouched eye = crouched shot origin (probe n=15 clean)
+    CROUCH_EYE = 0.93,
+    -- movement-lane obstacle probe: low, to catch ~1m crates a higher shot ray clears
+    LANE       = 1.20,
+    -- spine2 = body center / the shot TARGET point (probe n=45)
+    CHEST      = 1.51,
+    -- standing eye = standing shot origin (probe; ai_stalker_fire.cpp:208)
+    STAND_EYE  = 1.59,
 }
 local BODY_Y = xcombat.BODY_Y
 -- Every combat ray is object-aware: rqtBoth (xrCDB/xr_collide_defs.h:72-76) = the baked level-geometry CDB
@@ -2005,7 +2013,8 @@ end
 --- @src xray/xr_collide_defs.h:73 (rqtStatic = baked level mesh), xray/GamePersistent.cpp:285 (hemi rejected)
 --- @param pos vector world position
 --- @return boolean true if enclosed (underground level, or roofed-and-walled outdoor spot)
---- @validated 2026-08-06 (probe stealth_lum, 10 Cordon spots): true for every real enclosure (house, basement, lit bunker), correctly false in the open and for a broken-roof structure. No false positive.
+--- @validated 2026-08-06 (probe stealth_lum, 10 Cordon spots): true for every real enclosure (house,
+--- basement, lit bunker), correctly false in the open and for a broken-roof structure. No false positive.
 function xcombat.is_indoor(pos)
     if xcombat.INDOOR_LEVELS[level.name()] then return true end
     local enc = xcombat.get_enclosure(pos)

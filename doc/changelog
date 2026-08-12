@@ -1,5 +1,5 @@
 next
-  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover graft id
 
   xcombat
     - Added sees_within(npc, obj, radius): true when obj is within radius metres of npc and npc sees it now.
@@ -15,6 +15,7 @@ next
     - Added is_line_blocked(a, b, opts) and the BODY_Y height enum (crouch-eye/lane/chest/stand-eye, measured in game): the one object-aware clearance ray, height as data.
       has_obstacle_to_target now takes the shooter's eye height, so a shot ray casts from the eye where the engine fires from, not a fixed chest offset. has_obstacle_between and _to_target are thin wrappers over is_line_blocked.
     - Changed set_aim_params to assert when a passed min_angle or max_angle exceeds PI radians. Past PI the engine's tracking band collapses to always-on and silently does nothing, so a garbage config now crashes loud instead of hiding. The -1 global-cvar sentinel and any valid angle are unaffected.
+    - Changed xcombat.TAKEOVER_ID, the takeover graft's reserved GOAP id, from 188200 to 188347, because 188200 collided with an external companion mod's surge-shelter scheme on the shared action manager and starved it. A consumer that declares the id to state_mgr must read TAKEOVER_ID, never the literal.
 
   xinventory
     - Added an optional max_items cap to iterate_inventory, classify, and iterate_surplus. The walk stops after that many items and reports the truncation as a second return value,
