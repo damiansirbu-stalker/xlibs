@@ -5,7 +5,7 @@ local math_acos, math_deg, math_huge = math.acos, math.deg, math.huge
 local time_global, tostring, tonumber = time_global, tostring, tonumber
 local type, rawget, assert, pairs = type, rawget, assert, pairs
 local level_object_by_id = level.object_by_id
-local vector, level = vector, level
+local vector, level, GetEvent = vector, level, GetEvent
 local move, state_mgr, state_mgr_direction = move, state_mgr, state_mgr_direction
 local db, alife_object, ini_sys, IsWeapon, xmath = db, alife_object, ini_sys, IsWeapon, xmath
 
@@ -1851,6 +1851,23 @@ end
 function xcombat.get_health_frac(npc)
     if not npc then return 1 end
     return npc.health
+end
+
+--- Add a signed delta to an NPC's 0..1 health fraction and write it back, clamped to [0,1] - the
+--- realized-damage correction seam a consumer uses to reapply a resist or boost to damage another
+--- system already dealt (e.g. a hit-pipeline that self-applied and left nothing to scale). Wrapped so
+--- the caller adjusts health through xcombat, not the raw engine write. No-op on a nil npc or zero delta.
+--- @safety SAFE - nil/zero guarded; clamps so health never leaves [0,1]. Caller guards liveness (a
+---   positive delta on a 0-health object would otherwise raise it above dead).
+--- @cost O(1) | 1 luabind trivial (set_health_ex)
+--- @src xray/script_game_object_script2.cpp:74 (.property("health", GetHealth/SetHealth); set_health_ex the mutable write)
+--- @param npc game_object
+--- @param delta number signed health fraction to add (heal > 0, harm < 0)
+function xcombat.add_health_frac(npc, delta)
+    if not npc or delta == 0 then return end
+    local frac = npc.health + delta
+    if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+    npc:set_health_ex(frac)
 end
 
 --- True while an engine hit flinch (the additive PlayHitMotion blend) is playing on this NPC -

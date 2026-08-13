@@ -1,5 +1,5 @@
 next
-  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover graft id
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover graft id
 
   xcombat
     - Added sees_within(npc, obj, radius): true when obj is within radius metres of npc and npc sees it now.
@@ -10,6 +10,8 @@ next
       Nearest walks the baked cover points closest-first with floor and toward-enemy guards; best keeps the engine's best_cover. Absorbs the concealment finder. Signature change from find_cover(npc, enemy_pos, search_pos).
     - Removed find_shot: the dead firing-sidestep finder had no callers. Its shot sweep stays inside find_cover.
     - Added get_health_frac(npc): NPC health as a 0..1 fraction, the maneuver need's hurt input read through xcombat instead of the raw engine field.
+    - Added add_health_frac(npc, delta): a signed, clamped delta to an NPC's 0..1 health, the health-write twin of get_health_frac,
+      so a consumer reapplies a resist or boost to damage another hit-pipeline already dealt through xcombat instead of a raw set_health_ex.
     - Added get_facing(npc): body facing as a unit direction vector, the heading read routed through xcombat. get_facing_offset composes on it, so the module has a single npc:direction() call site.
     - Added get_stand_openness(lvid, dir): baked cover-graph openness at standing height, the twin of get_crouch_openness. find_cover's hide test now reads both bands through the wrappers instead of raw level calls.
     - Added is_line_blocked(a, b, opts) and the BODY_Y height enum (crouch-eye/lane/chest/stand-eye, measured in game): the one object-aware clearance ray, height as data.
