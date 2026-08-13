@@ -2044,6 +2044,23 @@ function xcombat.is_indoor(pos)
     return walls >= INDOOR_MIN_WALLS
 end
 
+--- Enclosure state at a position: one of "outdoor" | "indoor" | "underground".
+--- Resolves ONE state, underground first: an underground LEVEL (the engine's own flag, the 9 lab/bunker
+--- levels) reads "underground"; else a roofed-and-walled spot on a surface level (is_indoor raycast)
+--- reads "indoor"; else "outdoor". underground is a whole-LEVEL flag, so a below-ground spot on a surface
+--- level reads "indoor", not "underground" (accepted - no per-spot depth signal exists).
+--- @safety SAFE - GetEvent nil-safe (returns nil when unset), is_indoor nil-safe on pos
+--- @cost O(1) | 1 luabind (GetEvent) on an underground level; + the is_indoor raycast (<=5 ray_pick) on surface
+--- @src anomaly/level_weathers.script(129) SetEvent("underground", level not in the atmosfear-weather set)
+--- @src xray via xcombat.is_indoor (rqtStatic roof+wall raycast)
+--- @param pos vector world position
+--- @return string "outdoor" | "indoor" | "underground"
+function xcombat.enclosure(pos)
+    if GetEvent("underground") then return "underground" end
+    if xcombat.is_indoor(pos) then return "indoor" end
+    return "outdoor"
+end
+
 -- =========================================================================
 -- Cover graph reservation (wraps db.used_level_vertex_ids)
 -- =========================================================================

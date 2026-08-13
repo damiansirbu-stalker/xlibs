@@ -521,6 +521,35 @@ function online_iter_with_id()
     return _online_iter_with_id()
 end
 
+--- True if any mutant is online (first-found over the online object set, early-out on the first).
+--- The online set (db.storage) is what exists around the actor within switch distance - the level-wide-near
+--- presence the director gates the mutant category on. Not a range scan; the engine's own online window is the range.
+--- @safety SAFE - iterator + clsid check are nil-safe
+--- @cost O(n) online objects, early-out on first mutant | per object: 1 luabind (clsid via IsMonster)
+--- @src anomaly/db.script online storage; xray clsid via IsMonster
+--- @return boolean
+function any_mutant_online()
+    for _, obj in _online_iter_with_id() do
+        if obj and is_mutant(obj) then return true end
+    end
+    return false
+end
+
+--- True if any stalker OTHER than the actor is online (first-found, early-out). The actor is a stalker and
+--- is always present, so it is excluded - this answers "is another person around" (the gunfire gate).
+--- @safety SAFE - iterator + clsid check are nil-safe; actor id nil-guarded
+--- @cost O(n) online objects, early-out on first stalker | per object: 1 luabind (clsid via IsStalker)
+--- @src anomaly/db.script online storage; xray clsid via IsStalker
+--- @return boolean
+function any_human_online()
+    local actor = db.actor
+    local actor_id = actor and actor:id()
+    for id, obj in _online_iter_with_id() do
+        if id ~= actor_id and obj and is_stalker(obj) then return true end
+    end
+    return false
+end
+
 -- Cache: weak keys so entries are removed when obj is GC'd
 local _unscriptable_cache = setmetatable({}, { __mode = "k" })
 
