@@ -352,6 +352,40 @@ function has_mechanic_at_smart(smart)
     return _get_role_at_smart(smart, "mechanic") ~= nil
 end
 
+--- Owner faction of the nearest live SELLER (trader/barman, medic, or mechanic) within `radius` of `pos`,
+--- or nil when none is near. A "base" is defined by a real seller being CLOSE - measured to the seller
+--- NPC ITSELF, never to a smart terrain: a smart's position is a misleading center point, the seller can
+--- sit tens of metres from it, and one base spans several smarts (proven in the field - the Rookie Village
+--- square and the Rostok checkpoint are their own smarts, but Sidorovich / the Barman stand 40-60m away).
+--- Returns the nearest seller's faction community (the owner) plus its distance; nil when no seller is
+--- within radius, i.e. not a base here. The raw `base` prop is over-assigned and ignored on purpose.
+--- ONLINE-ONLY: scans online game objects, so it only sees sellers on the loaded level near the actor -
+--- which is exactly the base you are standing in. Objective only: returns the OWNER, never a friendliness
+--- verdict (friendliness is per-actor; the caller relates the owner via game_relations). Warfare-correct -
+--- a captured base's seller changes faction, so the owner follows.
+--- @scope online - iterates online game objects via xcreature.online_iter_with_id
+--- @safety SAFE - nil-guarded on pos; skips non-stalkers; community nil-safe
+--- @cost O(n) online objects | per stalker: get_npc_roles (cached) + 1 distance; + 1 community on the winner
+--- @src anomaly/db.script online storage; anomaly/_g.script(2273,2437) community
+--- @param pos vector World position to measure from (the actor's position)
+--- @param radius number|nil Metres; default 60 (a base footprint)
+--- @return string|nil owner community, number|nil its distance - both nil if no seller within radius
+function base_owner_near(pos, radius)
+    if not pos then return nil end
+    radius = radius or 60
+    local best_dist, best = radius, nil
+    for _, obj in xcreature.online_iter_with_id() do
+        if not (obj and xcreature.is_stalker(obj)) then goto continue end
+        local roles = get_npc_roles(obj)
+        if not (roles.trader or roles.medic or roles.mechanic) then goto continue end
+        local seller_dist = pos:distance_to(obj:position())
+        if seller_dist < best_dist then best_dist, best = seller_dist, obj end
+        ::continue::
+    end
+    if not best then return nil end
+    return xcreature.community(best), best_dist
+end
+
 --- Check if smart has any non-stub stalker job
 --- Stubs (generic_point id=0, campfire_point id=1) are pushed unconditionally on every smart;
 --- non-stub = any other job_type_id (conditional auto-gen) or any exclusive LTX job (no
