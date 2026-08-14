@@ -479,6 +479,25 @@ function has_anomaly(smart)
     return false
 end
 
+--- Check if a WORLD POSITION is near an online anomaly zone (the pos-based twin of has_anomaly).
+--- Proximity check against db.anomaly_by_name; online scope (a zone is a binder only while online).
+--- @scope online - db.anomaly_by_name populated by anomaly zone binders at net_spawn
+--- @safety SAFE - nil-guarded on pos and db.anomaly_by_name; binder.object guarded for the net_destroy edge
+--- @cost O(k) k=online anomaly zones (5-15) | per zone: 1 luabind trivial (object:position) + distance_to_sqr inline
+--- @src anomaly/db.script(29,94-100), anomaly/bind_anomaly_zone.script(485,492)
+--- @param pos vector World position to measure from
+--- @param radius number|nil Metres; default 50 (matches has_anomaly)
+--- @return boolean True if pos is within radius of any online anomaly zone
+function anomaly_near(pos, radius)
+    if not (pos and db.anomaly_by_name) then return false end
+    local r2 = (radius or 50) * (radius or 50)
+    for _, binder in pairs(db.anomaly_by_name) do
+        local obj = binder.object
+        if obj and pos:distance_to_sqr(obj:position()) < r2 then return true end
+    end
+    return false
+end
+
 --- Get nearest smart terrain to actor
 --- Reads engine-maintained nearest_to_actor_smart table (updated every online smart tick, zero search cost)
 --- @scope online - smart_terrain.nearest_to_actor_smart is updated by smart tick gated on self.online (smart_terrain.script:1256); only online smarts compete for the slot
