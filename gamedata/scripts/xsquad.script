@@ -214,7 +214,15 @@ end
 --- different fields (CharacterInfo().Rank() online vs CSE_ALifeTraderAbstract::m_rank offline)
 --- but they are kept in sync atomically by CInventoryOwner::SetRank (InventoryOwner.cpp:462-465);
 --- both seeded from RankDef at first specific_character() resolution.
---- @safety SAFE - all lookups nil-guarded; IsStalker filters non-stalker classes on both paths
+--- The offline cse:rank() forces specific_character() (xrServer_Objects_ALife_Monsters.cpp:566-568),
+--- which Loads character_profile() and R_ASSERT3s "item not found, id" if that <character> profile
+--- is absent from loaded XML (xml_str_id_loader.h:115) -- an unguardable C++ assert (pcall cannot
+--- catch it). Deliberately NOT guarded: the engine exposes no Lua predicate to test profile
+--- existence, the only offline reads (profile_name/community) do not carry rank, and a profile-less
+--- commander is a broken entity that the engine asserts on anyway the moment it goes online or any
+--- other system reads its rank/community/name -- a guard here would relocate the crash, not prevent
+--- it. Reachable only on a corrupted install (a mod-removed profile still referenced by a live squad).
+--- @safety SAFE online; offline path can assert on a missing character profile (see note above)
 --- @cost O(1) | 3 luabind online (commander_id, IsStalker, character_rank); 4 luabind offline (+alife_object, +clsid, +rank)
 --- @src xray/xrGame/script_game_object_script3.cpp(309), xray/xrServerEntities/xrServer_Objects_ALife_Monsters_script4.cpp(125)
 --- @param squad se_squad Squad server object
