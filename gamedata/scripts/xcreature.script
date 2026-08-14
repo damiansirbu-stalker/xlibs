@@ -627,3 +627,36 @@ function is_task_giver(obj)
     end
     return false
 end
+
+-- =========================================================================
+-- Particles: safe attach / detach for creature-bound effects
+-- =========================================================================
+
+-- u16 bone sentinel; obj:get_bone_id returns it when the skeleton lacks the bone.
+local BI_NONE = 65535
+
+--- Attach particle group `name` to skeleton `bone`, guarded by the bone lookup. The one safe attach:
+--- callers never touch obj:start_particles directly. A missing bone would fire the engine
+--- R_ASSERT(play_bone != BI_NONE) inside start_particles, so the get_bone_id guard is mandatory. The
+--- particle NAME is not validated (no Lua existence API; a missing name is an engine fatal), so pass only
+--- config-referenced names. Particles have no lifecycle: the group follows the bone and dies with the
+--- game object (doc/library/modding/particles.md).
+--- @safety SAFE on a live object; the bone guard prevents the assert. Does NOT validate the particle name.
+--- @cost O(1) | 2 luabind trivial (get_bone_id + start_particles)
+--- @src xray/xrGame/script_game_object4.cpp:406-420
+--- @param obj game_object carrier
+--- @param name string particle group name (config-referenced)
+--- @param bone string skeleton bone name
+--- @return boolean true if attached, false when the skeleton lacks the bone
+function attach_particle(obj, name, bone)
+    if obj:get_bone_id(bone) == BI_NONE then return false end
+    obj:start_particles(name, bone)
+    return true
+end
+
+-- There is deliberately NO detach_particle. stop_particles trips the engine bone assert
+-- (script_game_object4.cpp:438) whenever the bone is not renderable at that instant - a hit, an
+-- animation, a death or offline transition - and bone visibility flips constantly, so neither an alive()
+-- nor a get_bone_id guard can prevent it (proven live 2026-08-14: stop asserted on a LIVE NPC with a valid
+-- bone). A creature particle has no safe stop: attach once and let it die with the game object
+-- (doc/library/modding/particles.md).

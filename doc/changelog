@@ -1,5 +1,5 @@
 next
-  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover graft id
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover graft id, creature particle attach
 
   xcombat
     - Added sees_within(npc, obj, radius): true when obj is within radius metres of npc and npc sees it now.
@@ -43,6 +43,10 @@ next
 
   xdata
     - Added campfire_smarts, the static base-Anomaly set of smarts owning a map-placed campfire, so has_campfire answers offline and cross-level with no runtime alife scan.
+
+  xcreature
+    - Added attach_particle(obj, name, bone): attaches a particle group to a creature's skeleton bone, guarded by the bone lookup so a missing bone cannot fire the engine assert.
+      No detach twin ships. A creature particle has no safe stop, so it attaches once and dies with the game object.
 
 1.8.4
   Summary: takeover late-bind top-up, takeover-current read, takeover id export, validated flee-lane fallback, spatial-query position guard, talking-npc lookup, inventory dump, clear_npc_job, runtime-job ini fix
