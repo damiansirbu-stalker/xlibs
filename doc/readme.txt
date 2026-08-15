@@ -5,11 +5,11 @@ Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
 Bugs, suggestions: https://github.com/damiansirbu-stalker/xlibs/issues
 
-xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need - entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
+xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need: entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 
 The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in both the European and Russian STALKER modding traditions. Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.
 
-Pure Lua where possible. No engine dependency unless necessary. No central loader - the engine auto-loads scripts on first access. Just call xlog.get_logger() or xsquad.find_squads() and it works.
+Pure Lua where possible. No engine dependency unless necessary. No central loader. The engine auto-loads scripts on first access. Call xlog.get_logger() or xsquad.find_squads() and it works.
 
 Features:
 
@@ -40,7 +40,7 @@ Diagnostics:
   xinspect     Deep table and userdata inspection, engine type identification
 
 Effects:
-  xpp          Post-process effector wrap (slot allocator, engine-smoothed factor, handle API; 35 verified-safe .ppe paths)
+  xpp          Post-process effector wrap (slot allocator, engine-smoothed factor, handle API, 35 verified-safe .ppe paths)
   xsound       Looping sound wrap (handle API, Lua-side volume lerp, lazy actor_on_update tick)
 
 Integration:
@@ -48,7 +48,7 @@ Integration:
   xevent       Runtime function hooking for synthetic callbacks
   xpda         PDA messages and map markers (squad and entity)
   xmcm         MCM config bundle (pre-seeded table, getter, loader)
-  xchange      Liquibase-style save data migration registry; each changeset runs once per save
+  xchange      Liquibase-style save data migration registry, each changeset runs once per save
 
 Requirements:
 Anomaly 1.5.3
@@ -64,17 +64,17 @@ Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
 Performance:
-Performance comes first, ahead of any feature. A wrapper costs only the bridge call it wraps and adds no work of its own; when something cannot fit the budget it is reworked, replaced, or removed with an X-Ray engine modification rather than allowed to slow the game. Features are negotiable; the frame budget is not.
+Performance comes first, ahead of any feature. A wrapper costs only the bridge call it wraps and adds no work of its own. When something cannot fit the budget it is reworked, replaced, or removed with an X-Ray engine modification rather than allowed to slow the game. The frame budget is fixed.
 
 Compatibility:
 Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
-Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start; everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
+Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start. Everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
 
 Development:
 Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
 Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
 The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
-Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case; the optimized multithreaded build you run is always faster.
+Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case. The optimized multithreaded build you run is always faster.
 Full report in doc/test-report.log.
 
 FAQ:
@@ -82,7 +82,7 @@ Do I need modded exes?
   Yes. xlibs needs themrdemonized modded exes (2025.9.10 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.
 
 Credits:
-Altogolik - support, ideas, source materials
+Altogolik: support, ideas, source materials
 
 Usage and License:
   Calling xlibs functions from your mod: intended use, no restrictions.

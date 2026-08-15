@@ -1,5 +1,5 @@
 1.8.5
-  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover graft id, creature particle attach
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover id, creature particle attach
 
   xcombat
     - Added sees_within(npc, obj, radius): true when obj is within radius metres of npc and npc sees it now.
@@ -7,18 +7,18 @@
     - Added get_crouch_openness(lvid, dir): baked cover-graph openness at crouch height toward a direction (0 walled, 1 open), the cheap posture read.
       Routes the engine's directional-cover read through xcombat so a consumer makes no raw level combat call. Static geometry only, blind to bodies.
     - Changed find_cover into a four-way finder: find_cover(npc, enemy_pos, opts) with opts.selection ("nearest"|"best"), opts.firing (true shoots from cover, false hides in it), opts.radius, opts.search_pos.
-      Nearest walks the baked cover points closest-first with floor and toward-enemy guards; best keeps the engine's best_cover. Absorbs the concealment finder. Signature change from find_cover(npc, enemy_pos, search_pos).
+      Nearest walks the baked cover points closest-first with floor and toward-enemy guards. Best keeps the engine's best_cover. Absorbs the concealment finder. Signature change from find_cover(npc, enemy_pos, search_pos).
     - Removed find_shot: the dead firing-sidestep finder had no callers. Its shot sweep stays inside find_cover.
     - Added get_health_frac(npc): NPC health as a 0..1 fraction, the maneuver need's hurt input read through xcombat instead of the raw engine field.
-    - Added add_health_frac(npc, delta): a signed, clamped delta to an NPC's 0..1 health, the health-write twin of get_health_frac,
+    - Added add_health_frac(npc, delta): a signed, clamped delta to an NPC's 0..1 health, the write counterpart of get_health_frac,
       so a consumer reapplies a resist or boost to damage another hit-pipeline already dealt through xcombat instead of a raw set_health_ex.
     - Added get_facing(npc): body facing as a unit direction vector, the heading read routed through xcombat. get_facing_offset composes on it, so the module has a single npc:direction() call site.
-    - Added get_stand_openness(lvid, dir): baked cover-graph openness at standing height, the twin of get_crouch_openness. find_cover's hide test now reads both bands through the wrappers instead of raw level calls.
+    - Added get_stand_openness(lvid, dir): baked cover-graph openness at standing height, the standing version of get_crouch_openness. find_cover's hide test now reads both bands through the wrappers instead of raw level calls.
     - Added is_line_blocked(a, b, opts) and the BODY_Y height enum (crouch-eye/lane/chest/stand-eye, measured in game): the one object-aware clearance ray, height as data.
       has_obstacle_to_target now takes the shooter's eye height, so a shot ray casts from the eye where the engine fires from, not a fixed chest offset. has_obstacle_between and _to_target are thin wrappers over is_line_blocked.
     - Changed set_aim_params to assert when a passed min_angle or max_angle exceeds PI radians. Past PI the engine's tracking band collapses to always-on and silently does nothing, so a garbage config now crashes loud instead of hiding. The -1 global-cvar sentinel and any valid angle are unaffected.
-    - Changed xcombat.TAKEOVER_ID, the takeover graft's reserved GOAP id, from 188200 to 188347, because 188200 collided with an external companion mod's surge-shelter scheme on the shared action manager and starved it. A consumer that declares the id to state_mgr must read TAKEOVER_ID, never the literal.
-    - Added set_view_distance_factor(npc, factor): scales an NPC's sight range, the distance twin of set_view_speed. Probes the engine bind and no-ops when the exe lacks it.
+    - Changed xcombat.TAKEOVER_ID, the takeover's reserved GOAP id, from 188200 to 188347, because 188200 collided with an external companion mod's surge-shelter scheme on the shared action manager and blocked it. A consumer that declares the id to state_mgr must read TAKEOVER_ID, never the literal.
+    - Added set_view_distance_factor(npc, factor): scales an NPC's sight range, the distance counterpart of set_view_speed. Probes the engine bind and no-ops when the exe lacks it.
     - Added get_enclosure(pos): roof up-ray plus four cardinal wall-rays at a position, returning the hit distances. is_indoor now reads it instead of a fixed heuristic.
 
   xinventory
@@ -32,7 +32,7 @@
   xsmart_spawn
     - Added get_tiered_faction_squads(smart, faction): the faction's squad pool capped by the smart's level danger tier, as an array a caller can feed to a spawn entry.
       set_exclusive_spawn_tiered now resolves its pool through it.
-    - set_exclusive_spawn_section now also accepts an array of squad sections; the engine picks uniformly per spawn. A single section string works as before.
+    - set_exclusive_spawn_section now also accepts an array of squad sections. The engine picks uniformly per spawn. A single section string works as before.
     - Removed add_runtime_job and remove_runtime_job, the runtime exclusive-job injector, now that its only consumer no longer uses it.
     - The spawn writers (set_shared_spawn, set_shared_spawn_section, set_exclusive_spawn, set_exclusive_spawn_tiered, set_exclusive_spawn_section) now drop squad sections absent from the system ini before writing the respawn row,
       so an injected entry can never name a section the engine cannot spawn. An entry left with no valid section is not written.
@@ -51,8 +51,8 @@
 
   xcreature
     - Added attach_particle(obj, name, bone): attaches a particle group to a creature's skeleton bone, guarded by the bone lookup so a missing bone cannot fire the engine assert.
-      No detach twin ships. A creature particle has no safe stop, so it attaches once and dies with the game object.
-    - Added online_monster_iter(): walks the online monster objects, the creature-side twin of the online-stalker iterator.
+      No detach function ships. A creature particle has no safe stop, so it attaches once and dies with the game object.
+    - Added online_monster_iter(): walks the online monster objects, the creature version of the online-stalker iterator.
     - Added relation(a, b) and is_enemy(a, b): general relation reads between any two objects, so a consumer stops calling the raw engine relation.
     - Added goodwill_to_actor(obj): an object's goodwill toward the actor, read through xcreature.
 
