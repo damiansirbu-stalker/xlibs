@@ -1,4 +1,4 @@
-next
+1.8.5
   Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover graft id, creature particle attach
 
   xcombat
@@ -18,6 +18,8 @@ next
       has_obstacle_to_target now takes the shooter's eye height, so a shot ray casts from the eye where the engine fires from, not a fixed chest offset. has_obstacle_between and _to_target are thin wrappers over is_line_blocked.
     - Changed set_aim_params to assert when a passed min_angle or max_angle exceeds PI radians. Past PI the engine's tracking band collapses to always-on and silently does nothing, so a garbage config now crashes loud instead of hiding. The -1 global-cvar sentinel and any valid angle are unaffected.
     - Changed xcombat.TAKEOVER_ID, the takeover graft's reserved GOAP id, from 188200 to 188347, because 188200 collided with an external companion mod's surge-shelter scheme on the shared action manager and starved it. A consumer that declares the id to state_mgr must read TAKEOVER_ID, never the literal.
+    - Added set_view_distance_factor(npc, factor): scales an NPC's sight range, the distance twin of set_view_speed. Probes the engine bind and no-ops when the exe lacks it.
+    - Added get_enclosure(pos): roof up-ray plus four cardinal wall-rays at a position, returning the hit distances. is_indoor now reads it instead of a fixed heuristic.
 
   xinventory
     - Added an optional max_items cap to iterate_inventory, classify, and iterate_surplus. The walk stops after that many items and reports the truncation as a second return value,
@@ -40,6 +42,9 @@ next
       so a cleared job's single-occupancy slot can no longer briefly block other NPCs from taking that job.
     - has_campfire now answers offline map campfires from the static xdata.campfire_smarts set, so a consumer no longer feeds it per session.
       Removed note_campfire_object and campfire_map_count, the old per-session feed and its diagnostic.
+    - Added anomaly_near(pos, radius): true when an anomaly sits within radius of a position, the position-based proximity read.
+    - Added base_owner_near(pos, radius): the owning faction of the nearest base seller NPC to a position.
+    - get_declared_factions(smart) is now public: the factions a smart's props declare, for entity-level callers.
 
   xdata
     - Added campfire_smarts, the static base-Anomaly set of smarts owning a map-placed campfire, so has_campfire answers offline and cross-level with no runtime alife scan.
@@ -47,6 +52,20 @@ next
   xcreature
     - Added attach_particle(obj, name, bone): attaches a particle group to a creature's skeleton bone, guarded by the bone lookup so a missing bone cannot fire the engine assert.
       No detach twin ships. A creature particle has no safe stop, so it attaches once and dies with the game object.
+    - Added online_monster_iter(): walks the online monster objects, the creature-side twin of the online-stalker iterator.
+    - Added relation(a, b) and is_enemy(a, b): general relation reads between any two objects, so a consumer stops calling the raw engine relation.
+    - Added goodwill_to_actor(obj): an object's goodwill toward the actor, read through xcreature.
+
+  xsound
+    - Added length(snd_path): a sound's duration in seconds, read from the file without playing it.
+    - Fixed one-shot sounds cut short by the collector: play routes through play_no_feedback so GC cannot reclaim the sound object mid-play.
+
+  xprops
+    - Added the xprops module for placeable world props: place(section, pos, opts), remove(id), ground_below(pos, opts), is_clear(pos, dims, opts).
+      Spawns a dynamic_objects physic section ground-snapped and collision-checked against the loaded collision DB, so the target level must be online. An offline placement returns nil, never a crash.
+
+  xpda / xstash
+    - Fixed map spots placed for off-level objects: mark placement now guards on level.present(), so the mark status stays truthful instead of reading a stale position.
 
 1.8.4
   Summary: takeover late-bind top-up, takeover-current read, takeover id export, validated flee-lane fallback, spatial-query position guard, talking-npc lookup, inventory dump, clear_npc_job, runtime-job ini fix
@@ -535,10 +554,10 @@ next
     Added: is_task_target, O(1) task squad check with bounty/hostage member fallback
     Added: is_permanent_squad, static identity guard (story, trader, named_npc, empty, cached)
     Added: has_active_role, dynamic role guard (task_giver, companion)
-    Changed: find_squad/find_squads/find_online_squads use 4 granular guard flags
+    Changed: find_squad/find_squads/find_online_squads use 4 separate guard flags
     Changed: distance bounds use inclusive upper (Demonized pattern)
     Removed: is_unscriptable_squad (replaced by is_permanent_squad + has_active_role)
-    Removed: exclude_unscriptable opt (replaced by granular flags)
+    Removed: exclude_unscriptable opt (replaced by separate flags)
     Fixed: find_online_squads re-evaluating rejected squads on every member NPC
     Fixed: release_squads crash on stale SIMBOARD IDs after delete_all + repopulate
     Fixed: release_squads deleting task target squads (assault, bounty, delivery)

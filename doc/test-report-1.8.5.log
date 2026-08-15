@@ -1,0 +1,32 @@
+=== VALIDATE (1 mods) ===
+
+xlibs
+  luacheck... OK
+  selene... OK
+  contract... 1 pts (S+)
+    standards-nesting-depth LUA-LOW (1x1=1)
+        gamedata\scripts\xcombat.script:2011: Nesting depth 3; max 2 
+(code-standards.md:125)
+  load... OK
+  redlint (docs)... 820 findings / 3 docs (3 pts: 3 style-capped)
+    regex.code-internal (306)
+    structure.mergeable-wrap (104)
+    structure.long-line (99)
+    regex.semicolon (97)
+    structure.paragraph-indent (72)
+    spacy.early-wrap (43)
+    spacy.verbless (35)
+    regex.punctuation (30)
+    spacy.passive (16)
+    regex.mechanism-jargon (5)
+    regex.non-ascii (3)
+    spacy.multi-clause (3)
+    spacy.rule-of-three (2)
+    regex.table-pipe (1)
+    regex.from-to (1)
+    regex.not-but (1)
+    regex.fluff (1)
+    regex.ing-opener (1)
+
+========================================
+Grade: S+ - Score: 4
