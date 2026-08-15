@@ -550,6 +550,42 @@ function any_human_online()
     return false
 end
 
+-- Fallback cap: bounds the clsid filter when db.OnlineMonsters is absent; sized above real online-object
+-- counts so it engages only under chaos-soak (a monster past it is missed, best-effort).
+local MONSTER_ITER_CAP = 400
+
+--- Iterator over online MONSTERS yielding (id, obj) pairs (best-effort mutant-presence + near-tier feed).
+--- Prefers a demonized db.OnlineMonsters id-array (parity with db.OnlineStalkers, pending PR); else a capped
+--- is_mutant filter over the full online set, so a monster past MONSTER_ITER_CAP is missed under heavy load.
+--- @safety SAFE - iterator + clsid check nil-safe; obj resolved through db.storage, a nil obj is yielded not raised
+--- @cost O(k) via registry (k monsters) | fallback O(min(n, CAP)) online objects, 1 clsid luabind each
+--- @src modded-exes/db.OnlineMonsters (pending PR), anomaly/db.script(7,149,164) db.OnlineStalkers parity
+--- @return function Iterator yielding (id, monster game_object) pairs
+function online_monster_iter()
+    local reg = db.OnlineMonsters
+    if reg then
+        local i = 0
+        return function()
+            i = i + 1
+            local id = reg[i]
+            if not id then return nil end
+            local st = db.storage[id]
+            return id, st and st.object or nil
+        end
+    end
+    local it = _online_iter_with_id()
+    local seen = 0
+    return function()
+        while seen < MONSTER_ITER_CAP do
+            local id, obj = it()
+            if not id then return nil end
+            seen = seen + 1
+            if obj and is_mutant(obj) then return id, obj end
+        end
+        return nil
+    end
+end
+
 -- Cache: weak keys so entries are removed when obj is GC'd
 local _unscriptable_cache = setmetatable({}, { __mode = "k" })
 
