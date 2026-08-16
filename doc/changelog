@@ -1,3 +1,10 @@
+next
+  Summary: sees dead-subject guard
+
+  xcombat
+    - Changed sees to return false without an engine log when the perceiving NPC is dead, where the raw visibility bind would otherwise log a dead-object error.
+      sees_within inherits the guard through it.
+
 1.8.5
   Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover id, creature particle attach
 

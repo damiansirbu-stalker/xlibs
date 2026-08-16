@@ -139,7 +139,8 @@ end
 --- fresh raycast: visibility accumulates on the engine's own vision path and this reads the result.
 --- The tactical "can I shoot right now" check; for sighting staleness use get_unseen_ms, for the
 --- combat planner's cover bookkeeping use get_cover_state.
---- @safety SAFE - nil-guarded both sides (false, never an error); the bind itself is engine-SAFE_WRAPped
+--- @safety SAFE - nil-guarded both sides and dead-subject guarded (false, no engine log); a dead npc would
+---   otherwise make the SAFE_WRAPped bind log "cannot check visibility of dead object!" (still no Lua error)
 --- @cost O(1) | 1 luabind (CheckObjectVisibility - visual memory read)
 --- @src xray/script_game_object_script2.cpp:138 (see = CheckObjectVisibility, SAFE_WRAP)
 --- @param npc game_object the perceiving NPC
@@ -147,6 +148,10 @@ end
 --- @return boolean true when visible now
 function xcombat.sees(npc, obj)
     if not (npc and obj) then return false end
+    -- A dead SUBJECT (npc) faults CheckObjectVisibility: it logs "cannot check visibility of dead
+    -- object!" (script_game_object.cpp:314) and returns false. SAFE_WRAP stops the Lua error but not
+    -- the log, so bail first. Guard the subject ONLY - a dead obj (a corpse) is a valid sight target.
+    if not npc:alive() then return false end
     return npc:see(obj)
 end
 
