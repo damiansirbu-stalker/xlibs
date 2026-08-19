@@ -33,6 +33,20 @@ function check_pos(pos)
     return type(pos) == "userdata"
 end
 
+--- True if position `pos` is within `radius` metres of (x, z) on the ground plane.
+--- Flat XZ (height ignored, so a ledge or stairs does not defeat it) and squared, so no sqrt.
+--- @safety SAFE - pure Lua field reads
+--- @cost O(1) | 0 luabind (vector field math)
+--- @param pos vector position to test
+--- @param x number target X coordinate
+--- @param z number target Z coordinate
+--- @param radius number range in metres
+--- @return boolean true if within range
+function in_range(pos, x, z, radius)
+    local dx, dz = pos.x - x, pos.z - z
+    return dx * dx + dz * dz <= radius * radius
+end
+
 --- Return random element from array
 --- Uses math.random for index selection; assumes #t > 0
 --- @safety SAFE - pure Lua, crashes on empty table (caller's responsibility)
