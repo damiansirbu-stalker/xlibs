@@ -1,10 +1,15 @@
---- xsound: looping sound wrap (handle API, Lua volume lerp, lazy actor_on_update)
+--- xsound: sound wrap - one-shots (play fire-and-forget; play_at retained/stoppable) + loops (acquire/release, volume lerp)
 
 local _NEXT_HANDLE = 1
 local _active = {}
+local _dead = {}
 local _registered = false
 local _last_tick = 0
 local TICK_MS = 100
+
+-- Forward declaration: play_at/acquire call _ensure_registered, which is defined below _tick. Without this
+-- the name resolves to a nil global at the earlier call sites (LUA runtime error on first play).
+local _ensure_registered
 
 local sound_object_t = sound_object
 local time_global = time_global
@@ -42,7 +47,7 @@ SND = {
 --- Play a one-shot sound (fire-and-forget: no handle, no lerp).
 --- Uses play_no_feedback so the emitter is engine-owned and is NOT cut when the Lua object is
 --- garbage-collected -- play()/play_at_pos() set a feedback handle that ~CScriptSound stops on GC.
---- For short cues and positional one-shots; use acquire/release for looping sounds with volume control.
+--- For short cues that never need stopping; use play_at for a STOPPABLE one-shot, acquire/release for loops.
 --- @safety SAFE - nil-guarded on db.actor and sound_object_t constructor
 --- @cost O(1) | 1 luabind heavy (sound_object ctor + play_no_feedback)
 --- @src xray/xrGame/script_sound_script.cpp:51 (play_no_feedback); xrSound/SoundRender_Core.cpp:353-381 (detaches the emitter to engine ownership)
@@ -60,6 +65,66 @@ function play(snd_path, opts)
     if pos then flags = sound_object_t.s3d end
     snd:play_no_feedback(actor, flags, 0, pos or vector():set(0, 0, 0), opts.volume or 1.0, opts.freq or 1.0)
     return true
+end
+
+--- Play a one-shot with a RETAINED handle - the vanilla ambient call shape (sound_object -> play_at_pos ->
+--- volume property), so the sound CAN be stopped, unlike play(). The object is held in the module until it
+--- finishes (swept on the shared tick), so the GC never cuts it mid-play.
+--- @safety SAFE - nil-guarded on db.actor and the sound_object constructor
+--- @cost O(1) | 3-4 luabind heavy (ctor + play_at_pos + volume, s2d flag optional)
+--- @src anomaly/sound_ambient.script:144-165 (the vanilla call shape); xray/xrGame/script_sound.cpp:30-37 (GC cuts an unheld playing sound)
+--- @param snd_path string Sound path (backslashes, no .ogg)
+--- @param opts table|nil { position (vector; required for 3D), volume (default 1.0), s2d (true = at-ear 2D) }
+--- @return number|nil Handle for stop_shot/stop_shots, nil when not playable
+function play_at(snd_path, opts)
+    local actor = db.actor
+    if not actor then return nil end
+    opts = opts or {}
+    local snd = sound_object_t(snd_path)
+    if not snd then return nil end
+    local flags = opts.s2d and sound_object_t.s2d or sound_object_t.s3d
+    snd:play_at_pos(actor, opts.position or vector():set(0, 0, 0), 0, flags)
+    snd.volume = opts.volume or 1.0
+    local handle = _NEXT_HANDLE
+    _NEXT_HANDLE = _NEXT_HANDLE + 1
+    _active[handle] = {
+        sound         = snd,
+        path          = snd_path,
+        volume        = snd.volume,
+        target_volume = snd.volume,
+        smoothing     = 1.0,
+        releasing     = false,
+        oneshot       = true,
+    }
+    _ensure_registered()
+    return handle
+end
+
+--- Stop one retained one-shot immediately and free its slot.
+--- @safety SAFE - no-op on an unknown handle
+--- @cost O(1) | 1 luabind (stop)
+--- @param handle number Handle from play_at()
+--- @return boolean ok
+function stop_shot(handle)
+    local entry = _active[handle]
+    if not (entry and entry.oneshot) then return false end
+    if entry.sound:playing() then entry.sound:stop() end
+    _active[handle] = nil
+    return true
+end
+
+--- Stop every retained one-shot immediately (the dev-tab Stop). Looping handles are untouched.
+--- @safety SAFE
+--- @cost O(n_active) | 1 luabind per live shot (stop)
+function stop_shots()
+    for handle, entry in pairs(_active) do
+        if entry.oneshot and entry.sound:playing() then entry.sound:stop() end
+        if entry.oneshot then _dead[#_dead + 1] = handle end
+    end
+    for i = #_dead, 1, -1 do
+        _active[_dead[i]] = nil
+        _dead[i] = nil
+    end
 end
 
 --- Duration of a sound file in milliseconds, WITHOUT playing it. Constructs the sound_object (loads the
@@ -94,14 +159,20 @@ local function _tick()
     _last_tick = now
 
     for handle, entry in pairs(_active) do
-        if entry.volume ~= entry.target_volume then
+        local finished = entry.oneshot and not entry.sound:playing()
+        if not entry.oneshot and entry.volume ~= entry.target_volume then
             entry.volume = _step(entry.volume, entry.target_volume, entry.smoothing, dt_sec)
             entry.sound.volume = entry.volume
         end
-        if entry.releasing and entry.volume <= 0.001 then
+        if not entry.oneshot and entry.releasing and entry.volume <= 0.001 then
             entry.sound:stop()
-            _active[handle] = nil
+            finished = true
         end
+        if finished then _dead[#_dead + 1] = handle end
+    end
+    for i = #_dead, 1, -1 do
+        _active[_dead[i]] = nil
+        _dead[i] = nil
     end
 
     if next(_active) == nil and _registered then
@@ -112,7 +183,7 @@ end
 
 -- Register the actor_on_update callback on first acquire; idempotent on later calls
 -- @cost O(1) | 1 luabind (RegisterScriptCallback) on cold register, 0 luabind on hot path
-local function _ensure_registered()
+_ensure_registered = function()
     if _registered then return end
     _last_tick = time_global()
     RegisterScriptCallback("actor_on_update", _tick)
