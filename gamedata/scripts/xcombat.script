@@ -1965,10 +1965,12 @@ xcombat.INDOOR_LEVELS = {
 local RQ_STATIC          = 2
 -- cast from chest height (skip ground clutter, reach a normal ceiling)
 local INDOOR_PROBE_Y     = BODY_Y.CHEST
--- is_indoor thresholds: roof within 4m, a wall within 5m, at least 1 of 4 cardinals walled
+-- is_indoor thresholds: roof within 4m, a wall within 5m, at least 2 of 4 cardinals walled. MIN_WALLS was
+-- 1, which false-flagged a spot under a tree branch (canopy baked into the static mesh hits the roof ray)
+-- next to a single wall as indoor; a real interior or tunnel walls on >=2 sides.
 local INDOOR_ROOF_M      = 4
 local INDOOR_WALL_M      = 5
-local INDOOR_MIN_WALLS   = 1
+local INDOOR_MIN_WALLS   = 2
 -- get_enclosure reach (crystallized from AlifeSpooks probe, 31 snapshots 2026-08-08): roof to 12m catches
 -- a high hall ceiling (a 7m hangar), walls to 40m grade tight vs huge; open sky/ground reads no hit.
 local ENC_ROOF_RANGE     = 18
