@@ -1,9 +1,11 @@
 next
-  Summary: hit-redirect setter, visible-enemy bias setter, ambient sound seams, sees dead-subject guard
+  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, ambient sound seams, sees dead-subject guard
 
   xcombat
     - Added set_hit_redirect(npc, max, falloff): the per-NPC selection lever toward the last attacker (engine PR #636), probe-gated, no-op on older builds.
       A hit victim prioritizes a close attacker on the real hit signal, no forged sighting.
+    - Added set_movement_hold(npc, hold): the per-NPC movement hold (engine PR #645, pending merge), probe-gated, no-op on older builds.
+      While held the engine mover keeps the stalker planted with his path preserved. The caller owns clearing the hold, a stale true plants the NPC until cleared.
     - Added set_visible_enemy_bias(npc, actor_bias, npc_bias): per-NPC override of the 900/300 "sees me" selection pull (engine PR #637), probe-gated, no-op on older builds.
     - Corrected the disclose_enemy doc: make_enemy_visible restores the prior visible bit, so it shares knowledge but cannot promote an unseen shooter into the seen class.
       A reliable victim turn is set_hit_redirect's job.

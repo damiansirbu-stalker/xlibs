@@ -1286,6 +1286,27 @@ function xcombat.set_visible_enemy_bias(npc, actor_bias, npc_bias)
     return true
 end
 
+--- Per-NPC movement hold (npc:set_movement_hold(hold)) - the glide-stop lever. While true,
+--- parse_velocity_mask routes into its Stand branch every frame: speed 0, movement type Stand, path
+--- and destination preserved, so the engine mover cannot start a standing NPC running mid-hit-reaction
+--- (the footless glide); movement resumes on the surviving path when cleared. The engine computes no
+--- condition - when to hold is entirely the caller's decision. THE CALLER OWNS CLEARING IT: the flag
+--- persists on the engine object while online, so a stale true holds the NPC planted indefinitely
+--- (clear on death/offline/feature-off, not only on the happy path).
+--- Not serialized: the object is reconstructed on re-online, so a hold never survives offline.
+--- Floor fallback: NO-OP - vanilla movement (the glide) IS the fallback.
+--- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-stalker
+--- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
+--- @src n040 BIND_NPC_MOVEMENT_HOLD (todo-demonized-exes.md); xray/stalker_movement_manager_base.cpp:432 (the Stand-branch gate)
+--- @param npc game_object stalker
+--- @param hold boolean true plants the NPC, false releases it
+--- @return boolean true when the engine path applied, false on a floor exe (no-op)
+function xcombat.set_movement_hold(npc, hold)
+    if not npc or not _has_bind(npc, "set_movement_hold") then return false end
+    npc:set_movement_hold(hold)
+    return true
+end
+
 
 --- Scale a pending hit's damage inside a before-hit callback: shit.power = shit.power * factor. The one
 --- primitive a caller's damage effect writes through, so no consumer touches the engine hit struct
