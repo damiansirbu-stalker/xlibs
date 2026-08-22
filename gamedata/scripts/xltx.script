@@ -1,0 +1,95 @@
+--- xltx: LTX/config reading - clean maps, lists and typed fields over ini_file + r_line_ex + parse_list,
+--- absence-safe. The single home for reading Anomaly .ltx config: callers never touch ini_file / line_count
+--- / r_line_ex / section_exist / r_*_ex directly. Every reader takes a path OR an already-open handle, so a
+--- caller reading many fields from one file opens it once (open) and passes the handle to avoid reopening.
+
+local ini_file, parse_list, type = ini_file, parse_list, type
+
+--- Resolve a path or an existing handle to an ltx handle - the module's one opener and internal resolver.
+--- A handle passes through unchanged; a string path is opened via ini_file. Absence is the caller's to
+--- guard (has() or a nil check on the result).
+--- @safety SAFE - nil-guarded by the caller
+--- @cost 1 luabind (ini_file) for a path; 0 for a handle
+--- @param src string|userdata An ltx path, or an already-open ini handle
+--- @return userdata|nil The ini handle
+--- @see xray/xrServerEntities/script_ini_file.cpp (ini_file -> CScriptIniFile); section / list / str / num / bool consume the handle
+function open(src)
+    return type(src) == "string" and ini_file(src) or src
+end
+
+--- True if the section exists in the ltx.
+--- @safety SAFE - nil-guarded
+--- @cost 1-2 luabind
+--- @param src string|userdata An ltx path or handle
+--- @param section string The section name
+--- @return boolean
+function has(src, section)
+    local ini = open(src)
+    return (ini and ini:section_exist(section)) or false
+end
+
+--- Read a section as a { key = value } string map. Absent file/section -> empty table.
+--- @safety SAFE - nil-guarded
+--- @cost O(lines): line_count + one r_line_ex per line (luabind heavy)
+--- @param src string|userdata An ltx path or handle
+--- @param sec string The section name
+--- @return table The key->value string map
+function section(src, sec)
+    local out = {}
+    local ini = open(src)
+    if not (ini and ini:section_exist(sec)) then return out end
+    for i = 0, ini:line_count(sec) - 1 do
+        local _, key, val = ini:r_line_ex(sec, i, "", "")
+        if key and key ~= "" then out[key] = val end
+    end
+    return out
+end
+
+--- Read a list field (space/comma-separated) from a section as an array. Absent -> empty table.
+--- @safety SAFE - nil-guarded
+--- @cost 1-2 luabind + parse_list
+--- @param src string|userdata An ltx path or handle
+--- @param sec string The section name
+--- @param field string The list field name
+--- @return table The array of list items
+function list(src, sec, field)
+    local ini = open(src)
+    if not (ini and ini:section_exist(sec)) then return {} end
+    return parse_list(ini, sec, field)
+end
+
+--- Read a string field, or nil if the file/section/field is absent (caller applies its own default with `or`).
+--- @safety SAFE - the `_ex` engine read never asserts on a missing section
+--- @cost 1-2 luabind
+--- @param src string|userdata An ltx path or handle
+--- @param sec string The section name
+--- @param field string The field name
+--- @return string|nil
+function str(src, sec, field)
+    local ini = open(src)
+    return ini and ini:r_string_ex(sec, field)
+end
+
+--- Read a float field, or nil if absent (caller applies its own default with `or`).
+--- @safety SAFE - the `_ex` engine read never asserts on a missing section
+--- @cost 1-2 luabind
+--- @param src string|userdata An ltx path or handle
+--- @param sec string The section name
+--- @param field string The field name
+--- @return number|nil
+function num(src, sec, field)
+    local ini = open(src)
+    return ini and ini:r_float_ex(sec, field)
+end
+
+--- Read a boolean field, or nil if absent (caller applies its own default with `or`).
+--- @safety SAFE - the `_ex` engine read never asserts on a missing section
+--- @cost 1-2 luabind
+--- @param src string|userdata An ltx path or handle
+--- @param sec string The section name
+--- @param field string The field name
+--- @return boolean|nil
+function bool(src, sec, field)
+    local ini = open(src)
+    return ini and ini:r_bool_ex(sec, field)
+end

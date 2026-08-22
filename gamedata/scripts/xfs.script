@@ -1,0 +1,45 @@
+--- xfs: virtual filesystem enumeration - clean folder/file lists over getFS():file_list_open + the FS.*
+--- flag bits. The single home for on-disk listing (the review player's sound browser, etc.); callers never
+--- touch getFS / FS.FS_ListFolders / FS.FS_RootOnly directly. Results are unsorted (sort at the call site).
+
+local getFS, bit_or, FS = getFS, bit_or, FS
+
+--- List the subfolder names directly under a directory in a mount, cleaned of separators and . / .. entries.
+--- Root-only (not recursive). A missing directory yields an empty list.
+--- @safety SAFE - nil-guarded (empty list on a missing dir)
+--- @cost 1 luabind (file_list_open) + O(entries)
+--- @param mount string The FS mount point (e.g. "$game_sounds$")
+--- @param dir string The directory under the mount (trailing separator expected)
+--- @return table The array of subfolder names
+function folders(mount, dir)
+    local out = {}
+    local fl = getFS():file_list_open(mount, dir, bit_or(FS.FS_ListFolders, FS.FS_RootOnly))
+    for i = 1, (fl and fl:Size() or 0) do
+        local name = fl:GetAt(i - 1):gsub("[\\/]", "")
+        if name ~= "" and name ~= "." and name ~= ".." then out[#out + 1] = name end
+    end
+    return out
+end
+
+--- List the file names directly under a directory in a mount. Root-only (not recursive). With ext (e.g.
+--- ".ogg"), only matching files are returned and the extension is stripped; without ext, every name verbatim.
+--- @safety SAFE - nil-guarded (empty list on a missing dir)
+--- @cost 1 luabind (file_list_open) + O(entries)
+--- @param mount string The FS mount point (e.g. "$game_sounds$")
+--- @param dir string The directory under the mount (trailing separator expected)
+--- @param ext string|nil Optional extension filter (e.g. ".ogg"); stripped from returned names
+--- @return table The array of file names
+function files(mount, dir, ext)
+    local out = {}
+    local fl = getFS():file_list_open(mount, dir, bit_or(FS.FS_ListFiles, FS.FS_RootOnly))
+    local ext_len = ext and #ext
+    for i = 1, (fl and fl:Size() or 0) do
+        local fname = fl:GetAt(i - 1)
+        if not ext then
+            out[#out + 1] = fname
+        elseif fname:sub(-ext_len) == ext then
+            out[#out + 1] = fname:sub(1, -ext_len - 1)
+        end
+    end
+    return out
+end
