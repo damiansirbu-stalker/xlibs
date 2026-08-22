@@ -49,10 +49,10 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 |  |  xconst   |  |  xdata    |  |  xlibs    |  | xlibs_mcm |       |
 |  | Sentinels |  | Static    |  | Metadata  |  | MCM Page  |       |
 |  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+                                                     |
-|  |  xactor   |                                                     |
-|  | Actor Ops |                                                     |
-|  +-----------+                                                     |
+|  +-----------+  +-----------+                                      |
+|  |  xactor   |  |  xsound   |                                      |
+|  | Actor Ops |  | Sound Ops |                                      |
+|  +-----------+  +-----------+                                      |
 +-------------------------------------------------------------------+
 ```
 
@@ -177,6 +177,10 @@ Engine fire-gate wrappers (themrdemonized/xray-monolith PRs #594 aim+vision, #59
 - `set_aim_params(npc, max_angle, min_angle, min_speed, predict_time)` - Per-NPC sight swing/lead; negative component reverts to the global ai_aim_* cvar. Floor: no-op, vanilla aim is the fallback
 - `set_vision_speed(npc, factor)` - Per-NPC vision acquisition factor composing with g_ai_vision_speed_boost. Floor: no-op by design; the only script substitute is a per-frame functor wrap, banned by code-standards "No Per-Frame Work"
 - `set_fire_queue_scale(npc, size_k, interval_k)` - Per-NPC combat-planner burst-size and inter-burst-interval scale (PR #603), applied in select_queue_params; vanilla-planner fire only (state_mgr fire states bypass it). Floor: no-op, vanilla queues are the fallback
+- `set_view_distance_factor(npc, factor)` - Per-NPC view-DISTANCE multiplier (PR #627) on object_visible_distance's return, the RANGE twin of set_vision_speed; composes with the per-state max_view_distance LTX multiplier. Floor: no-op, vanilla range is the fallback
+- `set_health_restore_boost(npc, boost)` - Per-NPC additive passive health-restore velocity (PR #628), mirroring the actor's BoostHpRestore; 0 = vanilla. Floor: no-op, vanilla restore is the fallback
+- `set_hit_redirect(npc, max, falloff)` - Per-NPC selection lever toward the last attacker (PR #636): within falloff metres up to max is subtracted from the attacker's selection cost, decaying to 0 at falloff, so a hit victim flips selection on the real hit signal - no forged sighting, fire still needs real line of sight. Floor: no-op, the vanilla -5/-100 hit step is the fallback
+- `set_visible_enemy_bias(npc, actor_bias, npc_bias)` - Per-NPC override of the baked "prefers whoever sees me" selection pull (PR #637): vanilla subtracts 900 for the actor vs 300 for an NPC; a negative argument keeps that side vanilla, 0 removes the pull. Floor: no-op, the vanilla bias is the fallback
 - `can_kill_enemy(npc, enemy)` - Engine shot clearance (5-ray safety fan, frame-cached). Floor: one capped rqtBoth ray from the weapon-hand bone, stopped short of the enemy body
 - `can_kill_member(npc, enemy_pos)` - Non-enemy in the fire lane; a repositioning hint, never a hold-fire gate (the engine's CObjectActionFire hold survives a combat-planner block). Floor: living squadmates only via has_friendly_in_line
 - `is_under_fire(npc, enemy, tg, window_ms)` - Danger-memory read: has the enemy hit or shot at the NPC within the window
@@ -363,6 +367,21 @@ Spawn helpers (set / clear shared / exclusive spawn, set_shared_spawn_section fo
 - `get_stash_items(stash_id)` - Read-only stash contents as parsed item list
 - `loot_stash(id)` - Loot stash contents (marks looted, returns item list)
 - `fill_stash(id, items, add_marker)` - Fill stash with items
+
+### xsound.script - Sound Playback & Engine Sound Seams
+
+```lua
+xsound.play(path, { volume = 0.8, position = vec })
+local handle = xsound.acquire(xsound.SND.MONOLITH_HUM, { smoothing = 0.5 })
+xsound.set_ambient_bed_handler(function(section, file, pos) return { volume_mult = 0 } end)
+```
+
+Sound wrap: fire-and-forget one-shots (`play`, engine-owned emitter, GC-safe), stoppable retained one-shots (`play_at`, `stop_shot`, `stop_shots`), looping handles with volume lerp on a shared 100ms tick (`acquire`, `set_volume`, `release`, `is_active`, `inspect`), duration without playing (`length`), and the verified-safe path table `SND`.
+
+Engine ambient sound seams (themrdemonized/xray-monolith PR #644, pending merge): the engine calls a named `_G` global at each ambient play site when the global is set; xlibs owns those globals - a consumer never touches `_G.*` - and routes each call to one registered handler returning `{ volume_mult }` (0 vetoes/silences, below 1 attenuates, nil = vanilla). Policy-free: what to trace and when to veto lives entirely in the handler. Inert on exes without the hooks and while no handler is registered. Handlers are NOT cleared in on_game_start: axr_main calls module on_game_start() in filesystem order, so clearing would silently wipe a consumer that registered in its own on_game_start.
+
+- `set_ambient_bed_handler(fn)` - The System A per-weather background bed play site (CGamePersistent::WeathersUpdate); fn(section, file, pos), 0 vetoes the play, the channel still reschedules on its own period
+- `set_level_music_handler(fn)` - The level music track (SMusicTrack::Play); fn(file), volume-only (0 silences the track)
 
 ### xtable.script - Table Utilities
 

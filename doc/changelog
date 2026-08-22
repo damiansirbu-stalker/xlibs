@@ -1,9 +1,19 @@
 next
-  Summary: sees dead-subject guard
+  Summary: hit-redirect setter, visible-enemy bias setter, ambient sound seams, sees dead-subject guard
 
   xcombat
+    - Added set_hit_redirect(npc, max, falloff): the per-NPC selection lever toward the last attacker (engine PR #636), probe-gated, no-op on older builds.
+      A hit victim prioritizes a close attacker on the real hit signal, no forged sighting.
+    - Added set_visible_enemy_bias(npc, actor_bias, npc_bias): per-NPC override of the 900/300 "sees me" selection pull (engine PR #637), probe-gated, no-op on older builds.
+    - Corrected the disclose_enemy doc: make_enemy_visible restores the prior visible bit, so it shares knowledge but cannot promote an unseen shooter into the seen class.
+      A reliable victim turn is set_hit_redirect's job.
     - Changed sees to return false without an engine log when the perceiving NPC is dead, where the raw visibility bind would otherwise log a dead-object error.
       sees_within inherits the guard through it.
+
+  xsound
+    - Added set_ambient_bed_handler(fn) and set_level_music_handler(fn): the engine ambient sound seams (engine PR #644, pending merge).
+      xlibs owns the _G callbacks the engine fires at the System A background-bed and level-music play sites and routes them to one registered handler,
+      which returns { volume_mult } (0 vetoes or silences, below 1 attenuates, nil vanilla). Inert on builds without the hooks and while no handler is registered.
 
 1.8.5
   Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover id, creature particle attach

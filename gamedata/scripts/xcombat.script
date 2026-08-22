@@ -228,11 +228,12 @@ local _has_make_visible = nil
 --- GetRelationType), so a known faction-hostile object is engaged without mutating any relation. The
 --- writer counterpart to get_unseen_ms / get_track_pos. Both calls require a CAI_Stalker receiver.
 --- On exes with the make_enemy_visible bind (probe-cached module-local, never a version compare) the
---- disclosed enemy is ALSO promoted into the SEEN class (CMemoryManager::make_object_visible_somewhen):
---- selection scores "currently seen" ~1000 vs single digits for hit memory (enemy_manager.cpp
---- evaluate), so memory injection alone never outranks a distant seen enemy - the promotion is what
---- makes the victim actually TURN on the shooter. Floor exes skip it and keep the memory-only
---- disclosure (the pre-bind behavior, unchanged).
+--- disclosed enemy is ALSO passed to CMemoryManager::make_object_visible_somewhen. CORRECTED CLAIM:
+--- that call is a squad knowledge-SHARE, not a sighting-creator - it saves and RESTORES the prior
+--- visible bit (memory_manager.cpp:355,361), so for a shooter the NPC does not currently see the
+--- "seen" promotion is a no-op and selection still scores him ~1000 behind any seen enemy. It
+--- registers a first sighting only for an object with no prior memory entry. A reliable victim-turn
+--- needs the selection lever instead (set_hit_redirect, PR #636).
 --- @safety SAFE - nil-guarded npc/enemy; the combat registration routes through the alive-guarded
 --- xcombat.register_in_combat wrapper (agent member state is torn down on death)
 --- @cost O(1) | 3-4 luabind (enable_memory_object: visual-memory inject; make_enemy_visible: add_visible_object, probed; alive + register_in_combat: agent_manager().member())
@@ -1242,6 +1243,46 @@ end
 function xcombat.set_health_restore_boost(npc, boost)
     if not npc or not _has_bind(npc, "set_health_restore_boost") then return false end
     npc:set_health_restore_boost(boost)
+    return true
+end
+
+--- Per-NPC hit-redirect selection lever (npc:set_hit_redirect(max, falloff), PR #636). Scales the
+--- "this object hit me" term in CEnemyManager::evaluate by distance: the last attacker within
+--- falloff metres gets up to max subtracted from its cost (decaying to 0 at falloff), so a hit
+--- victim flips SELECTION onto a close attacker on the real hit signal - no forged sighting, and
+--- fire still requires real line of sight (fire_make_sense untouched). max < 0 = the vanilla
+--- -5/-100 step. Keys on memory().hit().last_hit_object_id(), the single most recent attacker.
+--- Not serialized: the enemy manager is reconstructed on re-online, re-set on npc_on_net_spawn.
+--- Floor fallback: NO-OP - the vanilla hit step IS the fallback.
+--- @safety SAFE - nil-guarded, no-op below the bind
+--- @cost O(1) | 1 luabind trivial (2 field writes) on the engine path, 0 on the floor
+--- @src PR themrdemonized/xray-monolith#636 (merge 168a08654); xray/enemy_manager.cpp:149-167 (the hit term)
+--- @param npc game_object stalker
+--- @param max number peak cost bonus toward the last attacker (negative = vanilla step)
+--- @param falloff number metres at which the bonus decays to 0 (<= 0 defaults to 60)
+--- @return boolean true when the engine path applied, false on a floor exe (no-op)
+function xcombat.set_hit_redirect(npc, max, falloff)
+    if not npc or not _has_bind(npc, "set_hit_redirect") then return false end
+    npc:set_hit_redirect(max, falloff)
+    return true
+end
+
+--- Per-NPC visible-enemy bias lever (npc:set_visible_enemy_bias(actor_bias, npc_bias), PR #637).
+--- Replaces the hardcoded "prefers whoever sees me" terms in CEnemyManager::evaluate: vanilla
+--- subtracts 900 when the ACTOR sees the NPC but only 300 for another NPC - a ~3x baked player
+--- magnet. Each argument is independent; a negative one keeps that side vanilla (900 / 300), 0
+--- removes that pull entirely. Not serialized, re-set on npc_on_net_spawn.
+--- Floor fallback: NO-OP - the vanilla 900/300 bias IS the fallback.
+--- @safety SAFE - nil-guarded, no-op below the bind
+--- @cost O(1) | 1 luabind trivial (2 field writes) on the engine path, 0 on the floor
+--- @src PR themrdemonized/xray-monolith#637 (merge 748833d63); xray/enemy_manager.cpp:175-184 (the sees-us terms)
+--- @param npc game_object stalker
+--- @param actor_bias number replaces the 900 actor-sees-us pull (negative = vanilla)
+--- @param npc_bias number replaces the 300 npc-sees-us pull (negative = vanilla)
+--- @return boolean true when the engine path applied, false on a floor exe (no-op)
+function xcombat.set_visible_enemy_bias(npc, actor_bias, npc_bias)
+    if not npc or not _has_bind(npc, "set_visible_enemy_bias") then return false end
+    npc:set_visible_enemy_bias(actor_bias, npc_bias)
     return true
 end
 

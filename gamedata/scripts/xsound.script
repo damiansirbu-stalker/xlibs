@@ -15,6 +15,7 @@ local sound_object_t = sound_object
 local time_global = time_global
 local pairs, next = pairs, next
 local math_abs = math.abs
+local assert, type = assert, type
 
 --- Verified-safe sound paths. Sourced from vanilla scripts and configs/misc/sound/*.ltx.
 --- Usage: xsound.acquire(xsound.SND.PSY_ANTENNA_L, { volume = 0.7 })
@@ -280,7 +281,60 @@ function inspect(handle)
     }
 end
 
---- Reset all state on save load. Stops any playing sounds we still hold.
+-- ---- engine sound seams (trace + veto over the ambient soundscape) ----------------------------
+-- The demonized "ambient sound hooks" PR calls a named _G global at each engine sound-play site if
+-- the global is set, and applies { volume_mult } from the return (0 vetoes/silences, <1 attenuates,
+-- nil = vanilla). These are the PRIMITIVES only: xlibs owns the raw _G seams (mods never touch _G.*),
+-- and routes each call to one consumer-registered handler. All behavior - what to trace, whether to
+-- veto - lives in the handler, i.e. in the mod. Inert on a stock exe (the engine never calls the
+-- global) and while no handler is registered. The ambient sound sources reachable this way:
+--   COnAmbientBed  System A per-weather background bed  (GamePersistent WeathersUpdate)
+--   COnLevelMusic  level music track  (SMusicTrack::Play)
+
+-- global name (e.g. "COnAmbientBed") -> registered handler function
+local _sound_handlers = {}
+
+-- Install or remove one engine sound seam. The _G function re-reads _sound_handlers on each call so
+-- a later detach (nil) or swap takes effect immediately. NOT cleared on_game_start: axr_main calls
+-- module on_game_start() in filesystem order (axr_main.script:317-334), so a consumer registering in
+-- its own on_game_start (as_* sorts before xsound) would be silently wiped; handler and seam survive
+-- the reload together, consumers re-register idempotently.
+-- @cost O(1) | 0 luabind
+local function _set_sound_handler(global_name, handler)
+    assert(handler == nil or type(handler) == "function",
+        "xsound: sound handler for " .. global_name .. " must be a function or nil")
+    _sound_handlers[global_name] = handler
+    if handler then
+        _G[global_name] = function(...)
+            local current = _sound_handlers[global_name]
+            if not current then return nil end
+            return current(...)
+        end
+    else
+        _G[global_name] = nil
+    end
+end
+
+--- Register (or clear, with nil) the System A background-bed handler.
+--- handler: function(section, file, pos) -> nil | { volume_mult = number }
+--- @safety SAFE  @cost O(1) | 0 luabind
+--- @see xray/xrGame/GamePersistent.cpp (WeathersUpdate bed play site; fires _G.COnAmbientBed)
+--- @param handler function|nil
+function set_ambient_bed_handler(handler)
+    _set_sound_handler("COnAmbientBed", handler)
+end
+
+--- Register (or clear) the level-music handler.
+--- handler: function(file) -> nil | { volume_mult = number } (0 silences the track).
+--- @safety SAFE  @cost O(1) | 0 luabind
+--- @see xray/xrGame/level_sounds.cpp (SMusicTrack::Play; fires _G.COnLevelMusic)
+--- @param handler function|nil
+function set_level_music_handler(handler)
+    _set_sound_handler("COnLevelMusic", handler)
+end
+
+--- Reset all state on save load. Stops any playing sounds we still hold. Sound-seam handlers are
+--- intentionally NOT cleared here (see _set_sound_handler: on_game_start ordering would wipe them).
 function on_game_start()
     for _, entry in pairs(_active) do
         if entry.sound and entry.sound:playing() then
