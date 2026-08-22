@@ -2004,6 +2004,57 @@ function xcombat.is_reloading(npc)
     return wpn ~= nil and IsWeapon(wpn) and wpn:get_state() == WPN_STATE_RELOAD
 end
 
+--- True while this combatant cannot effectively return fire - the TARGET-side sibling of body_busy
+--- (that one asks "may I write this body", this one asks "can that body answer me"). Terms cheapest
+--- first, all objective state, no thresholds ("weak" is a caller judgement over get_health_frac):
+--- no usable weapon in hands (a strapped or absent gun cannot shoot), the weapon mid-reload, and for
+--- stalkers the crit stagger, a script animation overlay owning the body, and the additive hit flinch
+--- (probed, engine-bind exes only). Universal receiver: the weapon terms answer for the actor too
+--- (active_item / get_state are all-class binds); the animation terms are stalker-gated - the engine
+--- staggers/overlays are NPC mechanisms and the raw binds error-log on the actor.
+--- Consumers gate DECISIONS on it (Commitment's finish-don't-reposition hold, the Behaviors window,
+--- row premises); the returned term feeds their traces, this function logs nothing itself.
+--- @safety SAFE - nil-guarded; every term class-guarded, no error-log path on any receiver
+--- @cost O(1) | 2-3 luabind trivial typical (item + state), +3 on the stalker tail, 0 allocations
+--- @src xray/script_game_object2.cpp (active_item/get_state all-class); ai_stalker_fire.cpp:1244
+---   (critically_wounded lazy-clear, idempotent); n037 reader (is_hit_anim_playing)
+--- @param obj game_object combatant under assessment (stalker or actor)
+--- @return boolean true while it cannot return fire
+--- @return string|nil which term tripped ("unarmed"/"reloading"/"stagger"/"overlay"/"flinch"), nil when able
+function xcombat.is_vulnerable(obj)
+    if not obj then return false end
+    local wpn = obj:active_item()
+    if not wpn or not IsWeapon(wpn) then return true, "unarmed" end
+    if wpn:get_state() == WPN_STATE_RELOAD then return true, "reloading" end
+    -- The animation terms are exactly body_busy's set (stagger/overlay/flinch, same reason words):
+    -- a body owned by a transient animation can neither be written NOR answer fire. Stalker-gated -
+    -- the raw stagger bind error-logs on the actor.
+    if not IsStalker(obj) then return false end
+    return xcombat.body_busy(obj)
+end
+
+--- How stale this NPC's knowledge of `enemy` is: milliseconds since his memory of it last updated
+--- (visual, sound, or hit - the aggregate stamp), plus the position that memory holds. The
+--- "does he know where I am, and how fresh" read: a suppress decision needs a recent last-known,
+--- a flank wants the inverse (my position stale in HIS memory). nil when he has no memory of the
+--- enemy at all (the engine stamp is 0), so callers distinguish "never knew" from "knew long ago".
+--- The perceiver must be an NPC (the engine read casts CCustomMonster); the enemy may be anyone.
+--- @safety SAFE - nil-guarded; the never-known 0 stamp returns nil instead of a bogus huge age
+--- @cost O(1) | 2 luabind trivial (memory_time + memory_position field reads)
+--- @src xray/script_game_object2.cpp:234-245 (memory_time, CCustomMonster cast, 0 = no memory);
+---   script_game_object_script2.cpp:215-216 (both binds)
+--- @param npc game_object the perceiving stalker
+--- @param enemy game_object the object asked about
+--- @param tg number time_global() snapshot
+--- @return number|nil ms since his memory of the enemy updated, nil when he never perceived it
+--- @return vector|nil the position that memory holds, nil with a nil age
+function xcombat.get_last_known(npc, enemy, tg)
+    if not (npc and enemy) then return nil end
+    local stamp = npc:memory_time(enemy)
+    if not stamp or stamp == 0 then return nil end
+    return tg - stamp, npc:memory_position(enemy)
+end
+
 -- =========================================================================
 -- Environment detection (indoor / outdoor)
 -- =========================================================================
