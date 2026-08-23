@@ -1,7 +1,10 @@
 next
-  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, ambient sound seams, sees dead-subject guard
+  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard
 
   xcombat
+    - Added on_get_min_combat_dist(fn) and on_get_max_combat_dist(fn): registrars for the engine's cover-band asks (npc_on_get_min_combat_dist / _max),
+      fired on every cover re-search with the engine's own weapon-typed base in flags.ret_value for the handler to scale. Probe-gated, false on builds without the seam.
+    - Added is_bleeding(obj): true while a combatant's bleed rate is above zero, the vanilla read convention, answering for the actor too.
     - Added set_hit_redirect(npc, max, falloff): the per-NPC selection lever toward the last attacker (engine PR #636), probe-gated, no-op on older builds.
       A hit victim prioritizes a close attacker on the real hit signal, no forged sighting.
     - Added set_movement_hold(npc, hold): the per-NPC movement hold (engine PR #645, pending merge), probe-gated, no-op on older builds.

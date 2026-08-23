@@ -1565,15 +1565,42 @@ function xcombat.on_cover_repick(fn)
     return true
 end
 
--- Registers fn on one of the NPC reload-edge callbacks behind the forwarder probe (the shared body of
--- on_reload_start / on_reload_stop).
+-- Registers fn on one engine-forwarder callback behind the functor probe (the shared body of the
+-- combat-distance and reload-edge registrars). Registers ONLY when the forwarder exists on this exe
+-- and returns whether it did, so the caller self-gates on older builds.
 -- @cost O(1) | one-time registration, 2 table reads per repeat call
-local function _register_reload_edge(fn, forwarder, callback_name)
+local function _register_forwarded(fn, forwarder, callback_name)
     if type(fn) ~= "function" then return false end
     if callbacks_gameobject == nil then return false end
     if type(rawget(_G, forwarder)) ~= "function" then return false end
     RegisterScriptCallback(callback_name, fn)
     return true
+end
+
+--- Register `fn` on the cover-band minimum ask (npc_on_get_min_combat_dist): fn(npc, base_min, flags),
+--- fired inside compute_enemy_distances every time find_best_cover re-searches (invalidation cadence,
+--- never per frame; the cached best_cover() read runs zero Lua). base_min is the engine's own value
+--- (MIN_SUITABLE_ENEMY_DISTANCE or the sniper cvar); the handler SCALES it into flags.ret_value -
+--- an invalid or negative return is ignored engine-side with an error log, and min > max is swapped.
+--- @safety SAFE - registers only behind the functor probe, false on any absent path
+--- @cost O(1) | one-time registration; the handler pays only on cover re-searches
+--- @src xray/ai/stalker/ai_stalker_cover.cpp:91-150 (compute_enemy_distances + functor), :282-298 (cached path); xray gamedata callbacks_gameobject.script:496-505 (forwarder + flags contract)
+--- @param fn function subscriber fn(npc, base_min, flags) writing flags.ret_value
+--- @return boolean true when registered, false when this exe has no combat-distance seam
+function xcombat.on_get_min_combat_dist(fn)
+    return _register_forwarded(fn, "CAI_Stalker__GetMinCombatDist", "npc_on_get_min_combat_dist")
+end
+
+--- Register `fn` on the cover-band maximum ask (npc_on_get_max_combat_dist): fn(npc, base_max, flags).
+--- Same seam, cadence, and flags contract as on_get_min_combat_dist; base_max carries the engine's
+--- weapon-typed value (pistol/shotgun cvars, 170 fallback, default cvar for the rest).
+--- @safety SAFE - registers only behind the functor probe, false on any absent path
+--- @cost O(1) | one-time registration; the handler pays only on cover re-searches
+--- @src xray/ai/stalker/ai_stalker_cover.cpp:91-150 (compute_enemy_distances + functor); xray gamedata callbacks_gameobject.script:507-515 (forwarder + flags contract)
+--- @param fn function subscriber fn(npc, base_max, flags) writing flags.ret_value
+--- @return boolean true when registered, false when this exe has no combat-distance seam
+function xcombat.on_get_max_combat_dist(fn)
+    return _register_forwarded(fn, "CAI_Stalker__GetMaxCombatDist", "npc_on_get_max_combat_dist")
 end
 
 --- Register `fn` on the NPC reload-start edge (npc_on_weapon_reload_start): fn(npc, wpn), fired when a
@@ -1588,7 +1615,7 @@ end
 --- @param fn function subscriber fn(npc, wpn)
 --- @return boolean true when registered, false when this exe has no reload-event seam
 function xcombat.on_reload_start(fn)
-    return _register_reload_edge(fn, "CAI_Stalker__OnWeaponReloadStart", "npc_on_weapon_reload_start")
+    return _register_forwarded(fn, "CAI_Stalker__OnWeaponReloadStart", "npc_on_weapon_reload_start")
 end
 
 --- Register `fn` on the NPC reload-stop edge (npc_on_weapon_reload_stop): fn(npc, wpn), fired when the
@@ -1602,7 +1629,7 @@ end
 --- @param fn function subscriber fn(npc, wpn)
 --- @return boolean true when registered, false when this exe has no reload-event seam
 function xcombat.on_reload_stop(fn)
-    return _register_reload_edge(fn, "CAI_Stalker__OnWeaponReloadStop", "npc_on_weapon_reload_stop")
+    return _register_forwarded(fn, "CAI_Stalker__OnWeaponReloadStop", "npc_on_weapon_reload_stop")
 end
 
 -- =========================================================================
@@ -1937,6 +1964,22 @@ function xcombat.add_health_frac(npc, delta)
     npc:set_health_ex(frac)
 end
 
+--- True while this combatant is losing blood - the deteriorating-target input (a press decision
+--- favors a target whose state worsens on its own). The vanilla read convention is `bleeding > 0`
+--- (dialogs.script:2275,2401; gamemode_agony.script:37), wrapped so consumers take it through
+--- xcombat instead of the raw engine field. NOTE for NPC receivers: the vanilla self-heal ticks
+--- park small residual rates on the field (xr_eat_medkit heal writes 0.01/0.07), so an NPC mid-heal
+--- still reads true; the actor's field carries no such residue.
+--- @safety SAFE - nil reads as not bleeding
+--- @cost O(1) | 1 luabind trivial (bleeding property read)
+--- @src xray/script_game_object_script2.cpp (.property("bleeding") - normalized bleed rate); anomaly dialogs.script:2275 (the > 0 convention)
+--- @param obj game_object combatant (stalker or actor)
+--- @return boolean true while the bleed rate is above zero
+function xcombat.is_bleeding(obj)
+    if not obj then return false end
+    return obj.bleeding > 0
+end
+
 --- True while an engine hit flinch (the additive PlayHitMotion blend) is playing on this NPC -
 --- the n037 reader, probed per compatibility-standards; false on exes without the bind, so the
 --- term simply drops out of body_busy on release engines.
@@ -2128,10 +2171,8 @@ function xcombat.get_enclosure(pos)
     local nearest, count = nil, 0
     for i = 1, 4 do
         local dist = walls[i]
-        if dist then
-            if not nearest or dist < nearest then nearest = dist end
-            if dist <= ENC_BUILD_M then count = count + 1 end
-        end
+        if dist and (not nearest or dist < nearest) then nearest = dist end
+        if dist and dist <= ENC_BUILD_M then count = count + 1 end
     end
     return { roof = roof, walls = walls, nearest_wall = nearest, wall_count = count }
 end
