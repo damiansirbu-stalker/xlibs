@@ -161,7 +161,7 @@ local function _section_roles(sec)
 end
 
 -- Signal D of the role cascade: NPC active logic-block `trade =` LTX field
--- (Demonized's classifier; anomaly_mods/Trader Destockifier/trader_autoinject.script:85).
+-- (Demonized's classifier; stalker_anomaly_mods/Trader Destockifier/trader_autoinject.script:85).
 -- companion catalogs are exclusion-only; returns sentinel "_exclude" so the caller can
 -- distinguish "no trade field set" (nil) from "explicitly companion-only" ("_exclude").
 -- @complexity O(1) | 1 db.storage lookup + 1 r_string_ex + at most 4 string:find.
@@ -182,7 +182,7 @@ end
 -- NPC like Pripyat Yar is both medic and trader, mechanics with dm_init_trader sell parts
 -- so they're mechanic+trader). Engine-authoritative gate is the trade = field declared in
 -- the NPC's active [logic@<section_logic>] block. Trade-side classification approach mirrors
--- Trader Destockifier's get_trader_type by Demonized (anomaly_mods/Trader Destockifier .../
+-- Trader Destockifier's get_trader_type by Demonized (stalker_anomaly_mods/Trader Destockifier .../
 -- trader_autoinject.script:85). All signals contribute additively; no early returns.
 --
 -- Signals (all checked, all contribute to the role set):
@@ -230,7 +230,7 @@ end
 --- @cost O(1) | 1 luabind on hit (section verify vs id recycling), 2-5 luabind heavy on miss (community + clsid + section + optional r_string_ex)
 --- @complexity O(1) amortized | luabind cost as above
 --- @see anomaly/xr_logic.script:113 (engine trade= consumer)
---- @src anomaly_mods/Trader Destockifier .../trader_autoinject.script:85 (Demonized get_trader_type);
+--- @src stalker_anomaly_mods/Trader Destockifier .../trader_autoinject.script:85 (Demonized get_trader_type);
 ---      anomaly/utils_obj.script:74 (vanilla is_trader 4-signal); anomaly/xr_logic.script:113 (engine trade= consumer)
 --- @param npc game_object Online NPC game_object
 --- @return table Role set, e.g. {trader=true, medic=true}. Empty table for non-service NPCs.
