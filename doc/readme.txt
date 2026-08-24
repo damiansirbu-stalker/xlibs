@@ -5,6 +5,20 @@ Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
 Bugs, suggestions: https://github.com/damiansirbu-stalker/xlibs/issues
 
+Alife Collection:
+AlifeAmbience: https://github.com/damiansirbu-stalker/AlifeAmbience
+AlifeBalance: https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance
+AlifeCompanions: https://github.com/damiansirbu-stalker/AlifeCompanions
+AlifeDiegetic: https://www.moddb.com/mods/stalker-anomaly/addons/diegetic-audio-control-100
+AlifeGuard: https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001
+AlifePlus: https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01
+AlifeSpooks: https://github.com/damiansirbu-stalker/AlifeSpooks
+AlifeTactics: https://www.moddb.com/mods/stalker-anomaly/addons/alifetactics
+FurnitureFuel: https://github.com/damiansirbu-stalker/FurnitureFuel
+JitProfiler: https://github.com/damiansirbu-stalker/JitProfiler
+TestZone: https://github.com/damiansirbu-stalker/TestZone
+xlibs: https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001
+
 xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need: entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 
 The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in both the European and Russian STALKER modding traditions. Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.

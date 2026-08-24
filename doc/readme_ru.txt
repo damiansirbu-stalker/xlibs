@@ -5,6 +5,20 @@ Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 English: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme.txt
 Bugs, suggestions: https://github.com/damiansirbu-stalker/xlibs/issues
 
+Alife Collection:
+AlifeAmbience: https://github.com/damiansirbu-stalker/AlifeAmbience
+AlifeBalance: https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance
+AlifeCompanions: https://github.com/damiansirbu-stalker/AlifeCompanions
+AlifeDiegetic: https://www.moddb.com/mods/stalker-anomaly/addons/diegetic-audio-control-100
+AlifeGuard: https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001
+AlifePlus: https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01
+AlifeSpooks: https://github.com/damiansirbu-stalker/AlifeSpooks
+AlifeTactics: https://www.moddb.com/mods/stalker-anomaly/addons/alifetactics
+FurnitureFuel: https://github.com/damiansirbu-stalker/FurnitureFuel
+JitProfiler: https://github.com/damiansirbu-stalker/JitProfiler
+TestZone: https://github.com/damiansirbu-stalker/TestZone
+xlibs: https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001
+
 xlibs — набор инструментов моддера, покрывающий весь спектр того, что обычно нужно модам Anomaly: запросы к сущностям, операции с отрядами, логика смарт-террейнов, работа с тайниками, логирование, профилирование, системы событий и структуры данных.
 
 Дизайн API вырос из обратной разработки движка X-Ray и внутренностей Anomaly, сверенной с приёмами лучших моддеров европейской и русской традиций моддинга STALKER. Каждая функция оборачивает причуды движка, защищает от nil и обрабатывает крайние случаи, которые иначе каждому моду пришлось бы решать самостоятельно.
