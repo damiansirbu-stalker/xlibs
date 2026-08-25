@@ -2064,25 +2064,29 @@ end
 --- True while this combatant cannot effectively return fire - the TARGET-side sibling of body_busy
 --- (that one asks "may I write this body", this one asks "can that body answer me"). Terms cheapest
 --- first, all objective state, no thresholds ("weak" is a caller judgement over get_health_frac):
---- no usable weapon in hands (a strapped or absent gun cannot shoot), the weapon mid-reload, and for
---- stalkers the crit stagger, a script animation overlay owning the body, and the additive hit flinch
---- (probed, engine-bind exes only). Universal receiver: the weapon terms answer for the actor too
---- (active_item / get_state are all-class binds); the animation terms are stalker-gated - the engine
---- staggers/overlays are NPC mechanisms and the raw binds error-log on the actor.
+--- no usable weapon in hands (a strapped or absent gun cannot shoot), the weapon mid-reload, an empty
+--- magazine not yet reloading (dry - the engine's own ready-to-kill triple minus the unreadable misfire
+--- term), and for stalkers the crit stagger, a script animation overlay owning the body, and the additive
+--- hit flinch (probed, engine-bind exes only). Universal receiver: the weapon terms answer for the actor
+--- too (active_item / get_state / get_ammo_in_magazine are all-class binds); the animation terms are
+--- stalker-gated - the engine staggers/overlays are NPC mechanisms and the raw binds error-log on the actor.
 --- Consumers gate DECISIONS on it (Commitment's finish-don't-reposition hold, the Behaviors window,
 --- row premises); the returned term feeds their traces, this function logs nothing itself.
 --- @safety SAFE - nil-guarded; every term class-guarded, no error-log path on any receiver
---- @cost O(1) | 2-3 luabind trivial typical (item + state), +3 on the stalker tail, 0 allocations
---- @src xray/script_game_object2.cpp (active_item/get_state all-class); ai_stalker_fire.cpp:1244
----   (critically_wounded lazy-clear, idempotent); n037 reader (is_hit_anim_playing)
+--- @cost O(1) | 2-4 luabind trivial typical (item + state + ammo), +3 on the stalker tail, 0 allocations
+--- @src xray/script_game_object2.cpp (active_item/get_state all-class); script_game_object.cpp:601-604
+---   (GetAmmoElapsed CWeapon cast, 0 on non-weapon); object_property_evaluators.cpp:112-119 (the engine
+---   ready triple this mirrors); ai_stalker_fire.cpp:1244 (critically_wounded lazy-clear, idempotent);
+---   n037 reader (is_hit_anim_playing)
 --- @param obj game_object combatant under assessment (stalker or actor)
 --- @return boolean true while it cannot return fire
---- @return string|nil which term tripped ("unarmed"/"reloading"/"stagger"/"overlay"/"flinch"), nil when able
+--- @return string|nil which term tripped ("unarmed"/"reloading"/"dry"/"stagger"/"overlay"/"flinch"), nil when able
 function xcombat.is_vulnerable(obj)
     if not obj then return false end
     local wpn = obj:active_item()
     if not wpn or not IsWeapon(wpn) then return true, "unarmed" end
     if wpn:get_state() == WPN_STATE_RELOAD then return true, "reloading" end
+    if wpn:get_ammo_in_magazine() == 0 then return true, "dry" end
     -- The animation terms are exactly body_busy's set (stagger/overlay/flinch, same reason words):
     -- a body owned by a transient animation can neither be written NOR answer fire. Stalker-gated -
     -- the raw stagger bind error-logs on the actor.
