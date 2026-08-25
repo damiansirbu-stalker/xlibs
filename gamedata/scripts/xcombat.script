@@ -2076,28 +2076,6 @@ function xcombat.is_vulnerable(obj)
     return xcombat.body_busy(obj)
 end
 
---- How stale this NPC's knowledge of `enemy` is: milliseconds since his memory of it last updated
---- (visual, sound, or hit - the aggregate stamp), plus the position that memory holds. The
---- "does he know where I am, and how fresh" read: a suppress decision needs a recent last-known,
---- a flank wants the inverse (my position stale in HIS memory). nil when he has no memory of the
---- enemy at all (the engine stamp is 0), so callers distinguish "never knew" from "knew long ago".
---- The perceiver must be an NPC (the engine read casts CCustomMonster); the enemy may be anyone.
---- @safety SAFE - nil-guarded; the never-known 0 stamp returns nil instead of a bogus huge age
---- @cost O(1) | 2 luabind trivial (memory_time + memory_position field reads)
---- @src xray/script_game_object2.cpp:234-245 (memory_time, CCustomMonster cast, 0 = no memory);
----   script_game_object_script2.cpp:215-216 (both binds)
---- @param npc game_object the perceiving stalker
---- @param enemy game_object the object asked about
---- @param tg number time_global() snapshot
---- @return number|nil ms since his memory of the enemy updated, nil when he never perceived it
---- @return vector|nil the position that memory holds, nil with a nil age
-function xcombat.get_last_known(npc, enemy, tg)
-    if not (npc and enemy) then return nil end
-    local stamp = npc:memory_time(enemy)
-    if not stamp or stamp == 0 then return nil end
-    return tg - stamp, npc:memory_position(enemy)
-end
-
 -- =========================================================================
 -- Environment detection (indoor / outdoor)
 -- =========================================================================
