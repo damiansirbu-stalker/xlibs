@@ -202,6 +202,20 @@ function xcombat.resolve_enemy(id)
     return nil
 end
 
+--- The engine's selected enemy for this combatant, or nil - the alive-guarded best_enemy read. The raw
+--- bind reaches into the memory manager of a possibly-dead object (the sees dead-subject class), so the
+--- guard bails first; a caller's nil branch keeps meaning "not fighting" and covers the dead case for free.
+--- @safety SAFE - nil- and dead-guarded (the sees dead-subject precedent)
+--- @cost O(1) | 2 luabind trivial (alive + best_enemy)
+--- @src xray/script_game_object_script2.cpp:206 (bind), script_game_object2.cpp:200-209 (GetBestEnemy:
+---   CCustomMonster cast, memory().enemy().selected() - no alive guard of its own)
+--- @param npc game_object stalker
+--- @return game_object|nil the selected enemy, nil when none or the npc is dead or nil
+function xcombat.get_best_enemy(npc)
+    if not (npc and npc:alive()) then return nil end
+    return npc:best_enemy()
+end
+
 --- Position to track the enemy for movement: the live position when currently seen, else the last-known
 --- position from memory (memory_position, memory_manager.cpp:279). Mirrors the reference graft mod rx_combat
 --- (live on see, memory_position when not - rx_combat.script:230,298). Pursuing the last-known spot lets a
