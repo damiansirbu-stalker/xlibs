@@ -1,4 +1,4 @@
-# xlibs: shared utility library for STALKER Anomaly modding
+# xlibs: Shared utility library for STALKER Anomaly modding
 
 The library every Alife mod is built on: entity queries, squad operations, smart terrain logic, stash handling, logging, profiling, event systems and data structures.
 Every function wraps an engine quirk, guards against nil, and handles the edge case each mod would otherwise solve again on its own.
