@@ -347,6 +347,18 @@ function get_squad_by_member(npc_id)
     return alife_object(group_id)
 end
 
+--- True when the NPC is the last man of his squad - squadless, or sole surviving member. The
+--- combat-AI read for behaviors reserved for a man with nobody standing beside him (a rout).
+--- @safety SAFE - get_squad_by_member nil-guards; no squad reads as last man
+--- @cost O(log n) | 2 luabind medium (get_squad_by_member's alife resolves) + 1 (npc_count)
+--- @src anomaly/sim_squad_scripted.script (npc_count); the compare mirrors the prior inline site (AlifeTactics at_combat_doctrine)
+--- @param npc_id number NPC id (can be offline)
+--- @return boolean true when squadless or the sole member
+function is_last_man(npc_id)
+    local squad = get_squad_by_member(npc_id)
+    return squad == nil or squad:npc_count() <= 1
+end
+
 --- Get raw squad community id (faction key), untranslated
 --- The untranslated sibling of get_community_name: returns the engine community string
 --- (e.g. "dolg", "stalker") for use as a faction KEY, not display text. get_community_name
