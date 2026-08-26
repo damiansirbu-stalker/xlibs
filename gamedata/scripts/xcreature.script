@@ -246,6 +246,18 @@ function community(input)
     return alife_character_community(entity)
 end
 
+--- True when the combatant belongs to the STALKER community "zombied" - the mindless-shambler
+--- exclusion class combat-AI layers bail on (no deliberate-combatant modeling). NOT the mutant
+--- zombie species (get_mutant_species owns that; "zombied" is not a monster faction).
+--- @safety SAFE - community() nil-guards; a nil community is never "zombied"
+--- @cost O(log n) | community()'s 2-3 luabind (see community above)
+--- @src the community read above; the exclusion class per AlifeTactics architecture.md (Scope)
+--- @param input number|userdata|table entity id or object
+--- @return boolean true for a zombied-community stalker
+function is_zombied(input)
+    return community(input) == "zombied"
+end
+
 --- Relation of an online object to the actor: "enemy" | "neutral" | "friend", or nil if unresolvable.
 --- Uses the engine PER-NPC relation (what damage/hit decisions use), NOT faction community - so it honours
 --- individual overrides. nil when there is no actor or the object has no relation (e.g. an offline server obj).
