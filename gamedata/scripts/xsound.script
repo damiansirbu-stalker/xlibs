@@ -281,7 +281,7 @@ function inspect(handle)
     }
 end
 
--- ---- engine sound seams (trace + veto over the ambient soundscape) ----------------------------
+-- engine sound seams (trace + veto over the ambient soundscape)
 -- The demonized "ambient sound hooks" PR calls a named _G global at each engine sound-play site if
 -- the global is set, and applies { volume_mult } from the return (0 vetoes/silences, <1 attenuates,
 -- nil = vanilla). These are the PRIMITIVES only: xlibs owns the raw _G seams (mods never touch _G.*),

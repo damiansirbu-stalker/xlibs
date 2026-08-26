@@ -22,9 +22,7 @@ xcombat.FIRE,  xcombat.SNIPE,  xcombat.READY, xcombat.STOW = "FIRE", "SNIPE", "R
 xcombat.STAND, xcombat.CROUCH = "STAND", "CROUCH"
 xcombat.STILL, xcombat.WALK,   xcombat.RUN  = "STILL", "WALK", "RUN"
 
--- =========================================================================
 -- Weapon classification
--- =========================================================================
 
 -- The w_sniper palette classifier. Consumer: t92 LONG_RANGE_SNIPER_ENGAGEMENT
 -- (todo-alifetactics-next.md) - the doctrine weapon palette keys on it.
@@ -148,13 +146,11 @@ function xcombat.get_fire_queue(kind, band)
     return bounds[1], bounds[2], bounds[3], bounds[4]
 end
 
--- =========================================================================
 -- Enemy memory - the engine tracks each NPC's per-enemy perception (visual + sound + hit) with a last-seen
 -- timestamp and a last-known position. The takeover reads these instead of re-deriving them with its own
 -- raycast clock: memory_time is the signal vanilla uses to disengage (xr_combat_ignore.script:111),
 -- memory_position is what the reference graft mod pursues when the enemy is not currently visible
 -- (rx_combat.script:298). sees() is the tactical "can I shoot right now" check over the same memory.
--- =========================================================================
 
 --- True when the NPC sees the object RIGHT NOW - the engine's accumulated visible_now state, the exact
 --- test vanilla kill_enemy fires on (stalker_combat_actions.cpp:483-494). A visual-memory read, not a
@@ -324,14 +320,12 @@ function xcombat.is_under_fire(npc, enemy, tg, window_ms)
     return source ~= nil and source:id() == enemy:id()
 end
 
--- =========================================================================
 -- GOAP takeover - the planner block list and the squad combat-mask lifecycle. The takeover grafts one
 -- evaluator + one action per stalker (the AT policy half) and adds world_property(TAKEOVER_ID, false) as a
 -- precondition to every planner in get_blocked_planners(), so while the flag holds the vanilla
 -- combat/danger/state/alife chain is gated off and the grafted action is the only producer of the
 -- TAKEOVER_ID=false the brain now requires. register/unregister replicate the squad memory-sharing bookkeeping
 -- the blocked CStalkerCombatPlanner no longer performs (its initialize register / finalize unregister).
--- =========================================================================
 
 -- The blocked-planner id list, built once and cached. Resolved at call time (install), not at file body, so
 -- the base library never auto-loads the GOAP id modules at load and xr_danger.actid is defined before the read.
@@ -443,7 +437,6 @@ function xcombat.unregister_in_combat(npc)
     npc:unregister_in_combat()
 end
 
--- =========================================================================
 -- GOAP takeover graft - the evaluator + action grafted per stalker and the install/release wiring. xcombat owns
 -- this MECHANISM; the consumer owns POLICY through a spec { gate(npc)->bool, on_begin(npc) }. While the consumer
 -- raises the gate the evaluator returns true; the brain needs TAKEOVER_ID=false to reach
@@ -451,7 +444,6 @@ end
 -- the grafted action (the sole producer of TAKEOVER_ID=false) is the only path and runs. Lower the gate and
 -- vanilla resumes. The graft is permanent for the NPC's life; a transaction is just the gate going up then down.
 -- One spec drives every NPC - the per-NPC gate flag and maneuver state live in the consumer, keyed by npc:id().
--- =========================================================================
 
 -- GOAP id shared by the grafted evaluator and action (the evaluator and action id-spaces are separate, so one
 -- value serves both, matching the proven v1 graft). It must dodge the vanilla scheme cluster (188111-188125,
@@ -778,13 +770,11 @@ function xcombat.is_facing(obj, target_pos, cone_deg)
     return xcombat.get_facing_offset(obj, target_pos) <= cone_deg
 end
 
--- =========================================================================
 -- NPC control - the takeover writes the NPC through set_combat, so the consumer issues no raw engine calls.
 -- set_combat owns weapon mode + posture + movement, resolves the fire DISCIPLINE internally (a FIRE/SNIPE
 -- intent degrades to READY when no shot makes sense), and hands the fire state its look_object, so the
 -- engine object-track aims and fires at the enemy autonomously every frame (the turret model); send_to
 -- owns destination.
--- =========================================================================
 
 -- The combat-state matrix: [fire][posture][movement] -> the one state_lib state that bundles exactly that
 -- weapon mode, posture, and movement. This IS the safety mechanism: resolving the state from the requested
@@ -939,9 +929,7 @@ function xcombat.set_combat(npc, opts)
     return fire, gate
 end
 
--- =========================================================================
 -- Geometric queries
--- =========================================================================
 
 -- Ray heights above npc:position() (the feet), grounded in probe_npc_heights_20260804 (n=15+ clean
 -- crouches, n=45 stands). Every combat ray takes its height from HERE, never a literal - a SHOT line
@@ -1160,14 +1148,12 @@ function xcombat.actor_dist_sqr(npc)
     return dist_sqr
 end
 
--- =========================================================================
 -- Engine fire gates - wrappers over the per-NPC combat-AI engine binds (themrdemonized/xray-monolith
 -- PRs #594 aim+vision, #595 switch veto, #596 fire gates). Each wrapper probes its bind once
 -- (type(npc.<bind>) == "function", cached module-local - the capability probe, never a version compare,
 -- per compatibility-standards.md) and carries a defined floor fallback, so a consumer calls the wrapper
 -- unconditionally and the engine's posture-aware geometry switches on by itself when the player's exe
 -- has the merged PRs. No consumer touches a raw bind.
--- =========================================================================
 
 -- Bind availability by name, probed on the first wrapper call and cached for the session (the bind set
 -- is a property of the exe, immutable at runtime).
@@ -1681,12 +1667,10 @@ function xcombat.on_reload_stop(fn)
     return _register_forwarded(fn, "CAI_Stalker__OnWeaponReloadStop", "npc_on_weapon_reload_stop")
 end
 
--- =========================================================================
 -- Movement targeting. _find_toward is the geometry primitive (decreasing-step search along a direction).
 -- The maneuver-facing finders all return a level vertex or nil, no side effects, uniform find_<noun> naming:
 --   find_cover - a cover vertex, by opts.selection (nearest|best) and opts.firing (shoot-from|hide-in)
 --   find_flee_lane - a clear run lane away from a threat (fanned headings, obstacle-rayed)
--- =========================================================================
 
 -- best_cover collects every cover point in COVER_RADIUS and runs a navmesh accessible() check on each
 -- (cover_manager_inline.h), so its cost grows with the area scanned (~r^2) and is worst when it finds
@@ -2165,9 +2149,7 @@ function xcombat.get_weapon_block_term(obj)
     return nil
 end
 
--- =========================================================================
 -- Environment detection (indoor / outdoor)
--- =========================================================================
 
 xcombat.INDOOR_LEVELS = {
     labx8                 = true,
@@ -2289,9 +2271,7 @@ function xcombat.enclosure(pos)
     return "outdoor"
 end
 
--- =========================================================================
 -- Cover graph reservation (wraps db.used_level_vertex_ids)
--- =========================================================================
 
 --- Reserve a level vertex for an owner in the shared cover table; false if already held by another.
 --- Mirrors the vanilla cover-occupancy convention so AT NPCs do not stack on one vertex.
@@ -2323,9 +2303,7 @@ function xcombat.release_cover(lvid, owner_id)
     end
 end
 
--- =========================================================================
 -- Squad spread
--- =========================================================================
 
 --- 0-based position of an NPC within its squad's member iteration order.
 --- Stable per combat session; gives each member a distinct spread bucket instead of the global-id
@@ -2349,7 +2327,6 @@ function xcombat.get_squad_ordinal(squad_id, npc_id)
     return 0
 end
 
--- =========================================================================
 -- No lifecycle subscriptions and no game state. xcombat registers no live-event callbacks on its own
 -- behalf and holds no ownership tables; on_action_switch registers the CALLER's function at the caller's
 -- explicit call - nothing load-time, nothing hidden. The cover reservation is the engine's
@@ -2360,4 +2337,3 @@ end
 -- hot paths) plus the
 -- session-stable probe caches (_bind_ready, _fire_cvars - properties of the exe, immutable at runtime).
 -- The consumer keeps the lvid it claimed and releases it.
--- =========================================================================

@@ -8,7 +8,6 @@ local level, ini_sys, ini_file, xlevel = level, ini_sys, ini_file, xlevel
 local get_object_story_id, se_load_var = get_object_story_id, se_load_var
 local table_concat = table.concat
 
--- ============================================================================
 -- ENGINE SLOT CONSTANTS (xrServerEntities/inventory_space.h:7-43)
 -- LAST_MAIN_SLOT=14 matches the runtime slot count. CInventory::m_slots is sized
 -- dynamically from system.ltx [inventory] slot_persistent_<N> at Inventory.cpp:72-86,
@@ -16,7 +15,6 @@ local table_concat = table.concat
 -- ship system.ltx with slot_persistent_1..14 only; ItemFromSlot at Inventory.cpp:658
 -- is unbounded, so slots 15..18 are OOB UB. Do not raise without a matching
 -- system.ltx that declares the higher slot_persistent_ lines.
--- ============================================================================
 
 SLOT_KNIFE     = 1
 SLOT_PISTOL    = 2
@@ -27,11 +25,9 @@ SLOT_HELMET    = 12
 BACKPACK_SLOT  = 13
 LAST_MAIN_SLOT = 14
 
--- ============================================================================
 -- GRANULAR CONSUMABLE SECTION SETS (hand-maintained)
 -- Vanilla bundles all of these under kind=i_medical with no further subdivision.
 -- Addons add new sections; extend these sets when GAMMA/Boomsticks/etc. ship.
--- ============================================================================
 
 local _medkit_set = {
     medkit         = true, medkit_army    = true, medkit_scientic = true,
@@ -71,10 +67,8 @@ local _grenade_set = {
     ["grenade_gd-05"] = true, grenade_smoke  = true,
 }
 
--- ============================================================================
 -- BLACKLIST (xr_corpse_detection.ltx [ignore_sections])
 -- Loaded once at first call; vanilla hand-curated section blacklist.
--- ============================================================================
 
 local CORPSE_DETECTION_LTX = "ai_tweaks\\xr_corpse_detection.ltx"
 local IGNORE_SECTIONS      = "ignore_sections"
@@ -94,9 +88,7 @@ local function _ensure_blacklist()
     end
 end
 
--- ============================================================================
 -- KIND CACHE (per-section ini_sys:r_string_ex("kind") lookup, cached)
--- ============================================================================
 
 -- String-keyed: weak-key mode would be a no-op (strings are never removed from weak tables);
 -- the section universe is LTX-bounded, so the cache is naturally capped.
@@ -124,9 +116,7 @@ local function _get_class(sec)
     return cls
 end
 
--- ============================================================================
 -- ITEM ACCESSORS (game_object item in)
--- ============================================================================
 
 --- Get item section name
 --- Wraps item:section() to keep mods from calling the engine method directly.
@@ -152,9 +142,7 @@ function get_condition(item)
     return item:condition()
 end
 
--- ============================================================================
 -- NPC SLOT ACCESSORS
--- ============================================================================
 
 --- Get item in NPC's knife slot (slot 1)
 --- @safety SAFE - nil-guarded npc; item_in_slot returns nil for empty slot
@@ -266,9 +254,7 @@ function get_category_opts(npc)
     }
 end
 
--- ============================================================================
 -- WEAPON CONFIG
--- ============================================================================
 
 local _ammo_sections_cache = {}
 
@@ -345,9 +331,7 @@ function get_ammo_tier_map(weapon_sec, n_tiers)
 end
 
 
--- ============================================================================
 -- CATEGORY → SECTIONS (reverse map; used by trade BUY pass)
--- ============================================================================
 
 -- Set (hash table) → flat array of keys.
 -- @complexity O(n) keys, single pass
@@ -529,9 +513,7 @@ function get_box_size(sec)
     return v
 end
 
--- ============================================================================
 -- CATEGORY RESOLVER
--- ============================================================================
 
 --- Resolve category from a section name (no item required)
 --- Untouchables (quest / anim / blacklisted) gate first. Ammo always returns
@@ -676,9 +658,7 @@ function is_in_category(sec, category)
     return sec ~= nil and category ~= nil and get_section_category(sec) == category
 end
 
--- ============================================================================
 -- RANK GATE
--- ============================================================================
 
 -- True when the actor's rank is below the floor tier named for this section or category. A missing
 -- floor entry or unresolved tier name returns false (no block). Split out to keep get_rank_chance
@@ -729,9 +709,7 @@ function get_rank_chance(section, actor, ruleset)
     return row[#row] and row[#row].chance or 0
 end
 
--- ============================================================================
 -- ITEM LIFECYCLE (moved from xobject per item-domain boundary)
--- ============================================================================
 
 --- Iterate an NPC's inventory iff the NPC is online; nil-returns otherwise
 --- Engine exposes no Lua API for offline server-inventory walks; this wrapper makes the
@@ -863,9 +841,7 @@ function release_item_id(id)
     return true
 end
 
--- ============================================================================
 -- POLICY PRIMITIVES (load + classify + iterate surplus + surplus map)
--- ----------------------------------------------------------------------------
 -- Three near-identical orchestrators (trade, stash, inventory-balance) historically
 -- carried their own LTX loader, inventory counting pass, and surplus iterator. These
 -- primitives factor the common kernel into one uniform shape:
@@ -886,7 +862,6 @@ end
 --   category's rule (see policy_key). So a config caps a whole category (grenade = 3) or names
 --   individual items (grenade_f1 = 0, 3) and leaves others unmentioned -- an unmentioned item
 --   has no rule and is left alone. Mixing is allowed; the more specific (section) rule wins.
--- ============================================================================
 
 -- Parse a policy rule cell. Two accepted shapes:
 --   "min, max"  -> { min = number, max = number }   (trade / stash; both fields used)
@@ -1161,9 +1136,7 @@ function deny_move(flags)
     if flags then flags.ret_value = false end
 end
 
--- ============================================================================
 -- INVENTORY DUMP (diagnostic)
--- ============================================================================
 
 -- Tally one item's section into counts/order (order preserves first-seen for a stable line).
 local function _dump_add(sec, counts, order)
