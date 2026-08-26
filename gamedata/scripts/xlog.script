@@ -127,7 +127,7 @@ function Logger:get_outfile()
     return self.outfile
 end
 
---- @safety pcall: os.rename may fail on locked files
+--- @safety pcall: os.rename may fail on locked files, see doc/library/modding/pcall-safety.md
 function Logger:check_rotation()
     local path = self:get_outfile()
     if not path then return end
@@ -190,7 +190,7 @@ local function _check_deadband(self, msg, lvl)
 end
 
 --- Format the log line via protected string.format when fmt contains a format spec and args follow; otherwise fall through to format_args
---- @safety pcall: string.format throws on bad format string with untrusted args; recovers and returns the original fmt on failure
+--- @safety pcall: string.format throws on a bad format string with untrusted args, recovers and returns the original fmt, see doc/library/modding/pcall-safety.md
 --- @cost O(n) args | 0 luabind (pure Lua string.format / table.concat, ~2-3x overhead on format error path)
 local function _format_msg(fmt, ...)
     if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then

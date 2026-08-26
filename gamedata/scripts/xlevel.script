@@ -10,7 +10,7 @@ local _level_id_by_name = nil
 local INVALID_LEVEL_VERTEX_ID = xconst.INVALID_LEVEL_VERTEX_ID
 local INVALID_GAME_VERTEX_ID = xconst.INVALID_GAME_VERTEX_ID
 
---- @safety pcall: game_graph() crashes during level transitions
+--- @safety pcall: game_graph() crashes during level transitions, see doc/library/modding/pcall-safety.md
 local function get_game_graph()
     if gg then return gg end
     local ok, result = pcall(game_graph)
