@@ -95,6 +95,28 @@ function xcombat.get_weapon_range(kind)
     return xcombat.WEAPON_RANGES[kind] or xcombat.WEAPON_RANGES.w_rifle
 end
 
+--- True when dist is inside the weapon kind's MINIMUM range - the gun is too close to its target to
+--- be effective (the kite trigger's concept: "the enemy inside MY weapon's minimum").
+--- @safety SAFE - unknown kinds read the rifle band via get_weapon_range
+--- @cost O(1) | 0 luabind (table lookup + compare)
+--- @param dist number metres to the target
+--- @param kind string weapon kind
+--- @return boolean true when dist is under the band minimum
+function xcombat.is_inside_minimum(dist, kind)
+    return dist < xcombat.get_weapon_range(kind).min
+end
+
+--- True when dist is inside the weapon kind's REACH - the distance where the weapon is still genuinely
+--- dangerous ("the enemy inside his own weapon's reach", the pressure rows' concept).
+--- @safety SAFE - unknown kinds read the rifle band via get_weapon_range
+--- @cost O(1) | 0 luabind (table lookup + compare)
+--- @param dist number metres to the target
+--- @param kind string weapon kind
+--- @return boolean true when dist is at or under the band maximum
+function xcombat.is_inside_reach(dist, kind)
+    return dist <= xcombat.get_weapon_range(kind).max
+end
+
 -- Engine fire-queue bands per weapon kind: the [fire_queue_params] shape the combat planner
 -- fires with, per distance band. Static by design - deterministic mid-combat, immune to
 -- malformed installs; a consumer layering install-specific tuning applies its own overrides
@@ -741,6 +763,19 @@ function xcombat.get_facing_offset(npc, target_pos)
     local cos = (dir.x * vx + dir.z * vz) / mag
     if cos > 1 then cos = 1 elseif cos < -1 then cos = -1 end
     return math_deg(math_acos(cos))
+end
+
+--- True when the combatant is facing target_pos within cone_deg - "he is looking at / aiming toward
+--- that spot". The predicate view of get_facing_offset (get_facing = vector, get_facing_offset = angle);
+--- negate it for the back-turned read. Cone stays caller policy.
+--- @safety SAFE - see get_facing_offset (degenerate target position reads as facing, offset 0)
+--- @cost O(1) | get_facing_offset's 2 luabind trivial + pure math
+--- @param obj game_object combatant (stalker or actor)
+--- @param target_pos vector world position asked about
+--- @param cone_deg number half-cone in degrees the facing must fall within
+--- @return boolean true when the facing offset is at or under cone_deg
+function xcombat.is_facing(obj, target_pos, cone_deg)
+    return xcombat.get_facing_offset(obj, target_pos) <= cone_deg
 end
 
 -- =========================================================================
