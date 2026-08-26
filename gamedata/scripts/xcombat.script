@@ -2031,7 +2031,7 @@ end
 
 --- True while an engine hit flinch (the additive PlayHitMotion blend) is playing on this NPC -
 --- the n037 reader, probed per compatibility-standards; false on exes without the bind, so the
---- term simply drops out of body_busy on release engines.
+--- term simply drops out of is_body_busy on release engines.
 --- @safety SAFE - nil-guarded, no-op probe below the bind
 --- @cost O(1) | 1 luabind trivial (clock compare in the engine) after the first probe
 --- @src n037 HIT_ANIM_READ_VETO_AND_MOVE_HOLD (todo-demonized-exes.md); character_hit_animations stamp
@@ -2070,7 +2070,7 @@ end
 --- @return boolean true while the body is owned by a transient animation
 --- @return string|nil which term tripped ("stagger"/"overlay"/"flinch"), nil when free - the
 ---   consumer's trace breakdown (the seize-deferral tuning question runs on these counts)
-function xcombat.body_busy(npc)
+function xcombat.is_body_busy(npc)
     if not npc then return false end
     if xcombat.is_staggering(npc) then return true, "stagger" end
     if npc:animation_count() > 0 then return true, "overlay" end
@@ -2096,37 +2096,99 @@ function xcombat.is_reloading(npc)
     return wpn ~= nil and IsWeapon(wpn) and wpn:get_state() == WPN_STATE_RELOAD
 end
 
---- True while this combatant cannot effectively return fire - the TARGET-side sibling of body_busy
---- (that one asks "may I write this body", this one asks "can that body answer me"). Terms cheapest
---- first, all objective state, no thresholds ("weak" is a caller judgement over get_health_frac):
---- no usable weapon in hands (a strapped or absent gun cannot shoot), the weapon mid-reload, an empty
---- magazine not yet reloading (dry - the engine's own ready-to-kill triple minus the unreadable misfire
---- term), and for stalkers the crit stagger, a script animation overlay owning the body, and the additive
---- hit flinch (probed, engine-bind exes only). Universal receiver: the weapon terms answer for the actor
---- too (active_item / get_state / get_ammo_in_magazine are all-class binds); the animation terms are
---- stalker-gated - the engine staggers/overlays are NPC mechanisms and the raw binds error-log on the actor.
---- Consumers gate DECISIONS on it (Commitment's finish-don't-reposition hold, the Behaviors window,
---- row premises); the returned term feeds their traces, this function logs nothing itself.
---- @safety SAFE - nil-guarded; every term class-guarded, no error-log path on any receiver
---- @cost O(1) | 2-4 luabind trivial typical (item + state + ammo), +3 on the stalker tail, 0 allocations
---- @src xray/script_game_object2.cpp (active_item/get_state all-class); script_game_object.cpp:601-604
----   (GetAmmoElapsed CWeapon cast, 0 on non-weapon); object_property_evaluators.cpp:112-119 (the engine
----   ready triple this mirrors); ai_stalker_fire.cpp:1244 (critically_wounded lazy-clear, idempotent);
----   n037 reader (is_hit_anim_playing)
---- @param obj game_object combatant under assessment (stalker or actor)
---- @return boolean true while it cannot return fire
---- @return string|nil which term tripped ("unarmed"/"reloading"/"dry"/"stagger"/"overlay"/"flinch"), nil when able
-function xcombat.is_vulnerable(obj)
+--- True when the combatant has no usable firearm in hands - a strapped, absent, or non-weapon
+--- active item cannot shoot. A held knife counts as armed (w_melee is a fightable kind); how much
+--- a knife threatens at range stays a caller judgement over distance.
+--- @safety SAFE - nil-guarded; false only when a real weapon is in hands
+--- @cost O(1) | 1-2 luabind trivial (active_item field read + IsWeapon class check)
+--- @src xray/script_game_object2.cpp (active_item all-class)
+--- @param obj game_object combatant (stalker or actor)
+--- @return boolean true when no usable weapon is in hands
+function xcombat.is_unarmed(obj)
     if not obj then return false end
     local wpn = obj:active_item()
-    if not wpn or not IsWeapon(wpn) then return true, "unarmed" end
-    if wpn:get_state() == WPN_STATE_RELOAD then return true, "reloading" end
-    if wpn:get_ammo_in_magazine() == 0 then return true, "dry" end
-    -- The animation terms are exactly body_busy's set (stagger/overlay/flinch, same reason words):
-    -- a body owned by a transient animation can neither be written NOR answer fire. Stalker-gated -
-    -- the raw stagger bind error-logs on the actor.
-    if not IsStalker(obj) then return false end
-    return xcombat.body_busy(obj)
+    return not wpn or not IsWeapon(wpn)
+end
+
+--- True while the active weapon's magazine is empty - no round to fire until a reload lands
+--- (the ammo term of the engine's ready-to-kill triple; the misfire term has no script bind, n046).
+--- False when unarmed: no weapon means no magazine to be empty, is_unarmed owns that case.
+--- @safety SAFE - nil/non-weapon guarded to false
+--- @cost O(1) | 2-3 luabind trivial (active_item, get_ammo_in_magazine)
+--- @src xray/script_game_object_script2.cpp:184 (get_ammo_in_magazine bind), xray/object_property_evaluators.cpp:112-119 (the ready triple)
+--- @param obj game_object combatant (stalker or actor)
+--- @return boolean true when the magazine is empty
+function xcombat.is_magazine_empty(obj)
+    if not obj then return false end
+    local wpn = obj:active_item()
+    if not wpn or not IsWeapon(wpn) then return false end
+    return wpn:get_ammo_in_magazine() == 0
+end
+
+--- True while the actor sprints - a weapon-down locomotion state, so he cannot fire until he drops
+--- out of it. INSTANT-EXIT: cancelled the frame the player decides to fire (only the raise delay
+--- remains), so no consumer may treat it as a multi-second window; bounded extensions only.
+--- @safety SAFE - a pure engine state read, boolean by construction
+--- @cost O(1) | 1 luabind trivial (actor_moving_state field read) + pure Lua bit test
+--- @src xray/level_script.cpp:2617 (actor_moving_state), anomaly/_g.script actor_move_states (mcSprint)
+--- @return boolean true while the actor sprints
+function xcombat.is_actor_sprinting()
+    return bit_and(level.actor_moving_state(), actor_move_states.mcSprint) ~= 0
+end
+
+--- True while the actor climbs a ladder - the weapon is away for the whole climb, the one
+--- locomotion state with no instant exit (he must leave the ladder first).
+--- @safety SAFE - a pure engine state read, boolean by construction
+--- @cost O(1) | 1 luabind trivial (actor_moving_state field read) + pure Lua bit test
+--- @src xray/level_script.cpp:2617 (actor_moving_state), anomaly/_g.script actor_move_states (mcClimb)
+--- @return boolean true while the actor climbs
+function xcombat.is_actor_climbing()
+    return bit_and(level.actor_moving_state(), actor_move_states.mcClimb) ~= 0
+end
+
+--- True while a STALKER cannot effectively return fire - the target-side sibling of is_body_busy
+--- (that one asks "may I write this body", this one asks "can that body answer me"). A flat OR of
+--- named business rules, cheapest first, all objective state, no thresholds ("weak" is a caller
+--- judgement over get_health_frac). The actor twin with the actor-only locomotion terms is
+--- is_actor_vulnerable; a MUTANT has no vulnerability read at all - its weapon is its body, so
+--- "cannot return fire" is never true of it and callers pass a mutant to neither function.
+--- Consumers gate DECISIONS on it (Commitment's finish-don't-reposition hold, row premises);
+--- the returned term feeds their traces, this function logs nothing itself.
+--- @safety SAFE - nil-guarded; every term class-guarded, no error-log path
+--- @cost O(1) | 4-6 luabind trivial typical (each term reads its own engine state), 0 allocations
+--- @src xray/object_property_evaluators.cpp:112-119 (the engine cannot-fire triple this mirrors);
+---   ai_stalker_fire.cpp:1244 (critically_wounded lazy-clear, idempotent); n037 reader (is_hit_anim_playing)
+--- @param npc game_object stalker under assessment
+--- @return boolean true while he cannot return fire
+--- @return string|nil which term tripped ("unarmed"/"reloading"/"magazine_empty"/"stagger"/"overlay"/"flinch"), nil when able
+function xcombat.is_stalker_vulnerable(npc)
+    if not npc then return false end
+    if xcombat.is_unarmed(npc) then return true, "unarmed" end
+    if xcombat.is_reloading(npc) then return true, "reloading" end
+    if xcombat.is_magazine_empty(npc) then return true, "magazine_empty" end
+    return xcombat.is_body_busy(npc)
+end
+
+--- True while the ACTOR cannot effectively return fire - the actor twin of is_stalker_vulnerable,
+--- extended with the locomotion terms only the actor has a seam for (sprint, climb; the stagger and
+--- overlay mechanisms are stalker-only and their raw binds error-log on the actor). Reads the one
+--- actor internally, so it takes no subject; no actor (menu, teardown) reads false.
+--- TERM GRADES for consumers: unarmed/reloading/magazine_empty are COMMITTED states (seconds);
+--- sprinting/climbing are INSTANT-EXIT - never treat them as a multi-second promise.
+--- @safety SAFE - nil actor reads false; every term class-guarded
+--- @cost O(1) | 5-8 luabind trivial worst case, 0 allocations
+--- @src xray/object_property_evaluators.cpp:112-119 (the cannot-fire triple), xray/level_script.cpp:2617 (actor_moving_state)
+--- @return boolean true while the actor cannot return fire
+--- @return string|nil which term tripped ("unarmed"/"reloading"/"magazine_empty"/"sprinting"/"climbing"), nil when able
+function xcombat.is_actor_vulnerable()
+    local actor = db.actor
+    if not actor then return false end
+    if xcombat.is_unarmed(actor) then return true, "unarmed" end
+    if xcombat.is_reloading(actor) then return true, "reloading" end
+    if xcombat.is_magazine_empty(actor) then return true, "magazine_empty" end
+    if xcombat.is_actor_sprinting() then return true, "sprinting" end
+    if xcombat.is_actor_climbing() then return true, "climbing" end
+    return false
 end
 
 -- =========================================================================
