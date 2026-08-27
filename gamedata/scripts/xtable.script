@@ -41,7 +41,6 @@ local function _to_predicate(x)
     return function(z) return z[x] end
 end
 
---- Count elements, optionally matching predicate
 --- Shallow copy of a hash table into a fresh table
 --- Copies one level: nested tables are shared, not duplicated
 --- @safety SAFE - pure Lua, no luabind
@@ -54,6 +53,7 @@ function clone(tbl)
     return result
 end
 
+--- Count elements, optionally matching a predicate
 --- Fast path for arrays without predicate (#t); iterates with predicate or pairs for hash tables
 --- @safety SAFE - pure Lua, predicate coerced via _to_predicate
 --- @cost O(n) with predicate, O(1) array without | 0 luabind (pure Lua # or pairs/ipairs)
