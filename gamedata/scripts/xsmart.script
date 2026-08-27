@@ -154,6 +154,15 @@ end
 --- Entry shape: { sec = <section at detect time>, roles = <role set> }
 local _npc_role = {}
 
+--- Forget one npc's cached roles. Called when the npc is released so the cache
+--- follows live npcs instead of every npc the session has seen.
+--- @safety SAFE - plain table delete
+--- @cost O(1) | 0 luabind
+--- @param npc_id number
+function forget_npc_role(npc_id)
+    _npc_role[npc_id] = nil
+end
+
 -- Signal C of the role cascade: substring match on the NPC section name. See
 -- _detect_role for cascade orchestration and the per-signal rationale.
 -- @complexity O(1) | 9 string:find calls, bounded by literal pattern count.

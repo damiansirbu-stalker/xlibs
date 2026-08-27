@@ -47,6 +47,38 @@ local HELD_WEAPON_KINDS = {
 }
 
 local WEAPON_TTL_MS = 2000
+
+-- Drop expired entries on an interval so an id-keyed TTL cache does not grow for
+-- every npc a session ever sees. Interval, not a size check: the guard has to come
+-- first, and counting the table to decide would be the logic before the guard
+-- (stalker-code.md hot path rule 5, periodic cleanup over inline expiry).
+local CACHE_SWEEP_INTERVAL_MS = 60000
+local _next_sweep = setmetatable({}, { __mode = "k" })
+local _sweep_keys = {}
+
+--- Delete every expired entry from an id-keyed TTL cache, at most once a minute.
+--- Collects the keys first and deletes in a second pass, since deleting during
+--- pairs is undefined. _sweep_keys is module-level and reused, so it allocates
+--- nothing; _next_sweep is weak-keyed and holds no cache alive.
+--- @safety SAFE - pure Lua table work
+--- @cost O(1) between sweeps, O(n) entries on one | 0 luabind
+--- @param cache table id-keyed cache of { expires = <ms> }
+--- @param tg number time_global() in ms
+local function _sweep_expired(cache, tg)
+    if tg < (_next_sweep[cache] or 0) then return end
+    _next_sweep[cache] = tg + CACHE_SWEEP_INTERVAL_MS
+    local found = 0
+    for key, entry in pairs(cache) do
+        if tg >= entry.expires then
+            found = found + 1
+            _sweep_keys[found] = key
+        end
+    end
+    for i = 1, found do
+        cache[_sweep_keys[i]] = nil
+        _sweep_keys[i] = nil
+    end
+end
 local _weapon_kind_cache = {}
 
 --- Kind string for the weapon an NPC is fighting with (w_rifle / w_pistol / w_sniper / ...), TTL-cached per id.
@@ -79,6 +111,7 @@ function xcombat.get_weapon_kind(npc)
             if section then kind = ini_sys:r_string_ex(section, "kind") end
         end
     end
+    _sweep_expired(_weapon_kind_cache, tg)
     _weapon_kind_cache[id] = { kind = kind, expires = tg + WEAPON_TTL_MS }
     return kind
 end
@@ -1144,6 +1177,7 @@ function xcombat.actor_dist_sqr(npc)
     local actor = db.actor
     if not actor then return math_huge end
     local dist_sqr = npc:position():distance_to_sqr(actor:position())
+    _sweep_expired(_actor_dist_cache, tg)
     _actor_dist_cache[id] = { dist_sqr = dist_sqr, expires = tg + ACTOR_DIST_TTL_MS }
     return dist_sqr
 end
