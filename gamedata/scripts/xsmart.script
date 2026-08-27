@@ -33,27 +33,32 @@ local function _prop_truthy(smart, key)
 end
 
 --- @scope global - smart.props from simulation_objects_props.ltx loaded at on_register; same value on all levels regardless of online state
+--- @cost O(1) | 0 luabind
 --- @src doc/library/modding/online-offline-scoping.md
 --- @param smart smart_terrain
 --- @return boolean True if base (surge shelter, faction HQ)
 function is_base(smart) return _prop_truthy(smart, "base") end
 
 --- @scope global - smart.props from simulation_objects_props.ltx
+--- @cost O(1) | 0 luabind
 --- @param smart smart_terrain
 --- @return boolean True if lair (mutant nest)
 function is_lair(smart) return _prop_truthy(smart, "lair") end
 
 --- @scope global - smart.props from simulation_objects_props.ltx
+--- @cost O(1) | 0 luabind
 --- @param smart smart_terrain
 --- @return boolean True if resource point
 function is_resource(smart) return _prop_truthy(smart, "resource") end
 
 --- @scope global - smart.props from simulation_objects_props.ltx
+--- @cost O(1) | 0 luabind
 --- @param smart smart_terrain
 --- @return boolean True if territory (contestable)
 function is_territory(smart) return _prop_truthy(smart, "territory") end
 
 --- @scope global - smart.props from simulation_objects_props.ltx
+--- @cost O(1) | 0 luabind
 --- @param smart smart_terrain
 --- @return boolean True if smart has surge shelter (emission-safe indoor)
 --- @src anomaly/smart_terrain.script(1566), anomaly/surge_manager.script(1265)
@@ -738,6 +743,7 @@ end
 --- @safety SAFE - nil-guarded; returns nil if SIMBOARD or smarts_by_names is unavailable
 --- @complexity O(1) | 0 luabind, table identity return
 --- @see anomaly/sim_board.script (SIMBOARD.smarts_by_names initialized at sim_board setup)
+--- @cost O(1) | 0 luabind
 --- @return table|nil { [name] = smart_terrain, ... } or nil if SIMBOARD not loaded
 function smarts_by_names()
     return SIMBOARD and SIMBOARD.smarts_by_names
@@ -880,6 +886,7 @@ end
 --- no-op; safe to run on top of any update-method wrapper chain.
 --- @safety SAFE - pure SIMBOARD table writes; nil-guarded; mutates no engine object
 --- @complexity O(n) squads per affected smart (population recount) | up to 2n luabind (alife_object per counted squad), 0-2 callback emits
+--- @cost O(n) smarts | 0 luabind (walks the cached name table)
 --- @src anomaly/sim_board.script(237-265) the synced path this mirrors
 --- @src anomaly/sim_squad_scripted.script(289,356) the roster-blind assign_smart calls
 --- @src anomaly/smart_terrain.script(1487-1496) smart_terrain_squad_count
