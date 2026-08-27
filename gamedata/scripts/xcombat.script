@@ -1,4 +1,4 @@
---- xcombat: combat AI primitives - weapon classification, NPC control commands, geometry, movement targeting, cover reservation, squad spread, engine fire-gate wrappers
+--- xcombat: combat AI primitives - weapons, NPC control, geometry, targeting, cover, squad spread, fire-gate wrappers
 
 local math_sqrt, math_cos, math_sin, math_abs = math.sqrt, math.cos, math.sin, math.abs
 local math_acos, math_deg, math_huge = math.acos, math.deg, math.huge

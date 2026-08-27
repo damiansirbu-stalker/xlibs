@@ -21,7 +21,7 @@ local function _extract_id(input)
 end
 
 --- Get server object from ID, game object, or server object
---- m_game_vertex_id ~= nil is the server-object discriminator; game objects expose game_vertex_id() as a method so the field is nil and falls through to _extract_id
+--- m_game_vertex_id ~= nil discriminates a server object. A game object exposes it as a method, so the field is nil and falls through to _extract_id.
 --- @safety SAFE - alife_object Lua wrapper nil-guards id and rejects id >= 65535 (_g.script:2045)
 --- @cost O(log n) on alife_object | 0 luabind for pass-through server object, 1 luabind medium otherwise (alife_object: xr_map<u16,*> find on OBJECT_REGISTRY)
 --- @src anomaly/_g.script(2062), xray/xrGame/alife_simulator_script.cpp(40), xray/xrGame/alife_object_registry_inline.h(36)
