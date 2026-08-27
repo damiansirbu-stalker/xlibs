@@ -10,6 +10,9 @@ local xlevel, xmath, xdata = xlevel, xmath, xdata
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
 local CLSID_SQUAD = clsid.online_offline_group_s
 
+-- Squads returned when the caller sets no max_count.
+local DEFAULT_MAX_SQUADS = 3
+
 --- Class identity check for sim_squad_scripted instances.
 --- Canonical Anomaly idiom: obj:clsid() == clsid.online_offline_group_s
 --- (anomaly/axr_task_manager.script:1128, dialogs_axr_companion.script:231).
@@ -642,7 +645,7 @@ function find_squads(pos, opts)
     local factions, exclude_squad_id, exclude_ids = opts.factions, opts.exclude_squad_id, opts.exclude_ids
     local max_dist_sqr = opts.max_distance * opts.max_distance
     local min_dist_sqr = (opts.min_distance or 0) ^ 2
-    local max_count = opts.max_count or 3
+    local max_count = opts.max_count or DEFAULT_MAX_SQUADS
 
     local candidates = {}
     local skipped_protected = 0

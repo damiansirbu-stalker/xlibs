@@ -5,6 +5,9 @@ local pairs = pairs
 local DEFAULT_MARKER_TYPE = "red_location"
 local squad_markers = {}
 
+-- Seconds a PDA marker stays on screen when the caller names none.
+local DEFAULT_SHOWTIME_SEC = 7
+
 --- Remove map marker from squad
 --- Guards level.present() (Level() is NULL during transitions, where map_remove is a C++ NULL deref
 --- pcall cannot catch; the guard returns before the deref), then removes the spot and clears the ledger.
@@ -128,7 +131,7 @@ function npc_tip(npc, msg, opts)
     opts = opts or {}
     local header = opts.header or npc:character_name()
     local icon = npc:character_icon()
-    local showtime = opts.showtime or 7
+    local showtime = opts.showtime or DEFAULT_SHOWTIME_SEC
     if dynamic_news_helper and dynamic_news_helper.send_tip then
         return dynamic_news_helper.send_tip(msg, header, 0, showtime, icon, opts.sound or "news", "npc")
     end

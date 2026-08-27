@@ -23,6 +23,12 @@ local F_ALL = F_OBJECTS + F_STATICS + F_SHAPES + F_OBSTACLES
 -- the next). ray_pick allocates a CRayPick; reusing one avoids an allocation per bbox edge.
 local _ray
 local function _get_ray()
+
+-- Metres a ground probe starts above the given position.
+local DEFAULT_PROBE_UP_M = 1.5
+
+-- Metres a ground probe searches below the start point.
+local DEFAULT_PROBE_DEPTH_M = 5.0
     if not _ray then _ray = ray_pick() end
     return _ray
 end
@@ -56,8 +62,8 @@ end
 function ground_below(pos, opts)
     if not pos then return nil end
     opts = opts or {}
-    local up = opts.up or 1.5
-    local depth = opts.depth or 5.0
+    local up = opts.up or DEFAULT_PROBE_UP_M
+    local depth = opts.depth or DEFAULT_PROBE_DEPTH_M
     local start = vector():set(pos.x, pos.y + up, pos.z)
     local dist, normal, obj = _cast(start, vector():set(0, -1, 0), up + depth, opts.flags or F_STATICS)
     if not dist then return nil end

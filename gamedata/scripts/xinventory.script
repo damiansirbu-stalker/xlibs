@@ -77,6 +77,9 @@ local _blacklist_set
 -- Lazy-load the corpse-detection blacklist on first call. Idempotent.
 -- @complexity O(~85 ini reads) on first call; O(1) thereafter (early return)
 local function _ensure_blacklist()
+
+-- Two tiers covers the common ammo split, standard and armour-piercing.
+local DEFAULT_AMMO_TIERS = 2
     if _blacklist_set then return end
     _blacklist_set = {}
     local ini = ini_file(CORPSE_DETECTION_LTX)
@@ -288,7 +291,7 @@ local _ammo_tier_cache = {}
 --- @param n_tiers number Number of tiers (default 2)
 --- @return table { [ammo_sec] = tier_idx, ... }
 function get_ammo_tier_map(weapon_sec, n_tiers)
-    n_tiers = n_tiers or 2
+    n_tiers = n_tiers or DEFAULT_AMMO_TIERS
     if not weapon_sec then return {} end
     local cache_key = weapon_sec .. ":" .. n_tiers
     local cached = _ammo_tier_cache[cache_key]

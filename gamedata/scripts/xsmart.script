@@ -27,6 +27,12 @@ JOB_TYPE_MOB_HOME = 17
 --- Reads simulation_objects_props.ltx flags; >0 means the flag is set.
 --- @src anomaly/simulation_objects.script(117)
 local function _prop_truthy(smart, key)
+
+-- Results returned when the caller sets no cap.
+local DEFAULT_RESULT_CAP = 5
+
+-- Metres around a smart terrain when the caller names no radius.
+local DEFAULT_SMART_RADIUS_M = 60
     if not smart or not smart.props then return false end
     local v = smart.props[key]
     return v ~= nil and v > 0
@@ -386,7 +392,7 @@ end
 --- @return string|nil owner community, number|nil its distance - both nil if no seller within radius
 function base_owner_near(pos, radius)
     if not pos then return nil end
-    radius = radius or 60
+    radius = radius or DEFAULT_SMART_RADIUS_M
     local best_dist, best = radius, nil
     for _, obj in xcreature.online_iter_with_id() do
         if not (obj and xcreature.is_stalker(obj)) then goto continue end
@@ -726,7 +732,7 @@ local function _empty_iter() return nil end
 function iter_stationed_squads(smart_id, exclude_id, cap)
     local squads = get_smart_squads(smart_id)
     if not squads then return _empty_iter end
-    cap = cap or 5
+    cap = cap or DEFAULT_RESULT_CAP
     local checked = 0
     local key = nil
     return function()

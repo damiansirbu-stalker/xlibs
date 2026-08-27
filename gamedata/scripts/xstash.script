@@ -3,6 +3,9 @@
 local pairs, type, table_concat = pairs, type, table.concat
 local xobject, xlevel, xmath = xobject, xlevel, xmath
 
+-- Stashes returned when the caller sets no max_count.
+local DEFAULT_MAX_STASHES = 3
+
 --- Find stashes matching criteria
 --- Iterates opts.source (when provided) or treasure_manager.caches; excludes player-created stashes,
 --- filters by distance/level/fill state. State (filled/looted/hidden) is always read from
@@ -27,7 +30,7 @@ function find_stashes(pos, opts)
 
     local max_dist_sqr = opts.max_distance * opts.max_distance
     local min_dist_sqr = (opts.min_distance or 0) ^ 2
-    local max_count = opts.max_count or 3
+    local max_count = opts.max_count or DEFAULT_MAX_STASHES
     local filter_filled = opts.filled
     local m_data = alife_storage_manager.get_state()
     local player_stashes = m_data and m_data.player_created_stashes
