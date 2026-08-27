@@ -3,7 +3,7 @@
 local type, tostring, math_floor = type, tostring, math.floor
 
 -- The demonized build this release is built and tested against - set to the LATEST demonized at
--- every release (compatibility-standards.md "The target build").
+-- every release (stalker-compatibility.md "The target build").
 local TARGET_DEMONIZED = 20260706
 
 -- xray-monolith build (YYYYMMDD) as the themrdemonized tag style, no zero padding (20260706 -> "2026.7.6").
@@ -11,7 +11,7 @@ local function _build_tag(build)
     return math_floor(build / 10000) .. "." .. (math_floor(build / 100) % 100) .. "." .. (build % 100)
 end
 
--- AOEngine v0.55 is cut from the 2025-09-08 xray-monolith fork state (compatibility-standards.md), so
+-- AOEngine v0.55 is cut from the 2025-09-08 xray-monolith fork state (stalker-compatibility.md), so
 -- AOE is judged as an engine frozen at this build: any newer target reads partially compatible on AOE.
 local AOE_BASELINE_BUILD = 20250908
 

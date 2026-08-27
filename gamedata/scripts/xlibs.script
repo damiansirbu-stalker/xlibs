@@ -4,13 +4,13 @@ local _VERSION = "next"
 
 --- The unreleased development build. Between releases every mod's own version reads this instead of
 --- the last released number, so a log says at a glance whether a tester runs a release or a dev
---- build (release-standards.md, "The next Version").
+--- build (stalker-release.md, "The next Version").
 local DEV_VERSION = "next"
 
 --- Major of the API this build speaks. "next" carries no number for is_compatible to compare, so a
 --- dev build would otherwise answer compatible even across a breaking change; this is what it
 --- compares instead. Bumped in the same commit as any breaking rename or removal, together with
---- every downstream XLIBS_MIN_VERSION (Cross-Release API Coordination, release-standards.md).
+--- every downstream XLIBS_MIN_VERSION (Cross-Release API Coordination, stalker-release.md).
 local API_MAJOR = 1
 
 --- Get xlibs package version string

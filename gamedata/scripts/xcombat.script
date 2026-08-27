@@ -1151,7 +1151,7 @@ end
 -- Engine fire gates - wrappers over the per-NPC combat-AI engine binds (themrdemonized/xray-monolith
 -- PRs #594 aim+vision, #595 switch veto, #596 fire gates). Each wrapper probes its bind once
 -- (type(npc.<bind>) == "function", cached module-local - the capability probe, never a version compare,
--- per compatibility-standards.md) and carries a defined floor fallback, so a consumer calls the wrapper
+-- per stalker-compatibility.md) and carries a defined floor fallback, so a consumer calls the wrapper
 -- unconditionally and the engine's posture-aware geometry switches on by itself when the player's exe
 -- has the merged PRs. No consumer touches a raw bind.
 
@@ -1203,7 +1203,7 @@ end
 --- higher = seen faster, negative clamps to 0. Shapes mid/long-range acquisition only - inside
 --- always_visible_distance the engine skips the formula. Floor fallback: NO-OP BY DESIGN - the only
 --- script substitute is a visual_memory_manager functor wrap that would run our Lua every frame, banned
---- by code-standards.md "No Per-Frame Work"; vanilla acquisition is the fallback.
+--- by stalker-code.md "No Per-Frame Work"; vanilla acquisition is the fallback.
 --- Not serialized: the manager is reconstructed on re-online, re-set on npc_on_net_spawn.
 --- Consumer: t123 Reaction page, perception half (todo-alifetactics-next.md).
 --- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-CCustomMonster (the actor)
