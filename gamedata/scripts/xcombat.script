@@ -987,6 +987,10 @@ local BODY_Y = xcombat.BODY_Y
 -- bullet cannot) is never the right combat test. The caster's own body is skipped by SELF_CLEARANCE_M; a shot
 -- target's body by ENEMY_BODY_CLEARANCE_M - the two genuinely-unwanted hits (self, target), excluded by range.
 local RQ_BOTH = 3
+-- rqtStatic (xrCDB/xr_collide_defs.h:72-76): baked level geometry ONLY (walls, floors, terrain), NOT game
+-- objects/NPCs/props. The pure "is a WALL between two points" test - used where a body, crate or NPC in the
+-- line must NOT count as a blocker (a corpse pile between two points would false-block a rqtBoth ray).
+local RQ_STATIC = 2
 local SELF_CLEARANCE_M       = 1.0
 local ENEMY_BODY_CLEARANCE_M = 0.75
 
@@ -1015,7 +1019,7 @@ function xcombat.is_line_blocked(a, b, opts)
     if range < 1 then return false end
     local ux, uy, uz = dx/dist, dy/dist, dz/dist
     local ray = ray_pick()
-    ray:set_flags(RQ_BOTH)
+    ray:set_flags(opts.flags or RQ_BOTH)
     ray:set_position(vector():set(a.x + ux*sc, sy + uy*sc, a.z + uz*sc))
     ray:set_direction(vector():set(ux, uy, uz))
     ray:set_range(range)
@@ -1034,6 +1038,18 @@ end
 --- @return boolean true if a wall or object blocks the lane
 function xcombat.has_obstacle_between(start_pos, end_pos)
     return xcombat.is_line_blocked(start_pos, end_pos, { from_y = BODY_Y.LANE, to_y = BODY_Y.LANE, self_clear = SELF_CLEARANCE_M })
+end
+
+--- True when a static WALL (baked level geometry only) blocks the straight line from `a` to `b`, cast
+--- chest-to-chest. Unlike has_obstacle_between (rqtBoth), a body, crate or NPC in the line does NOT
+--- count - only walls/floors/terrain - so a corpse pile between the two points never false-blocks. The
+--- "can they see that spot if they looked, walls aside" test; facing-independent (no vision cone).
+--- @cost O(1) | one is_line_blocked ray (rqtStatic)
+--- @param a vector start position (feet); lifted to chest
+--- @param b vector end position (feet); lifted to chest
+--- @return boolean true when a wall blocks the line
+function xcombat.has_wall_between(a, b)
+    return xcombat.is_line_blocked(a, b, { from_y = BODY_Y.CHEST, to_y = BODY_Y.CHEST, flags = RQ_STATIC, self_clear = SELF_CLEARANCE_M })
 end
 
 --- True if a wall or game object blocks the SHOT line from a firing position (at eye height `eye_y`) to the
