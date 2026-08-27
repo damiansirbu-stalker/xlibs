@@ -1100,20 +1100,23 @@ function xcombat.get_stand_openness(lvid, dir)
     return level.high_cover_in_direction(lvid, dir) or 0
 end
 
---- True when the ACTOR could plausibly land a shot on this NPC right now: he holds a firearm, his
---- facing is within cone_deg of the NPC, and the shot line between them is clear. The actor-side
---- mirror of fire_make_sense - the actor has no AI planner to ask, so the read is built from his
---- facing and the shot-line ray. Consumers gate exposure decisions on it ("am I in the player's
---- line of fire"); call it on event edges or feasibility checks, never per frame (it pays a raycast).
---- @safety SAFE - false when the actor is absent or unarmed
---- @cost O(1) | 3-4 luabind (weapon kind cached, facing reads) + 1 raycast
---- @param npc game_object the NPC asking whether the player can hit him
+--- True when the ACTOR has this NPC in his sight: a firearm IN HANDS (holstered, melee, or empty
+--- hands decline - the equipped-slot fallback would pass for every player and discriminate
+--- nothing), his facing within cone_deg of the NPC, and the shot line between them clear. The NPC's
+--- self-check of his own exposure; player-only by design - every consumer is a vs-player decision.
+--- Call it on event edges or feasibility checks, never per frame (it pays a raycast).
+--- @safety SAFE - false when the actor is absent, empty-handed, or holding a non-firearm
+--- @cost O(1) | 3 luabind (active_item + kind read + facing) + 1 raycast
+--- @param npc game_object the NPC asking whether the player has him in his sight
 --- @param cone_deg number the actor's facing offset to the NPC must be within this many degrees
 --- @return boolean
-function xcombat.actor_can_hit(npc, cone_deg)
+function xcombat.is_in_actor_sight(npc, cone_deg)
     local actor = db.actor
     if not actor then return false end
-    if not xcombat.get_weapon_kind(actor) then return false end
+    local active = actor:active_item()
+    if not active then return false end
+    local kind = ini_sys:r_string_ex(active:section(), "kind")
+    if not (kind and HELD_WEAPON_KINDS[kind]) or kind == "w_melee" then return false end
     local npos = npc:position()
     if xcombat.get_facing_offset(actor, npos) > cone_deg then return false end
     return not xcombat.has_obstacle_to_target(actor:position(), npos, BODY_Y.STAND_EYE)
