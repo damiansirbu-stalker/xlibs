@@ -115,7 +115,7 @@ function stop_shot(handle)
 end
 
 --- Stop every retained one-shot immediately (the dev-tab Stop). Looping handles are untouched.
---- @safety SAFE
+--- @safety SAFE - every sound call is guarded by :playing(), a released handle is skipped
 --- @cost O(n_active) | 1 luabind per live shot (stop)
 function stop_shots()
     for handle, entry in pairs(_active) do
