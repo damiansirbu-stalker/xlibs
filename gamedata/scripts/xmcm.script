@@ -29,8 +29,7 @@ end
 --- @return function load Loader that refreshes all cfg values from MCM
 function create_config(mod_id, defaults, path_builder)
     local getter = create_getter(mod_id, defaults, path_builder)
-    local cfg = {}
-    for k, v in pairs(defaults) do cfg[k] = v end
+    local cfg = xtable.clone(defaults)
     local function load()
         for k in pairs(defaults) do cfg[k] = getter(k) end
     end

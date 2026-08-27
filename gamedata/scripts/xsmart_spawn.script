@@ -30,8 +30,7 @@ SQUADS_BY_SPECIES = {
 -- Value-merge: xtable.merge is a set-merge (writes `true` for every key) and would
 -- store boolean `true` into respawn_params[key].squads, crashing vanilla try_respawn
 -- at smart_terrain.script:1677 (v["squads"][1] indexes a boolean).
-local _SQUADS_BY_IDENTITY = {}
-for k, v in pairs(SQUADS_BY_FACTION) do _SQUADS_BY_IDENTITY[k] = v end
+local _SQUADS_BY_IDENTITY = xtable.clone(SQUADS_BY_FACTION)
 for k, v in pairs(SQUADS_BY_SPECIES) do _SQUADS_BY_IDENTITY[k] = v end
 
 -- Keep only squad sections the loaded system ini defines, returning a NEW array of survivors
