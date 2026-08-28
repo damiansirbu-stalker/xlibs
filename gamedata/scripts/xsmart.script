@@ -16,6 +16,10 @@ local _section_faction_cache = {}
 local _section_npc_max_cache = {}
 local _section_npc_range_cache = {}
 local ANOMALY_RADIUS_SQR = 2500
+-- Results returned when the caller sets no cap.
+local DEFAULT_RESULT_CAP = 5
+-- Metres around a smart terrain when the caller names no radius.
+local DEFAULT_SMART_RADIUS_M = 60
 
 JOB_TYPE_GENERIC_POINT = 0
 JOB_TYPE_CAMPFIRE_POINT = 1
@@ -27,12 +31,6 @@ JOB_TYPE_MOB_HOME = 17
 --- Reads simulation_objects_props.ltx flags; >0 means the flag is set.
 --- @src anomaly/simulation_objects.script(117)
 local function _prop_truthy(smart, key)
-
--- Results returned when the caller sets no cap.
-local DEFAULT_RESULT_CAP = 5
-
--- Metres around a smart terrain when the caller names no radius.
-local DEFAULT_SMART_RADIUS_M = 60
     if not smart or not smart.props then return false end
     local v = smart.props[key]
     return v ~= nil and v > 0

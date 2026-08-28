@@ -19,16 +19,15 @@ local _SAFE_CLASS = { O_PHYSIC = true, O_PHYS_S = true, P_DSTRBL = true, O_DSTR_
 local F_OBJECTS, F_STATICS, F_SHAPES, F_OBSTACLES = 1, 2, 4, 8
 local F_ALL = F_OBJECTS + F_STATICS + F_SHAPES + F_OBSTACLES
 
+-- Metres a ground probe starts above the given position.
+local DEFAULT_PROBE_UP_M = 1.5
+-- Metres a ground probe searches below the start point.
+local DEFAULT_PROBE_DEPTH_M = 5.0
+
 -- One shared ray, lazily created (single-threaded engine, each cast fully sets+queries+reads before
 -- the next). ray_pick allocates a CRayPick; reusing one avoids an allocation per bbox edge.
 local _ray
 local function _get_ray()
-
--- Metres a ground probe starts above the given position.
-local DEFAULT_PROBE_UP_M = 1.5
-
--- Metres a ground probe searches below the start point.
-local DEFAULT_PROBE_DEPTH_M = 5.0
     if not _ray then _ray = ray_pick() end
     return _ray
 end

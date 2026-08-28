@@ -72,14 +72,13 @@ local _grenade_set = {
 
 local CORPSE_DETECTION_LTX = "ai_tweaks\\xr_corpse_detection.ltx"
 local IGNORE_SECTIONS      = "ignore_sections"
+-- Two tiers covers the common ammo split, standard and armour-piercing.
+local DEFAULT_AMMO_TIERS = 2
 
 local _blacklist_set
 -- Lazy-load the corpse-detection blacklist on first call. Idempotent.
 -- @complexity O(~85 ini reads) on first call; O(1) thereafter (early return)
 local function _ensure_blacklist()
-
--- Two tiers covers the common ammo split, standard and armour-piercing.
-local DEFAULT_AMMO_TIERS = 2
     if _blacklist_set then return end
     _blacklist_set = {}
     local ini = ini_file(CORPSE_DETECTION_LTX)
