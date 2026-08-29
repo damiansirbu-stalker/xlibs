@@ -126,26 +126,20 @@ function xcombat.get_weapon_range(kind)
     return xcombat.WEAPON_RANGES[kind] or xcombat.WEAPON_RANGES.w_rifle
 end
 
---- True when dist is inside the weapon kind's MINIMUM range - the gun is too close to its target to
---- be effective (the kite trigger's concept: "the enemy inside MY weapon's minimum").
+--- The range band a distance falls in against a weapon kind's WEAPON_RANGES band: "too_close"
+--- (under the minimum - the kite concept), "in" (effective - "inside his weapon's reach", the
+--- pressure concept), "out" (past the maximum - the standoff concept). The one range primitive;
+--- band compares read it instead of raw min/max compares (t214).
 --- @safety SAFE - unknown kinds read the rifle band via get_weapon_range
---- @cost O(1) | 0 luabind (table lookup + compare)
+--- @cost O(1) | 0 luabind (table lookup + two compares)
 --- @param dist number metres to the target
 --- @param kind string weapon kind
---- @return boolean true when dist is under the band minimum
-function xcombat.is_inside_minimum(dist, kind)
-    return dist < xcombat.get_weapon_range(kind).min
-end
-
---- True when dist is inside the weapon kind's REACH - the distance where the weapon is still genuinely
---- dangerous ("the enemy inside his own weapon's reach", the pressure rows' concept).
---- @safety SAFE - unknown kinds read the rifle band via get_weapon_range
---- @cost O(1) | 0 luabind (table lookup + compare)
---- @param dist number metres to the target
---- @param kind string weapon kind
---- @return boolean true when dist is at or under the band maximum
-function xcombat.is_inside_reach(dist, kind)
-    return dist <= xcombat.get_weapon_range(kind).max
+--- @return string "too_close" | "in" | "out"
+function xcombat.get_range_band(dist, kind)
+    local band = xcombat.get_weapon_range(kind)
+    if dist < band.min then return "too_close" end
+    if dist <= band.max then return "in" end
+    return "out"
 end
 
 -- Engine fire-queue bands per weapon kind: the [fire_queue_params] shape the combat planner
@@ -1100,26 +1094,22 @@ function xcombat.get_stand_openness(lvid, dir)
     return level.high_cover_in_direction(lvid, dir) or 0
 end
 
---- True when the ACTOR has this NPC in his sight: a firearm IN HANDS (holstered, melee, or empty
---- hands decline - the equipped-slot fallback would pass for every player and discriminate
---- nothing), his facing within cone_deg of the NPC, and the shot line between them clear. The NPC's
---- self-check of his own exposure; player-only by design - every consumer is a vs-player decision.
---- Call it on event edges or feasibility checks, never per frame (it pays a raycast).
---- @safety SAFE - false when the actor is absent, empty-handed, or holding a non-firearm
---- @cost O(1) | 3 luabind (active_item + kind read + facing) + 1 raycast
---- @param npc game_object the NPC asking whether the player has him in his sight
---- @param cone_deg number the actor's facing offset to the NPC must be within this many degrees
+--- True when viewer has npc in his sight: viewer's facing within cone_deg of the NPC and the shot
+--- line between them clear. The one sight primitive - facing plus clear line, entity and cone are
+--- parameters; what the viewer holds never discriminates in combat (the in-hands weapon term was
+--- removed by ruling, t214). Call it on event edges or feasibility checks, never per frame (it
+--- pays a raycast).
+--- @safety SAFE - false when viewer is nil
+--- @cost O(1) | 2 luabind (facing + positions) + 1 raycast
+--- @param viewer game_object the entity whose sight is asked (db.actor for the player)
+--- @param npc game_object the NPC asking whether viewer has him in his sight
+--- @param cone_deg number viewer's facing offset to the NPC must be within this many degrees
 --- @return boolean
-function xcombat.is_in_actor_sight(npc, cone_deg)
-    local actor = db.actor
-    if not actor then return false end
-    local active = actor:active_item()
-    if not active then return false end
-    local kind = ini_sys:r_string_ex(active:section(), "kind")
-    if not (kind and HELD_WEAPON_KINDS[kind]) or kind == "w_melee" then return false end
+function xcombat.is_in_sight(viewer, npc, cone_deg)
+    if not viewer then return false end
     local npos = npc:position()
-    if xcombat.get_facing_offset(actor, npos) > cone_deg then return false end
-    return not xcombat.has_obstacle_to_target(actor:position(), npos, BODY_Y.STAND_EYE)
+    if xcombat.get_facing_offset(viewer, npos) > cone_deg then return false end
+    return not xcombat.has_obstacle_to_target(viewer:position(), npos, BODY_Y.STAND_EYE)
 end
 
 -- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
