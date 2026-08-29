@@ -1,5 +1,5 @@
 next
-  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, guarded selection read, facing and reach predicates, zombied and last-man reads, per-subject vulnerability reads
+  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, guarded selection read, facing and reach predicates, zombied and last-man reads, per-subject vulnerability reads, squad record formatter
 
   xcombat
     - Added on_get_min_combat_dist(fn) and on_get_max_combat_dist(fn): registrars for the engine's cover-band asks (npc_on_get_min_combat_dist / _max),
@@ -29,6 +29,7 @@ next
 
   xsquad
     - Added is_last_man(npc_id): squadless or sole surviving member, the rout eligibility read.
+    - Added squad_record(squad): the one-line per-squad diagnostic formatter (community, level, member count, current smart, target, commander role and name), now shared by dump_squads so both carry the commander name.
 
   xsound
     - Added set_ambient_bed_handler(fn) and set_level_music_handler(fn): the engine ambient sound seams (engine PR #644, pending merge).

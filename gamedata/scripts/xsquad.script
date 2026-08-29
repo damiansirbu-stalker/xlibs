@@ -547,29 +547,43 @@ local function _commander_role(squad)
     return "none"
 end
 
+--- Format one squad as a diagnostic record: raw engine fields, commander's service role, and name.
+--- The single per-squad formatter, shared by dump_squads and any per-item drain (ap_core_world_trace)
+--- so the record layout lives in one place. name is the commander's character name (%q-quoted for
+--- grep by an in-game display name), "?" when the commander is offline/nameless.
+--- @safety SAFE - all field reads nil-guarded; get_commander_name filters non-stalker commanders
+--- @cost O(1) | 1 heavy (community shared_str) + 1 medium (npc_count) + commander_role (3 luabind) + get_commander_name (3-4 luabind)
+--- @src anomaly/sim_squad_scripted.script(35,39), xlibs/xdata.script npc_roles
+--- @param squad se_squad Squad server object
+--- @return string One-line diagnostic record
+function squad_record(squad)
+    if not squad then return "?" end
+    return string_format("%d:%s:pid=%s:lv%s:npc%d:at=%s:tgt=%s:role=%s:name=%q",
+        squad.id,
+        squad.get_squad_community and squad:get_squad_community() or "?",
+        tostring(squad.player_id or "?"),
+        tostring(xlevel.get_level_id(squad) or "?"),
+        squad:npc_count(),
+        tostring(squad.smart_id or "?"),
+        tostring(squad.assigned_target_id or "?"),
+        _commander_role(squad),
+        get_commander_name(squad) or "?")
+end
+
 --- Dump SIMBOARD squads as a diagnostic string
---- Shows raw engine fields plus commander's service role. When level_id is provided, filters to that level.
+--- Shows raw engine fields plus commander's service role and name (via squad_record). When level_id is provided, filters to that level.
 --- Offline commanders show role="off"; non-service-NPC commanders show role="none".
 --- @safety SAFE - iter_squads handles nil SIMBOARD, read-only field access
---- @cost O(n) squads | per squad: 1 medium (sim:object) + 1 heavy (community shared_str) + 1 medium (npc_count) + 0-2 trivial (lvid cached, vertex field) + commander_role
+--- @cost O(n) squads | per squad: 1 medium (sim:object) + squad_record (community + npc_count + commander_role + commander_name)
 --- @src anomaly/sim_squad_scripted.script(35,39), xlibs/xdata.script npc_roles
 --- @param level_id number|nil Restrict to this level when provided
 --- @return string Diagnostic dump
 function dump_squads(level_id)
     local parts = {}
     for squad in iter_squads() do
-        local sq_lv = xlevel.get_level_id(squad)
-        if level_id and sq_lv ~= level_id then goto continue end
-        parts[#parts + 1] = string_format("%d:%s:pid=%s:lv%s:npc%d:at=%s:tgt=%s:role=%s",
-            squad.id,
-            squad.get_squad_community and squad:get_squad_community() or "?",
-            tostring(squad.player_id or "?"),
-            tostring(sq_lv or "?"),
-            squad:npc_count(),
-            tostring(squad.smart_id or "?"),
-            tostring(squad.assigned_target_id or "?"),
-            _commander_role(squad))
-        ::continue::
+        if not level_id or xlevel.get_level_id(squad) == level_id then
+            parts[#parts + 1] = squad_record(squad)
+        end
     end
     if #parts == 0 then return "no_simboard" end
     return string_format("filter_lv=%s squads=%d [%s]",

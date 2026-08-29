@@ -143,7 +143,8 @@ xsquad.release_squad(squad)
 - `reassert_target(squad, target)` - Restore scripted_target if cleared by another mod between scans
 - `iter_squads()` - Iterator over all SIMBOARD squads
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
-- `dump_squads()` - Diagnostic string of all SIMBOARD squads
+- `squad_record(squad)` - One-line diagnostic record for a squad (community, pid, level, npc count, current smart, target, commander role and name); the single per-squad formatter
+- `dump_squads()` - Diagnostic string of all SIMBOARD squads (one `squad_record()` per squad)
 
 ### xcombat.script - Combat AI Primitives
 
