@@ -1,5 +1,5 @@
 next
-  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, guarded selection read, facing and reach predicates, zombied and last-man reads, per-subject vulnerability reads, squad record formatter
+  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter
 
   xcombat
     - Added on_get_min_combat_dist(fn) and on_get_max_combat_dist(fn): registrars for the engine's cover-band asks (npc_on_get_min_combat_dist / _max),
@@ -17,7 +17,10 @@ next
     - Renamed body_busy to is_body_busy: boolean reads carry the is_ prefix.
     - Added get_best_enemy(npc): the engine selected enemy behind an alive guard, nil for a dead or missing NPC where the raw bind logs a dead-object error.
     - Added is_facing(obj, pos, cone_deg): true while the combatant faces the position within the cone, the predicate view of get_facing_offset; negated it is the back-turned read.
-    - Added is_inside_minimum(dist, kind) and is_inside_reach(dist, kind): the weapon range band compares under their combat names, too close for the gun and inside its reach.
+    - Added get_range_band(dist, kind): the one range primitive, "too_close" | "in" | "out" against the kind's WEAPON_RANGES band.
+      Supersedes the is_inside_minimum / is_inside_reach pair, which never shipped in a release.
+    - Added is_in_sight(viewer, npc, cone_deg): the one sight primitive, viewer facing within the cone plus a clear shot line, viewer and cone as parameters.
+      Replaces the actor-only is_in_actor_sight and drops its in-hands weapon term, which never discriminates in combat.
     - Added set_visible_enemy_bias(npc, actor_bias, npc_bias): per-NPC override of the 900/300 "sees me" selection pull (engine PR #637), probe-gated, no-op on older builds.
     - Corrected the disclose_enemy doc: make_enemy_visible restores the prior visible bit, so it shares knowledge but cannot promote an unseen shooter into the seen class.
       A reliable victim turn is set_hit_redirect's job.

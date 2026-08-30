@@ -38,8 +38,7 @@ end
 function hms()
     local game_t = game_time()
     if not game_t then return nil, nil end
-    local Y, M, D, h, m, s, ms = 0, 0, 0, 0, 0, 0, 0
-    Y, M, D, h, m, s, ms = game_t:get(Y, M, D, h, m, s, ms)
+    local h, m = select(4, game_t:get(0, 0, 0, 0, 0, 0, 0))
     return h, m
 end
 

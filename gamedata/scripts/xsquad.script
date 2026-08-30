@@ -201,6 +201,7 @@ end
 local function _check_active_role(squad, cmd_id, sec)
     if not squad then return true, "nil" end
     if not cmd_id then
+        local _
         cmd_id, _, sec = _resolve_commander(squad)
     end
     if cmd_id == INVALID_ENTITY_ID then return false, nil, nil end
@@ -386,13 +387,6 @@ end
 function get_community_name(squad)
     local comm = squad and squad.get_squad_community and squad:get_squad_community() or "stalker"
     return game.translate_string(comm)
-end
-
--- Check if target position is outside [min_sqr, max_sqr] distance range from origin
--- @cost O(1) | 1 luabind trivial (distance_to_sqr: 3 sub + 3 mul, no sqrt)
-local function _outside_range(origin, target_pos, min_sqr, max_sqr)
-    local dist_sqr = origin:distance_to_sqr(target_pos)
-    return dist_sqr > max_sqr or dist_sqr < min_sqr
 end
 
 local function _is_excluded(squad_id, exclude_squad_id, exclude_ids)

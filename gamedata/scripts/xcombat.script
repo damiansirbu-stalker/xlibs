@@ -1715,11 +1715,10 @@ end
 --   find_cover - a cover vertex, by opts.selection (nearest|best) and opts.firing (shoot-from|hide-in)
 --   find_flee_lane - a clear run lane away from a threat (fanned headings, obstacle-rayed)
 
--- best_cover collects every cover point in COVER_RADIUS and runs a navmesh accessible() check on each
--- (cover_manager_inline.h), so its cost grows with the area scanned (~r^2) and is worst when it finds
--- nothing (checks all of them). At radius 10 a dense-cover no-cover result measured up to 2.7ms; 7 roughly
--- halves the points scanned, and cover within ~7m behind is a sound retreat distance anyway.
-local COVER_RADIUS         = 7
+-- best_cover collects every cover point in the caller's opts.radius and runs a navmesh accessible() check
+-- on each (cover_manager_inline.h), so its cost grows with the area scanned (~r^2) and is worst when it
+-- finds nothing (checks all of them). At radius 10 a dense-cover no-cover result measured up to 2.7ms; 7
+-- roughly halves the points scanned, and cover within ~7m behind is a sound retreat distance anyway.
 local COVER_MIN_ENEMY_DIST = 1
 local COVER_MAX_ENEMY_DIST = 30
 local CONCEAL_THRESH       = 0.3
@@ -2209,8 +2208,7 @@ xcombat.INDOOR_LEVELS = {
 -- Indoor raycast geometry. rqtStatic = the baked level mesh only (walls, roofs, terrain) - NOT objects
 -- or NPCs, so a crate or a passing stalker never reads as a wall. Trees are baked into the static mesh
 -- on many levels, so an up-ray alone false-flags a canopy as a roof; the horizontal wall confirmation
--- below is what tells a building (roof + walls) from a tree (roof, open sides).
-local RQ_STATIC          = 2
+-- below is what tells a building (roof + walls) from a tree (roof, open sides). RQ_STATIC above is the mask.
 -- cast from chest height (skip ground clutter, reach a normal ceiling)
 local INDOOR_PROBE_Y     = BODY_Y.CHEST
 -- is_indoor thresholds: roof within 4m, a wall within 5m, at least 2 of 4 cardinals walled. MIN_WALLS was

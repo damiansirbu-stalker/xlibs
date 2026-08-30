@@ -359,7 +359,7 @@ Section metadata (LTX squad_descr):
 Diagnostic:
 - `dump_smarts(level_id)` - Per-smart faction + service role inventory (filtered by level when given)
 
-Spawn helpers (set / clear shared / exclusive spawn, set_shared_spawn_section for injecting an explicit squad_descr section rather than an identity->pool lookup, set_exclusive_spawn_section for a faction-tagged explicit section that rides the exclusive gate as a passenger to an owner, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
+Spawn helpers (set / clear shared / exclusive spawn, set_shared_spawn_section for injecting an explicit squad_descr section rather than an identity->pool lookup, set_exclusive_spawn_section for a faction-tagged explicit section that passes the exclusive gate under an owner, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
 
 ### xstash.script - Stash Operations
 

@@ -11,7 +11,7 @@ local LEVELS = {
 
 local LEVEL_NAMES = { "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE" }
 
-local type, pairs, pcall, tostring, setmetatable, assert, error = type, pairs, pcall, tostring, setmetatable, assert, error
+local type, pairs, pcall, tostring, setmetatable, assert = type, pairs, pcall, tostring, setmetatable, assert
 local string, table, math = string, table, math
 local math_floor, RegisterScriptCallback = math.floor, RegisterScriptCallback
 
