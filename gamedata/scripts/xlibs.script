@@ -13,8 +13,7 @@ local DEV_VERSION = "next"
 --- every downstream XLIBS_MIN_VERSION (Cross-Release API Coordination, stalker-release.md).
 local API_MAJOR = 1
 
---- Get xlibs package version string
---- Constant read from module-local _VERSION literal, set at file load
+--- Get xlibs package version string. Constant read from module-local _VERSION literal, set at file load.
 --- @safety SAFE - returns a constant string literal
 --- @cost O(1) | 0 luabind (return local)
 --- @return string Version string (e.g. "1.5.0", or "next" between releases)

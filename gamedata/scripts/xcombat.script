@@ -116,8 +116,7 @@ function xcombat.get_weapon_kind(npc)
     return kind
 end
 
---- Engagement range band { min, max } in metres for a weapon kind.
---- Unknown kinds fall back to the rifle band so any armed NPC has a usable range.
+--- Engagement range band { min, max } in metres for a weapon kind. Unknown kinds fall back to the rifle band so any armed NPC has a usable range.
 --- @safety SAFE - pure table lookup
 --- @cost O(1) | 0 luabind
 --- @param kind string weapon kind
@@ -295,7 +294,7 @@ local _has_make_visible = nil
 --- needs the selection lever instead (set_hit_redirect, PR #636).
 --- @safety SAFE - nil-guarded npc/enemy; the combat registration routes through the alive-guarded
 --- xcombat.register_in_combat wrapper (agent member state is torn down on death)
---- @cost O(1) | 3-4 luabind (enable_memory_object: visual-memory inject; make_enemy_visible: add_visible_object, probed; alive + register_in_combat: agent_manager().member())
+--- @cost O(1) | 3-4 luabind (enable_memory_object visual-memory inject; make_enemy_visible add_visible_object; alive + register_in_combat via agent_manager)
 --- @src xray/script_game_object3.cpp:65 (enable_memory_object), xray/script_game_object_inventory_owner.cpp:1945 (register_in_combat)
 --- @src xray/enemy_manager.cpp:69 (is_relation_enemy gate), xray/ai/stalker/ai_stalker_misc.cpp (CAI_Stalker::tfGetRelationType)
 --- @src xray/memory_manager.cpp make_object_visible_somewhen (the seen-class promotion; engine-internal precedent agent_enemy_manager.cpp)
@@ -555,7 +554,7 @@ end
 --- @safety SAFE for the single consumer - nil/manager guarded, returns false (no-op, no spec written) without
 --- a motivation_action_manager; ASSERTS on a second differing spec (a consumer conflict is a setup error)
 --- @cost O(b) blocked planners | add_evaluator + add_action + b*(action lookup + add_precondition), one-time at install
---- @src anomaly/xr_actions_id.script, anomaly/xr_evaluators_id.script:17 (sidor_wounded_base); xray/stalker_planner.cpp:68-69,128,149-163 (the goal chain the gate exploits)
+--- @src anomaly/xr_actions_id.script, anomaly/xr_evaluators_id.script:17 (sidor_wounded_base); xray/stalker_planner.cpp:68-69,128,149-163 (goal chain)
 --- @param npc game_object stalker
 --- @param spec table { gate = function(npc) -> boolean, on_begin = function(npc) issued when the engine
 ---   grants control, on_release = function(npc)|nil called when the engine takes it away again }
@@ -671,7 +670,7 @@ end
 --- (nil/offline object, non-stalker, uninitialized manager), so "not in cover" and "unknowable" stay distinct
 --- @cost O(1) | 7 luabind trivial (manager, initialized, action, cast_planner, 3 stored property reads)
 --- @src xray/action_planner_script.cpp:26-63 (cast_planner + the read-only storage bind), xray/property_storage_script.cpp:22 (property)
---- @src xray/stalker_combat_planner.cpp:369 (set), :57-63 (cleared on best-cover change), :253-262 (the storage-backed evaluator set), :344 (kill_enemy requires in_cover)
+--- @src xray/stalker_combat_planner.cpp:369 (set), :57-63 (cleared on cover change), :253-262 (storage-backed evaluator set), :344 (kill_enemy needs in_cover)
 --- @src xray/ai/stalker/ai_stalker_script.cpp:43 (stalker_ids.property_in_cover)
 --- @param npc game_object stalker
 --- @return boolean|nil in_cover, boolean|nil looked_out, boolean|nil position_held (all nil when unreadable)
@@ -1070,7 +1069,7 @@ end
 --- see doc/library/modding/cover-and-los-queries.md.
 --- @safety SAFE - the engine returns 0 for an invalid vertex; nil-guarded to 0
 --- @cost O(1) | 1 luabind trivial (baked quadtree lookup + yaw interpolation, ~40ns)
---- @src xray/level_script.cpp:363 (bind), :371 (yaw-only getHP), xray/level_graph_vertex_inline.h:649-660 (interpolates NORMALIZE_NODE_COVER_LOW quadrant bytes)
+--- @src xray/level_script.cpp:363 (bind), :371 (yaw-only getHP), xray/level_graph_vertex_inline.h:649-660 (interp NORMALIZE_NODE_COVER_LOW quadrant bytes)
 --- @param lvid number level vertex id
 --- @param dir vector direction to read toward (yaw used, pitch discarded)
 --- @return number 0 = walled/hidden crouched, 1 = open/exposed (higher = more exposed)
@@ -1086,7 +1085,7 @@ end
 --- shot with a raycast (has_obstacle_to_target / can_kill_enemy).
 --- @safety SAFE - the engine returns 0 for an invalid vertex; nil-guarded to 0
 --- @cost O(1) | 1 luabind trivial (baked quadtree lookup + yaw interpolation, ~40ns)
---- @src xray/level_script.cpp:351 (bind), :359 (yaw-only getHP), xray/level_graph_vertex_inline.h:636-647 (interpolates NORMALIZE_NODE_COVER_HIGH quadrant bytes)
+--- @src xray/level_script.cpp:351 (bind), :359 (yaw-only getHP), xray/level_graph_vertex_inline.h:636-647 (interp NORMALIZE_NODE_COVER_HIGH quadrant bytes)
 --- @param lvid number level vertex id
 --- @param dir vector direction to read toward (yaw used, pitch discarded)
 --- @return number 0 = walled/hidden standing, 1 = open/exposed (higher = more exposed)
@@ -1292,7 +1291,7 @@ end
 --- Floor fallback: NO-OP - vanilla queues ARE the fallback.
 --- @safety SAFE - nil-guarded, no-op below the bind
 --- @cost O(1) | 1 luabind trivial (2 field writes) on the engine path, 0 on the floor
---- @src PR themrdemonized/xray-monolith#603; xray/stalker_combat_action_base.cpp:246-254 (application), xray/ai/stalker/ai_stalker_inline.h:178-193 (fields + sentinel getters)
+--- @src PR themrdemonized/xray-monolith#603; xray/stalker_combat_action_base.cpp:246-254 (apply), xray/ai/stalker/ai_stalker_inline.h:178-193 (fields/getters)
 --- @param npc game_object stalker
 --- @param size_k number burst-size scale (negative = vanilla queue)
 --- @param interval_k number inter-burst interval scale (negative = vanilla queue)
@@ -1512,7 +1511,7 @@ end
 --- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - the blocked-lane read for a reposition decision.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) engine (frame-cached) | O(m) members fallback (has_friendly_in_line)
---- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:728-731 (any non-enemy flags member); xray/object_actions.cpp:244-265 (the surviving engine hold)
+--- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:728-731 (non-enemy member); xray/object_actions.cpp:244-265 (engine hold)
 --- @param npc game_object stalker
 --- @param enemy_pos vector enemy position defining the fire lane (fallback axis; the engine path uses the live fire direction)
 --- @return boolean true when a friendly/neutral blocks the lane (reposition; do not hold fire on it)
@@ -1606,7 +1605,7 @@ end
 --- xcombat registers nothing on its own behalf: fn is the caller's, registered at the caller's call.
 --- @safety SAFE - registers only behind the functor probe, false on any floor/absent path
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
---- @src PR themrdemonized/xray-monolith#595; xray/action_planner_inline.h:111 (gated swap), xray gamedata callbacks_gameobject.script:423-427 (AddScriptCallback + forwarder)
+--- @src PR themrdemonized/xray-monolith#595; xray/action_planner_inline.h:111 (gated swap), xray gamedata callbacks_gameobject.script:423-427 (forwarder)
 --- @param fn function subscriber fn(npc, from_op, to_op, flags)
 --- @return boolean true when registered on the engine callback, false when this exe has no veto seam
 function xcombat.on_action_switch(fn)
@@ -1632,7 +1631,7 @@ end
 --- xcombat registers nothing on its own behalf: fn is the caller's, registered at the caller's call.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path (no crash on old exes)
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
---- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick) + update_best_cover_actuality (standing invalidators); xray gamedata callbacks_gameobject.script (forwarder)
+--- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick) + update_best_cover_actuality; xray gamedata callbacks_gameobject.script
 --- @param fn function subscriber fn(npc, flags)
 --- @return boolean true when registered on the engine callback, false when this exe has no veto seam
 function xcombat.on_cover_repick(fn)
@@ -1662,7 +1661,7 @@ end
 --- an invalid or negative return is ignored engine-side with an error log, and min > max is swapped.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path
 --- @cost O(1) | one-time registration; the handler pays only on cover re-searches
---- @src xray/ai/stalker/ai_stalker_cover.cpp:91-150 (compute_enemy_distances + functor), :282-298 (cached path); xray gamedata callbacks_gameobject.script:496-505 (forwarder + flags contract)
+--- @src xray/ai/stalker/ai_stalker_cover.cpp:91-150 (compute_enemy_distances), :282-298; xray gamedata callbacks_gameobject.script:496-505 (forwarder)
 --- @param fn function subscriber fn(npc, base_min, flags) writing flags.ret_value
 --- @return boolean true when registered, false when this exe has no combat-distance seam
 function xcombat.on_get_min_combat_dist(fn)
@@ -1674,7 +1673,7 @@ end
 --- weapon-typed value (pistol/shotgun cvars, 170 fallback, default cvar for the rest).
 --- @safety SAFE - registers only behind the functor probe, false on any absent path
 --- @cost O(1) | one-time registration; the handler pays only on cover re-searches
---- @src xray/ai/stalker/ai_stalker_cover.cpp:91-150 (compute_enemy_distances + functor); xray gamedata callbacks_gameobject.script:507-515 (forwarder + flags contract)
+--- @src xray/ai/stalker/ai_stalker_cover.cpp:91-150 (compute_enemy_distances); xray gamedata callbacks_gameobject.script:507-515 (forwarder)
 --- @param fn function subscriber fn(npc, base_max, flags) writing flags.ret_value
 --- @return boolean true when registered, false when this exe has no combat-distance seam
 function xcombat.on_get_max_combat_dist(fn)
@@ -2328,8 +2327,7 @@ function xcombat.claim_cover(lvid, owner_id)
     return true
 end
 
---- Release a vertex reservation, but only if this owner holds it.
---- Ownership-checked so a stale release never frees another NPC's cover.
+--- Release a vertex reservation, but only if this owner holds it. Ownership-checked so a stale release never frees another NPC's cover.
 --- @safety SAFE - no-op when nil or not owned
 --- @cost O(1) | 0 luabind (db table write)
 --- @src anomaly/db.script (used_level_vertex_ids)

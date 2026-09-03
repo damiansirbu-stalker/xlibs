@@ -6,7 +6,7 @@ local _start_time = nil
 --- Caches level.get_start_time() (constant per save). Cache reset on on_game_start.
 --- @safety pcall: level.get_start_time AVs before on_game_load, see doc/library/xray/internals/callbacks.md
 ---   Safe from on_game_load onward. Never call game_sec in load_state or on_game_start.
---- @cost O(1) | 2 luabind (get_game_time medium: xrTime ctor from Level().GetStartGameTime; diffSec trivial: (a-b)/sec2ms), first call adds 1 luabind medium (get_start_time: xrTime construction)
+--- @cost O(1) | 2 luabind (get_game_time medium: xrTime ctor; diffSec trivial: (a-b)/sec2ms), first call adds 1 luabind medium (get_start_time: xrTime ctor)
 --- @src xray/xrGame/level_script.cpp(2079) get_start_time, xray/xrGame/xr_time.cpp(76) diffSec, level_script.cpp(2733) get_game_time
 --- @return number Game-seconds since epoch (0 when no level)
 function get_game_sec()

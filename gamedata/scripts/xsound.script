@@ -315,8 +315,7 @@ local function _set_sound_handler(global_name, handler)
     end
 end
 
---- Register (or clear, with nil) the System A background-bed handler.
---- handler: function(section, file, pos) -> nil | { volume_mult = number }
+--- Register (or clear, with nil) the System A background-bed handler. handler: function(section, file, pos) -> nil | { volume_mult = number }
 --- @safety SAFE  @cost O(1) | 0 luabind
 --- @src xray/xrGame/GamePersistent.cpp (WeathersUpdate bed play site; fires _G.COnAmbientBed)
 --- @param handler function|nil
@@ -324,8 +323,7 @@ function set_ambient_bed_handler(handler)
     _set_sound_handler("COnAmbientBed", handler)
 end
 
---- Register (or clear) the level-music handler.
---- handler: function(file) -> nil | { volume_mult = number } (0 silences the track).
+--- Register (or clear) the level-music handler. handler: function(file) -> nil | { volume_mult = number } (0 silences the track).
 --- @safety SAFE  @cost O(1) | 0 luabind
 --- @src xray/xrGame/level_sounds.cpp (SMusicTrack::Play; fires _G.COnLevelMusic)
 --- @param handler function|nil

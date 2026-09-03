@@ -116,8 +116,7 @@ function cancel(name, silent)
     if queue.on_done then queue.on_done() end
 end
 
---- Check if a queue is running.
---- Hash lookup on _queues table; safe to call from any context including on_done
+--- Check if a queue is running. Hash lookup on _queues table; safe to call from any context including on_done.
 --- @safety SAFE - pure Lua table read
 --- @cost O(1) | 0 luabind
 --- @param name string Queue name

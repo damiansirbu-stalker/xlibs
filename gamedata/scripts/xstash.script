@@ -65,8 +65,7 @@ function find_stashes(pos, opts)
     return candidates
 end
 
---- Check if stash was looted
---- Checks treasure_manager.caches[id] == true (boolean true means looted)
+--- Check if stash was looted. Checks treasure_manager.caches[id] == true (boolean true means looted).
 --- @safety SAFE - pure Lua table read, nil-guarded
 --- @cost O(1) | 0 luabind (pure Lua hash read + equality check)
 --- @src anomaly/treasure_manager.script(33)
@@ -78,8 +77,7 @@ function is_stash_looted(stash_id)
     return treasure_manager.caches[stash_id] == true
 end
 
---- Return stash contents as parsed item list without modifying state
---- Reads comma-separated contents string from treasure_manager.caches and splits it
+--- Return stash contents as parsed item list without modifying state. Reads comma-separated contents string from treasure_manager.caches and splits it.
 --- @safety SAFE - pure Lua table read + str_explode is anomaly Lua, nil-guarded
 --- @cost O(n) items | 0 luabind (str_explode is pure Lua string.gmatch)
 --- @src anomaly/treasure_manager.script(33), anomaly/_g.script str_explode
@@ -93,9 +91,8 @@ function get_stash_items(stash_id)
     return str_explode(contents, ",")
 end
 
---- Loot stash contents (marks as looted, returns item list)
---- Reads comma-separated contents string, marks as looted, removes map spot
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- Loot stash contents (marks as looted, returns item list). Reads comma-separated contents string, marks as looted, removes map spot.
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) items (str_explode) | 1 luabind medium (map_remove_object_spot)
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(459,535)
 --- @param stash_id number Stash object ID
@@ -115,9 +112,8 @@ function loot_stash(stash_id)
     return items
 end
 
---- Fill stash with items (always safe to call)
---- Appends to existing contents string or creates new; optionally adds "treasure" map spot
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- Fill stash with items (always safe to call). Appends to existing contents string or creates new; optionally adds "treasure" map spot.
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) items (table_concat) | 0-1 luabind heavy (map_add_object_spot if add_marker: CMapLocation construction + insert)
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(434,535)
 --- @param stash_id number Stash object ID

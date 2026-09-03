@@ -14,8 +14,7 @@ local function _create_key(module_name, func_name)
     return module_name .. "." .. func_name
 end
 
---- Hook a module function with a wrapper
---- Reads module from _G via rawget, stores original, replaces with wrapper(original, ...) closure
+--- Hook a module function with a wrapper. Reads module from _G via rawget, stores original, replaces with wrapper(original, ...) closure.
 --- @safety SAFE - rawget never crashes, type-checks function before replacing
 --- @cost O(1) | 0 luabind (pure Lua _G read + table assignment + closure construction)
 --- @param module_name string Module name (e.g., "xr_eat_medkit")
@@ -40,8 +39,7 @@ function hook(module_name, func_name, wrapper)
     return true
 end
 
---- Check if a function is hooked
---- Looks up key in _hooks table
+--- Check if a function is hooked. Looks up key in _hooks table.
 --- @safety SAFE - pure Lua table lookup
 --- @cost O(1) | 0 luabind (pure Lua hash table read)
 --- @param module_name string Module name

@@ -120,8 +120,7 @@ end
 
 -- ITEM ACCESSORS (game_object item in)
 
---- Get item section name
---- Wraps item:section() to keep mods from calling the engine method directly.
+--- Get item section name. Wraps item:section() to keep mods from calling the engine method directly.
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | 1 luabind heavy (section: shared_str alloc across bridge)
 --- @src xray/xrGame/script_game_object_script.cpp
@@ -132,8 +131,7 @@ function get_section(item)
     return item:section()
 end
 
---- Get item condition (0.0 - 1.0)
---- Wraps item:condition(). Meaningful for weapons / outfits / helmets / degradable items.
+--- Get item condition (0.0 - 1.0). Wraps item:condition(); meaningful for weapons / outfits / helmets / degradable items.
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | 1 luabind trivial (condition: float field read)
 --- @src xray/xrGame/InventoryItem.h
@@ -240,7 +238,7 @@ end
 --- every get_category call. Snapshot semantics: equipped state is captured once; consumer
 --- walks complete within a single Lua call so no frame tick mutates between.
 --- @safety SAFE - nil-guarded npc; returns empty opts when npc nil
---- @cost O(1) | up to 17 luabind trivial (14 item_in_slot via get_equipped_ids + 2 item_in_slot for pistol/rifle + 1 id) + 2 luabind heavy (section: shared_str alloc)
+--- @cost O(1) | up to 17 luabind trivial (14 item_in_slot via get_equipped_ids + 2 item_in_slot pistol/rifle + 1 id) + 2 luabind heavy (section shared_str)
 --- @src xray/xrServerEntities/inventory_space.h, xray/xrGame/script_game_object_inventory_owner.cpp(1605)
 --- @param npc game_object Online NPC
 --- @return table { equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }
@@ -260,8 +258,7 @@ end
 
 local _ammo_sections_cache = {}
 
---- Get ordered list of ammo sections accepted by a weapon section
---- Array form of parse_list (preserves declaration order). Cached per weapon section.
+--- Get ordered list of ammo sections accepted by a weapon section; array form of parse_list (declaration order), cached per weapon section.
 --- @safety SAFE - nil-guarded sec; empty list when ammo_class missing
 --- @cost O(1) cached, 1 luabind heavy on miss (parse_list ini parse, array form)
 --- @src anomaly/_g.script parse_list, vanilla weapon LTX ammo_class field
@@ -796,8 +793,7 @@ function create_item(section, npc_id, t)
     }, t), section, t)
 end
 
---- Transfer an item from one NPC to another
---- Wraps from_npc:transfer_item(item, to_npc). Event-queued in engine, safe mid-iterate.
+--- Transfer an item from one NPC to another. Wraps from_npc:transfer_item(item, to_npc); event-queued in engine, safe mid-iterate.
 --- @safety SAFE - returns nil on nil args
 --- @cost O(1) | 1 luabind (transfer_item: event queue enqueue)
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(601)
@@ -811,8 +807,7 @@ function transfer_item(from_npc, item, to_npc)
     return true
 end
 
---- Release an item from the simulation (alife_release_id)
---- Wraps alife_release_id(item:id()). Event-queued, safe mid-iterate.
+--- Release an item from the simulation (alife_release_id). Wraps alife_release_id(item:id()); event-queued, safe mid-iterate.
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | 1 luabind (alife_release_id: event queue enqueue)
 --- @src anomaly/_g.script alife_release_id, xray/xrGame/alife_simulator_script.cpp
@@ -1122,8 +1117,7 @@ function is_corpse_take(mode, bag)
     return mode == "loot" and bag == EDDListType.iDeadBodyBag
 end
 
---- Veto an actor-menu move from a before_move handler; Cond_Move aborts the move when ret_value is
---- cleared (ui_inventory.script:915-917).
+--- Veto an actor-menu move from a before_move handler; Cond_Move aborts the move when ret_value is cleared (ui_inventory.script:915-917).
 --- @safety SAFE - sets one field on the engine-provided flags table
 --- @cost O(1) | 0 luabind
 --- @param flags table the before_move callback's 1st arg

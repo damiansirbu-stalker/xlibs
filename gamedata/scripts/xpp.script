@@ -99,8 +99,7 @@ function set_target(handle, value, smoothing)
     return true
 end
 
---- Release the slot. Ramps factor to 0 via engine smoothing, then removes the effector
---- on a CreateTimeEvent timer (delay = 1/smoothing + 0.5s buffer).
+--- Release the slot. Ramps factor to 0 via engine smoothing, then removes the effector on a CreateTimeEvent timer (delay = 1/smoothing + 0.5s buffer).
 --- @safety SAFE - no-op on unknown or already-releasing handle
 --- @cost O(1) | 1 luabind (set_pp_effector_factor) + deferred 1 luabind (remove_pp_effector)
 --- @src xray/xrGame/level_script.cpp(994) remove_pp_effector

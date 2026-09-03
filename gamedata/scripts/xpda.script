@@ -11,7 +11,7 @@ local DEFAULT_SHOWTIME_SEC = 7
 --- Remove map marker from squad
 --- Guards level.present() (Level() is NULL during transitions, where map_remove is a C++ NULL deref
 --- pcall cannot catch; the guard returns before the deref), then removes the spot and clears the ledger.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot: Level().MapManager().RemoveMapLocation lookup + erase)
 --- @src xray/xrGame/level_script.cpp(459,535)
 --- @param squad_id number Squad ID
@@ -26,7 +26,7 @@ end
 --- Add map marker to squad
 --- Removes any prior stored spot, adds the new one, then returns whether the spot actually EXISTS
 --- (map_has_object_spot != 0) instead of merely whether the call did not error -- a rejected add surfaces.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 3 luabind heavy (map_remove + map_add + map_has verify)
 --- @src xray/xrGame/level_script.cpp(434,459,505,535)
 --- @param squad_id number Squad ID
@@ -48,9 +48,8 @@ function mark_squad(squad_id, opts)
     return false
 end
 
---- Clear all squad markers
---- Removes each stored spot (level.present()-guarded) and empties the ledger; used on a full reset.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- Clear all squad markers. Removes each stored spot (level.present()-guarded) and empties the ledger; used on a full reset.
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) markers | 1 luabind medium per marker (map_remove_object_spot)
 --- @src xray/xrGame/level_script.cpp(459,535)
 function clear_squad_markers()
@@ -65,7 +64,7 @@ end
 --- Mark an entity (NPC, long-lived marker - caller owns persistence)
 --- Removes any existing spot of this type, adds the new one, then returns whether the spot actually
 --- EXISTS (map_has_object_spot != 0) -- so a rejected add (bad spot type, invalid object) surfaces to the caller.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 3 luabind heavy (map_remove + map_add + map_has verify)
 --- @src xray/xrGame/level_script.cpp(434,459,505,535)
 --- @param id number Entity ID
@@ -82,9 +81,8 @@ function mark_entity(id, opts)
     return level.map_has_object_spot(id, marker_type) ~= 0
 end
 
---- Remove entity marker
---- Guards level.present() then removes the object's spot of this type (no ledger; caller owns lifetime).
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton whose C++ AV pcall cannot catch), see doc/library/modding/pcall-safety.md
+--- Remove entity marker. Guards level.present() then removes the object's spot of this type (no ledger; caller owns lifetime).
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot)
 --- @src xray/xrGame/level_script.cpp(459,535)
 --- @param id number Entity ID
@@ -95,10 +93,9 @@ function unmark_entity(id, marker_type)
     if level.present() then level.map_remove_object_spot(id, marker_type) end
 end
 
---- Send PDA message (dumb pipe, no sound, no color)
---- Calls db.actor:give_game_news which is the engine notification API
+--- Send PDA message (dumb pipe, no sound, no color). Calls db.actor:give_game_news which is the engine notification API.
 --- @safety SAFE - returns false if db.actor unavailable (main menu, loading)
---- @cost O(1) | 1 luabind heavy (give_game_news: GAME_NEWS_DATA struct construction + shared_str copies for caption/news/texture_name + Actor()->AddGameNews container append)
+--- @cost O(1) | 1 luabind heavy (give_game_news: GAME_NEWS_DATA construction + shared_str copies for caption/news/texture + AddGameNews append)
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(106,117) _give_news, xray/xrGame/script_game_object_script3.cpp(208)
 --- @param caption string Sender caption (e.g. "Vasya, Loner")
 --- @param msg string Message text (caller adds color prefix)

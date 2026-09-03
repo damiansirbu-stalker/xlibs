@@ -41,8 +41,7 @@ local function _resolve_predicate(x)
     return function(z) return z[x] end
 end
 
---- Shallow copy of a hash table into a fresh table
---- Copies one level: nested tables are shared, not duplicated
+--- Shallow copy of a hash table into a fresh table. Copies one level: nested tables are shared, not duplicated.
 --- @safety SAFE - pure Lua, no luabind
 --- @cost O(n) keys | 0 luabind
 --- @param tbl table Table to copy
@@ -53,8 +52,7 @@ function clone(tbl)
     return result
 end
 
---- Count elements, optionally matching a predicate
---- Fast path for arrays without predicate (#t); iterates with predicate or pairs for hash tables
+--- Count elements, optionally matching a predicate. Fast path for arrays without predicate (#t); iterates with predicate or pairs for hash tables.
 --- @safety SAFE - pure Lua, predicate coerced via _resolve_predicate
 --- @cost O(n) with predicate, O(1) array without | 0 luabind (pure Lua # or pairs/ipairs)
 --- @param t table Table to count
@@ -77,8 +75,7 @@ function get_count(t, fn)
     return total
 end
 
---- Return shuffled copy of array
---- Fisher-Yates shuffle into new table; original unchanged
+--- Return shuffled copy of array. Fisher-Yates shuffle into new table; original unchanged.
 --- @safety SAFE - pure Lua, allocates new table
 --- @cost O(n) | 0 luabind (pure Lua iteration)
 --- @param t table Array to shuffle
@@ -95,8 +92,7 @@ function shuffle(t)
     return result
 end
 
---- Return sorted copy of table
---- Clones then sorts; comparator can be function or string key name for field-based sort
+--- Return sorted copy of table. Clones then sorts; comparator can be function or string key name for field-based sort.
 --- @safety SAFE - pure Lua, allocates new table
 --- @cost O(n log n) | 0 luabind (clone + Lua table.sort)
 --- @param t table Table to sort
@@ -116,8 +112,7 @@ function sort(t, comparator)
     return result
 end
 
---- Set union of hash tables: merge(...) -> new table with all keys from all inputs
---- Variadic: accepts 2+ tables. Returns a new table, inputs are not modified.
+--- Set union of 2+ hash tables into a new table with all keys; inputs are not modified.
 --- @return table New hash table with all keys set to true
 --- @safety SAFE - pure Lua, nil-safe (skips nil arguments)
 --- @cost O(n) total keys across all inputs | 0 luabind
@@ -130,8 +125,7 @@ function merge(...)
     return out
 end
 
---- Set difference: subtract(base, ...) -> new table with base keys minus all keys in remaining args
---- Returns a new table, inputs are not modified.
+--- Set difference: base keys minus all keys in the remaining args, into a new table; inputs are not modified.
 --- @param base table Base hash table (keys to keep)
 --- @return table New hash table with base keys minus excluded keys
 --- @safety SAFE - pure Lua, nil-safe (skips nil arguments)

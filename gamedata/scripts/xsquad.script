@@ -171,7 +171,7 @@ local function _check_static_identity(se_cmd, sec)
 end
 
 -- Check all permanent (session-immutable) protection reasons with caching
--- @cost O(1) cached | uncached: get_object_story_id 0 luabind + commander resolve 3 luabind (commander_id trivial + alife_object medium + section_name heavy) + clsid+community 2 luabind
+-- @cost O(1) cached | uncached: story_id 0 luabind + commander resolve 3 luabind (commander_id + alife_object + section_name) + clsid+community 2 luabind
 local function _check_permanent(squad)
     if not squad then return true, "nil_squad" end
     if squad:clsid() ~= CLSID_SQUAD then return true, "not_squad" end
@@ -274,7 +274,7 @@ end
 
 --- Check if squad has permanent protected identity (story, trader, named NPC, empty). Cached per squad object (weak keys, GC-safe).
 --- @safety SAFE - returns true for nil (fail-safe), alife_object returns nil for invalid
---- @cost O(1) cache hit | uncached 4-5 luabind mixed weights (story_id 0, commander_id trivial, alife_object medium, section_name heavy, clsid trivial, community heavy)
+--- @cost O(1) cache hit | uncached 4-5 luabind mixed weights (story_id, commander_id, alife_object, section_name, clsid, community)
 --- @src anomaly/_g.script(2692) get_object_story_id
 --- @param squad se_squad Squad server object
 --- @return boolean True if permanent (nil squad returns true for safety)
@@ -287,7 +287,7 @@ end
 
 --- Check if squad currently has a system-assigned role that prevents scripting (re-evaluated every call).
 --- @safety SAFE - nil-guarded, O(t) task_info scan for task_giver
---- @cost O(1) commander resolve + O(t) task_info scan (t = 3-10 typical) | 3 luabind: commander_id trivial + alife_object medium + section_name heavy; task scan pure Lua
+--- @cost O(1) commander resolve + O(t) task_info scan (t~3-10) | 3 luabind: commander_id + alife_object + section_name; task scan pure Lua
 --- @src anomaly/axr_companions.script(25,150), anomaly/axr_task_manager.script task_info
 --- @param squad se_squad Squad server object
 --- @return boolean True if has active role (nil squad returns true for safety)
@@ -318,7 +318,7 @@ end
 ---   random_targets  - Vanilla Anomaly: random patrol system
 ---
 --- @safety SAFE - pure Lua field reads, nil-guarded, no luabind
---- @cost O(1) | 0-3 luabind for the .scripted_target/.action_condlist/.random_targets field reads (each is a userdata field access, trivial when present, falls through on nil)
+--- @cost O(1) | 0-3 luabind for the .scripted_target/.action_condlist/.random_targets field reads (userdata field reads, nil falls through)
 --- @src anomaly/sim_squad_scripted.script(37-39,55-69,105,336)
 --- @param squad se_squad Squad server object
 --- @return boolean True if scripted (nil returns true for safety)
@@ -582,7 +582,7 @@ end
 --- Iterates opts.source (when provided) or SIMBOARD.squads; resolves each via alife_object, filters by faction/distance/level
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
---- @cost O(n) squads in pool | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
+--- @cost O(n) squads in pool | per squad: 1 medium (sim:object) + 1 trivial (distance_to_sqr); is_protected adds up to 4 luabind on commander resolve
 --- @src anomaly/sim_board.script(84), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
@@ -626,7 +626,7 @@ end
 --- contrast with xstash.find_stashes' exact-count take).
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
---- @cost O(n) squads in pool | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); is_protected adds up to 4 luabind on commander resolve
+--- @cost O(n) squads in pool | per squad: 1 medium (sim:object) + 1 trivial (distance_to_sqr); is_protected adds up to 4 luabind on commander resolve
 --- @src anomaly/sim_board.script(84), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
@@ -682,7 +682,7 @@ end
 --- pattern wastes the walk.
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
 --- @safety SAFE - SIMBOARD iteration, alife_object returns nil for deleted
---- @cost O(n) squads in pool worst case, short-circuits on first match | per squad: 1 medium (sim:object xr_map find) + 1 trivial (distance_to_sqr inline math); opts.match cost set by caller
+--- @cost O(n) squads in pool worst case, short-circuits | per squad: 1 medium (sim:object) + 1 trivial (distance_to_sqr); opts.match cost set by caller
 --- @src anomaly/sim_board.script(84), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param pos vector Origin position
 --- @param opts table { factions, max_distance, min_distance, exclude_squad_id, level_id,
@@ -757,7 +757,7 @@ end
 --- Acquire: set scripted_target (routes to specific_update), clear __lock (AP does not use it)
 --- scripted_target alone overrides simulation targeting; __lock cleared so generic_update can run if another mod clears scripted_target
 --- @safety SAFE - pure field writes on squad userdata, rejects nil/empty :name()
---- @cost O(1) | 1 luabind heavy (target_smart:name() shared_str alloc) + 4 trivial userdata field writes (scripted_target, __lock, rush_to_target, assigned_target_id, current_action)
+--- @cost O(1) | 1 luabind heavy (target_smart:name() shared_str) + 4 field writes: scripted_target, __lock, rush_to_target, assigned_target_id, current_action
 --- @src anomaly/sim_squad_scripted.script(258,233-238), anomaly/xr_reach_task.script(289-314)
 --- @param squad table Squad server object
 --- @param target_smart table Target smart terrain

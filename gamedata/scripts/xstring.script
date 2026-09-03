@@ -2,8 +2,7 @@
 
 local tostring, string_gsub = tostring, string.gsub
 
---- Interpolate string with named placeholders
---- Replaces {key} patterns via string.gsub with values from vars table; preserves unmatched placeholders
+--- Interpolate string with named placeholders. Replaces {key} patterns via string.gsub with values from vars table; preserves unmatched placeholders.
 --- @safety SAFE - pure Lua string operations, nil-guarded
 --- @cost O(n) over template length | 0 luabind (pure Lua string.gsub + per-match callback + tostring)
 --- @param str string Template with {key} placeholders

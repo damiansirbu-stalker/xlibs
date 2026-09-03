@@ -35,8 +35,7 @@ function Profiler:get_ms()
     return self._timer:time() / 1000
 end
 
---- Create a new profiler
---- Wraps engine profile_timer C++ object (CPU::GetCLK tick counting, microsecond precision)
+--- Create a new profiler. Wraps engine profile_timer C++ object (CPU::GetCLK tick counting, microsecond precision).
 --- @safety SAFE - profile_timer() constructor never fails (struct ctor zeroes accumulator/count)
 --- @cost O(1) | 1 luabind medium (profile_timer ctor: small struct alloc + zero-init)
 --- @src xray/xrServerEntities/script_engine_script.cpp(127) struct profile_timer_script, (253) class_ binding

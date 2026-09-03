@@ -259,8 +259,7 @@ function clear_exclusive_spawn(smart, key)
     return true
 end
 
---- Reset all smart terrain spawn counters to zero
---- Zeros already_spawned[k].num and clears last_respawn_update on all respawn-capable smarts
+--- Reset all smart terrain spawn counters to zero. Zeros already_spawned[k].num and clears last_respawn_update on all respawn-capable smarts.
 --- @scope global - iterates SIMBOARD.smarts and mutates server-entity fields
 --- @safety SAFE - pure Lua field writes on smart terrain objects, nil-guarded
 --- @cost O(n) smarts * O(k) spawn sections | 0 luabind (SIMBOARD.smarts holds direct refs to server entities; field writes via pairs are pure Lua)
@@ -285,11 +284,10 @@ function reset_spawns()
     return count
 end
 
---- Reset population and re-seed world from simulation preset
---- Resets spawn counters, clears start_position_filled flag, calls fill_start_position
+--- Reset population and re-seed world from simulation preset. Resets spawn counters, clears start_position_filled flag, calls fill_start_position.
 --- @scope global - mutates SIMBOARD and triggers fill_start_position
 --- @safety SAFE - delegates to engine's fill_start_position (runs on every new game start)
---- @cost O(n) smarts for reset + fill_start_position cost | 0 luabind for reset_spawns; fill_start_position is engine-side spawn injection (heavy per smart, mostly server-entity field writes)
+--- @cost O(n) smarts reset + fill_start_position | 0 luabind for reset_spawns; fill_start_position is engine spawn injection (heavy per smart)
 --- @src anomaly/se_actor.script(14), anomaly/sim_board.script(284)
 --- @return boolean True if repopulate ran
 function repopulate()

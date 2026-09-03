@@ -17,8 +17,7 @@ local function create_getter(mod_id, defaults, path_builder)
     end
 end
 
---- Create a complete MCM config: pre-seeded table, getter, and loader
---- Seeds cfg from defaults at creation (no ui_mcm call); loader reads MCM when called
+--- Create a complete MCM config: pre-seeded table, getter, and loader. Seeds cfg from defaults at creation (no ui_mcm call); loader reads MCM when called.
 --- @safety SAFE - creation is pure Lua table copy, loader delegates to create_getter
 --- @cost O(n) defaults at creation, O(n) per load() call | 0 luabind (pure Lua throughout)
 --- @param mod_id string MCM mod identifier

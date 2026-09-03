@@ -47,8 +47,7 @@ function in_range(pos, x, z, radius)
     return dx * dx + dz * dz <= radius * radius
 end
 
---- Return random element from array
---- Uses math.random for index selection; assumes #t > 0
+--- Return random element from array. Uses math.random for index selection; assumes #t > 0.
 --- @safety SAFE - pure Lua, crashes on empty table (caller's responsibility)
 --- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
 --- @param t table Array to sample from
@@ -57,8 +56,7 @@ function sample(t)
     return t[math_random(#t)]
 end
 
---- Shuffle first n elements of array in-place
---- Fisher-Yates partial shuffle: swaps each position with random later element
+--- Shuffle first n elements of array in-place. Fisher-Yates partial shuffle: swaps each position with random later element.
 --- @safety SAFE - pure Lua, mutates input table
 --- @cost O(n) | 0 luabind (pure Lua loop + math.random per step)
 --- @param t table Array to shuffle

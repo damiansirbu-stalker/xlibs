@@ -13,8 +13,7 @@ function new()
     return { id = trace_counter }
 end
 
---- Create trace only if condition true, else the shared null trace (id=0)
---- Null trace shares the id field; zero allocation when disabled
+--- Create trace only if condition true, else the shared null trace (id=0). Null trace shares the id field; zero allocation when disabled.
 --- @safety SAFE - null singleton is pure Lua table
 --- @cost O(1) | 0 luabind (pure Lua table op)
 --- @param condition boolean

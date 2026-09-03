@@ -18,8 +18,7 @@ local function get_game_graph()
     return gg
 end
 
---- True while a surge (emission) is underway.
---- Wraps the vanilla xr_conditions.surge_started gate so callers avoid the raw module reference.
+--- True while a surge (emission) is underway. Wraps the vanilla xr_conditions.surge_started gate so callers avoid the raw module reference.
 --- @safety SAFE - level.present() guards; xr_conditions.surge_started is the vanilla check
 --- @cost O(1) | 1 luabind trivial (level.present); surge_started is pure Lua module reads (xr_conditions.script:1792)
 --- @src anomaly/xr_conditions.script(1792) surge_started, anomaly/surge_manager.script
@@ -29,8 +28,7 @@ function is_surge()
     return xr_conditions.surge_started() == true
 end
 
---- Get level_id from server entity
---- Vertex-to-level mapping is immutable (baked in game.graph). Cached after first lookup per gvid.
+--- Get level_id from a server entity; the vertex-to-level mapping is immutable (baked in game.graph), cached after the first lookup per gvid.
 --- @safety SAFE - nil guard on se_obj + game_graph (pcall cached in module-level gg)
 --- @cost O(1) | 0 luabind cached, 3 luabind trivial on miss (m_game_vertex_id field read on userdata, vertex(): ptr+offset, level_id(): field read)
 --- @src xray/xrGame/game_graph_inline.h, xray/xrGame/game_graph_script.cpp
@@ -49,8 +47,7 @@ function get_level_id(se_obj)
     return level
 end
 
---- Get actor's current level_id
---- Resolves actor via alife():actor() then chains game_graph for level_id
+--- Get actor's current level_id. Resolves the actor via alife():actor() then chains game_graph for level_id.
 --- @safety SAFE - nil guards on sim, actor, gvid, game_graph (NULL singleton via get_game_graph pcall)
 --- @cost O(1) | 4 luabind trivial (alife: ptr return, actor: ptr return, vertex: ptr+offset, level_id: field read)
 --- @src xray/xrGame/alife_simulator_script.cpp(35) alife, xray/xrGame/game_graph_inline.h
@@ -106,8 +103,7 @@ local function _get_level_names()
     return _level_names
 end
 
---- Get translated level display name from a level_id
---- Resolves via alife():level_name(id) then game.translate_string for localized display
+--- Get translated level display name from a level_id. Resolves via alife():level_name(id) then game.translate_string for localized display.
 --- @safety SAFE - nil guards on alife and resolved name
 --- @cost O(log n) | 2 luabind medium (alife:level_name: std::map find on game_graph LEVEL_MAP, translate_string: std::map find on STRING_TABLE_MAP)
 --- @src xray/xrGame/alife_simulator_script.cpp(313) level_name, xray/xrGame/string_table.cpp(226) translate
@@ -124,7 +120,7 @@ function get_level_name(level_id)
 end
 
 -- Resolve smart's level to a translated display name, nil if unresolvable
--- @cost O(log n) | 3 luabind: vertex trivial (ptr+offset), level_id trivial (field), level_name medium (LEVEL_MAP find), translate_string medium (STRING_TABLE_MAP find)
+-- @cost O(log n) | 3 luabind: vertex + level_id trivial, level_name + translate_string medium (LEVEL_MAP / STRING_TABLE find)
 local function _resolve_smart_level_name(smart)
     if not smart.m_game_vertex_id then return nil end
     local graph = get_game_graph()
@@ -179,8 +175,7 @@ function get_smart_display_name(smart)
     return (raw:gsub("_", " "))
 end
 
---- Check if server object has valid level vertex ID
---- Offline or transitioning entities may have 0xFFFFFFFF (invalid) as their level vertex
+--- Check if server object has valid level vertex ID. Offline or transitioning entities may have 0xFFFFFFFF (invalid) as their level vertex.
 --- @safety SAFE - nil-guarded; 1 luabind for the level vertex id userdata field read, otherwise pure Lua
 --- @cost O(1) | 1 luabind trivial (level vertex id field read on userdata)
 --- @src doc/library/modding/alife-safety.md(38), anomaly/sim_squad_scripted.script(276)
