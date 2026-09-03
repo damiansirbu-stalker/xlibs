@@ -27,7 +27,7 @@ RANK_TIERS = { "novice", "trainee", "experienced", "professional", "veteran", "e
 local function get_clsid(input)
     if not input then return nil end
     local input_type = type(input)
-    if input_type == "number" then input = xobject.se(input) end
+    if input_type == "number" then input = xobject.get_se(input) end
     if not input then return nil end
     if input.clsid then return input:clsid() end
     return nil
@@ -182,7 +182,7 @@ local _squad_species_cache = setmetatable({}, { __mode = "k" })
 --- @param input number|userdata Entity ID or object
 --- @return string|nil Species name ("bloodsucker", "dog", "lurker", etc.)
 function get_mutant_species(input)
-    local se = xobject.se(input)
+    local se = xobject.get_se(input)
     if not se then return nil end
     local pid = se.player_id
     if pid and not _is_monster_faction[pid] then return nil end
@@ -193,7 +193,7 @@ function get_mutant_species(input)
     if cls == clsid.online_offline_group_s then
         local cmd_id = se:commander_id()
         if cmd_id and cmd_id ~= INVALID_ENTITY_ID then
-            local cmd = xobject.se(cmd_id)
+            local cmd = xobject.get_se(cmd_id)
             if cmd then species = _resolve_npc_species(cmd) end
         end
     else
@@ -213,7 +213,7 @@ end
 --- @param input number|userdata Entity ID or object
 --- @return string|nil Variant section name
 function get_mutant_variant(input)
-    local se = xobject.se(input)
+    local se = xobject.get_se(input)
     if not se then return nil end
     local pid = se.player_id
     if pid and not _is_monster_faction[pid] then return nil end
@@ -221,7 +221,7 @@ function get_mutant_variant(input)
     if cls == clsid.online_offline_group_s then
         local cmd_id = se:commander_id()
         if not cmd_id or cmd_id == INVALID_ENTITY_ID then return nil end
-        local cmd = xobject.se(cmd_id)
+        local cmd = xobject.get_se(cmd_id)
         if not cmd then return nil end
         if not _resolve_npc_species(cmd) then return nil end
         return cmd:section_name()
@@ -237,8 +237,8 @@ end
 --- @src anomaly/_g.script(2273), anomaly/_g.script(2437)
 --- @param input number|userdata|table Entity ID or object
 --- @return string|nil Faction community
-function community(input)
-    local entity = xobject.se(input)
+function get_community(input)
+    local entity = xobject.get_se(input)
     if not entity then return nil end
     if entity.get_squad_community then
         return entity:get_squad_community()
@@ -255,7 +255,7 @@ end
 --- @param input number|userdata|table entity id or object
 --- @return boolean true for a zombied-community stalker
 function is_zombied(input)
-    return community(input) == "zombied"
+    return get_community(input) == "zombied"
 end
 
 --- Relation of an online object to the actor: "enemy" | "neutral" | "friend", or nil if unresolvable.
@@ -413,7 +413,7 @@ end
 --- @param input number|table Entity ID or server object
 --- @return string|nil Translated name, or nil when the entity or its name is unavailable
 function get_name(input)
-    local entity = xobject.se(input)
+    local entity = xobject.get_se(input)
     if not entity then return nil end
 
     if is_stalker(entity) then

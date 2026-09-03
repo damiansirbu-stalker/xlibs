@@ -9,7 +9,7 @@ local _start_time = nil
 --- @cost O(1) | 2 luabind (get_game_time medium: xrTime ctor from Level().GetStartGameTime; diffSec trivial: (a-b)/sec2ms), first call adds 1 luabind medium (get_start_time: xrTime construction)
 --- @src xray/xrGame/level_script.cpp(2079) get_start_time, xray/xrGame/xr_time.cpp(76) diffSec, level_script.cpp(2733) get_game_time
 --- @return number Game-seconds since epoch (0 when no level)
-function game_sec()
+function get_game_sec()
     if not level.present() then return 0 end
     if not _start_time then
         _start_time = level.get_start_time()
@@ -24,7 +24,7 @@ end
 --- @cost O(1) | 1 luabind medium (get_game_time: xrTime ctor wrapping current u64 timestamp)
 --- @src xray/xrGame/level_script.cpp(2733) get_game_time binding, xray/xrGame/xr_time.cpp xrTime
 --- @return userdata|nil CTime or nil
-function game_time()
+function get_game_time()
     if not level.present() then return nil end
     return game.get_game_time()
 end
@@ -36,7 +36,7 @@ end
 --- @return number|nil h
 --- @return number|nil m
 function hms()
-    local game_t = game_time()
+    local game_t = get_game_time()
     if not game_t then return nil, nil end
     local h, m = select(4, game_t:get(0, 0, 0, 0, 0, 0, 0))
     return h, m

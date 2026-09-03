@@ -34,7 +34,7 @@ end
 --- @param src string|userdata An ltx path or handle
 --- @param sec string The section name
 --- @return table The key->value string map
-function section(src, sec)
+function read_section(src, sec)
     local out = {}
     local ini = open(src)
     if not (ini and ini:section_exist(sec)) then return out end
@@ -52,7 +52,7 @@ end
 --- @param sec string The section name
 --- @param field string The list field name
 --- @return table The array of list items
-function list(src, sec, field)
+function read_list(src, sec, field)
     local ini = open(src)
     if not (ini and ini:section_exist(sec)) then return {} end
     return parse_list(ini, sec, field)
@@ -65,7 +65,7 @@ end
 --- @param sec string The section name
 --- @param field string The field name
 --- @return string|nil
-function str(src, sec, field)
+function read_str(src, sec, field)
     local ini = open(src)
     return ini and ini:r_string_ex(sec, field)
 end
@@ -77,7 +77,7 @@ end
 --- @param sec string The section name
 --- @param field string The field name
 --- @return number|nil
-function num(src, sec, field)
+function read_num(src, sec, field)
     local ini = open(src)
     return ini and ini:r_float_ex(sec, field)
 end
@@ -89,7 +89,7 @@ end
 --- @param sec string The section name
 --- @param field string The field name
 --- @return boolean|nil
-function bool(src, sec, field)
+function read_bool(src, sec, field)
     local ini = open(src)
     return ini and ini:r_bool_ex(sec, field)
 end

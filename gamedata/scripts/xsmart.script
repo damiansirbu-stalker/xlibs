@@ -301,7 +301,7 @@ end
 local function _get_role_at_smart(smart, role)
     if not smart or not smart.npc_info then return nil end
     for npc_id, _ in pairs(smart.npc_info) do
-        local npc = xobject.go(npc_id)
+        local npc = xobject.get_go(npc_id)
         if npc and npc:alive() and get_npc_roles(npc)[role] == true then return npc end
     end
     return nil
@@ -399,7 +399,7 @@ function base_owner_near(pos, radius)
         ::continue::
     end
     if not best then return nil end
-    return xcreature.community(best), best_dist
+    return xcreature.get_community(best), best_dist
 end
 
 --- Check if smart has any non-stub stalker job

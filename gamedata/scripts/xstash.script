@@ -44,7 +44,7 @@ function find_stashes(pos, opts)
         local is_filled = type(state) == "string"
         if filter_filled ~= nil and is_filled ~= filter_filled then goto next_stash end
 
-        local se = xobject.se(stash_id)
+        local se = xobject.get_se(stash_id)
         if not se or not se.position then goto next_stash end
         if opts.level_id and xlevel.get_level_id(se) ~= opts.level_id then goto next_stash end
 

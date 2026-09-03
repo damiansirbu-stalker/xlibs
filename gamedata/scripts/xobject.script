@@ -27,7 +27,7 @@ end
 --- @src anomaly/_g.script(2062), xray/xrGame/alife_simulator_script.cpp(40), xray/xrGame/alife_object_registry_inline.h(36)
 --- @param input number|userdata|table ID, game object, or server object
 --- @return cse_alife_object|nil Server object
-function se(input)
+function get_se(input)
     if not input then return nil end
     if type(input) == "number" then return alife_object(input) end
     if input.m_game_vertex_id ~= nil then return input end
@@ -51,13 +51,13 @@ function is_story(se_obj)
 end
 
 --- Get online game object by ID
---- Complement to se(); returns nil when entity is offline, ID is invalid, or level not loaded
+--- Complement to get_se(); returns nil when entity is offline, ID is invalid, or level not loaded
 --- @safety SAFE - level.present() guards NULL g_pGameLevel during transitions; net_Find rejects id==0xffff (xr_object_list.h:72)
 --- @cost O(1) | 2 luabind trivial (level.present: pointer check, level.object_by_id: flat array index map_NETID[ID])
 --- @src xray/xrGame/level_script.cpp(586), xray/xrEngine/xr_object_list.h(70)
 --- @param id number Entity ID
 --- @return game_object|nil Online game object
-function go(id)
+function get_go(id)
     if not id or not level.present() then return nil end
     return level.object_by_id(id)
 end

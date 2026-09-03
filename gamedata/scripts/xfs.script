@@ -11,7 +11,7 @@ local getFS, bit_or, FS = getFS, bit_or, FS
 --- @param mount string The FS mount point (e.g. "$game_sounds$")
 --- @param dir string The directory under the mount (trailing separator expected)
 --- @return table The array of subfolder names
-function folders(mount, dir)
+function read_folders(mount, dir)
     local out = {}
     local fl = getFS():file_list_open(mount, dir, bit_or(FS.FS_ListFolders, FS.FS_RootOnly))
     for i = 1, (fl and fl:Size() or 0) do
@@ -29,7 +29,7 @@ end
 --- @param dir string The directory under the mount (trailing separator expected)
 --- @param ext string|nil Optional extension filter (e.g. ".ogg"); stripped from returned names
 --- @return table The array of file names
-function files(mount, dir, ext)
+function read_files(mount, dir, ext)
     local out = {}
     local fl = getFS():file_list_open(mount, dir, bit_or(FS.FS_ListFiles, FS.FS_RootOnly))
     local ext_len = ext and #ext
