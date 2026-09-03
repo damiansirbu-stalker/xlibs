@@ -621,7 +621,7 @@ function find_squad(pos, opts)
 end
 
 --- Find multiple squads matching criteria
---- Same as find_squad but returns a RANDOM-SIZED sample: xmath.sample_n takes a uniformly
+--- Same as find_squad but returns a RANDOM-SIZED sample: xmath.select_n takes a uniformly
 --- random 1..max_count count from the candidate pool (deliberate dispatch variability, in
 --- contrast with xstash.find_stashes' exact-count take).
 --- @scope global - iterates the supplied pool. When opts.source is nil, walks SIMBOARD.squads across all levels.
@@ -669,7 +669,7 @@ function find_squads(pos, opts)
     end
 
     if #candidates == 0 then return candidates, skipped_protected end
-    local _, take = xmath.sample_n(candidates, max_count)
+    local _, take = xmath.select_n(candidates, max_count)
     local result = {}
     for i = 1, take do result[i] = candidates[i] end
     return result, skipped_protected

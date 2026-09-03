@@ -42,7 +42,7 @@ end
 --- @param z number target Z coordinate
 --- @param radius number range in metres
 --- @return boolean true if within range
-function in_range(pos, x, z, radius)
+function is_in_range(pos, x, z, radius)
     local dx, dz = pos.x - x, pos.z - z
     return dx * dx + dz * dz <= radius * radius
 end
@@ -52,7 +52,7 @@ end
 --- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
 --- @param t table Array to sample from
 --- @return any Random element
-function sample(t)
+function select(t)
     return t[math_random(#t)]
 end
 
@@ -62,7 +62,7 @@ end
 --- @param t table Array to shuffle
 --- @param n number|nil Number of elements to shuffle (default: all)
 --- @return table Same array, shuffled
-function partial_shuffle(t, n)
+function shuffle_partial(t, n)
     n = n or #t
     for i = 1, n do
         local j = math_random(i, #t)
@@ -71,19 +71,19 @@ function partial_shuffle(t, n)
     return t
 end
 
---- Sample a uniformly random NUMBER of elements from array: k = random(1, min(n, #t))
---- Delegates to partial_shuffle then picks the random count; the random-sized take is the
---- contract (consumer dispatch variability). For an exact-count take, use partial_shuffle
+--- Select a uniformly random NUMBER of elements from array: k = random(1, min(n, #t))
+--- Delegates to shuffle_partial then picks the random count; the random-sized take is the
+--- contract (consumer dispatch variability). For an exact-count take, use shuffle_partial
 --- directly and slice (the xstash.find_stashes pattern).
 --- @safety SAFE - pure Lua, mutates input table
 --- @cost O(n) | 0 luabind (pure Lua loop + math.random per step)
 --- @param t table Source array
 --- @param n number Max elements to sample
 --- @return table Same array (first k elements are the sample), number k
-function sample_n(t, n)
+function select_n(t, n)
     if #t == 0 then return t, 0 end
     local available = math_min(#t, n)
-    partial_shuffle(t, available)
+    shuffle_partial(t, available)
     return t, math_random(1, available)
 end
 

@@ -35,7 +35,7 @@ end
 --- @src xray/xrGame/xr_time.cpp(71) xrTime::get -> split_time
 --- @return number|nil h
 --- @return number|nil m
-function hms()
+function get_time_hm()
     local game_t = get_game_time()
     if not game_t then return nil, nil end
     local h, m = select(4, game_t:get(0, 0, 0, 0, 0, 0, 0))

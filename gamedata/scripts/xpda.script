@@ -121,7 +121,7 @@ end
 --- @param msg string Message string id (translated downstream, not pre-translated)
 --- @param opts table|nil { header?, sound?, showtime? }; sound "news"/"danger"/"beep_1"/"beep_2"; showtime in seconds
 --- @return boolean
-function npc_tip(npc, msg, opts)
+function show_npc_tip(npc, msg, opts)
     if not npc or not msg then return false end
     local actor = db and db.actor
     if not actor then return false end

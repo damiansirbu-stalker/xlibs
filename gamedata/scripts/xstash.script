@@ -57,7 +57,7 @@ function find_stashes(pos, opts)
 
     if #candidates == 0 then return candidates end
     if #candidates > max_count then
-        xmath.partial_shuffle(candidates, max_count)
+        xmath.shuffle_partial(candidates, max_count)
         local result = {}
         for i = 1, max_count do result[i] = candidates[i] end
         return result
