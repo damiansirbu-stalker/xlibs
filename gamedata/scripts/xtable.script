@@ -60,7 +60,7 @@ end
 --- @param t table Table to count
 --- @param fn function|table|string|nil Predicate (optional)
 --- @return number Count
-function count(t, fn)
+function get_count(t, fn)
     local total = 0
     local iter = _get_iterator(t)
     if fn then

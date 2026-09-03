@@ -2,8 +2,8 @@
 ---
 --- TTL Table: key-value store with auto-expiry.
 ---   - :get() and :has() are pure table lookups (zero bridge calls)
----   - :remaining_ttl() calls os.clock for accurate expiry checks
----   - _cleanup() sweeps expired entries, piggybacked on :set() and :size()
+---   - :get_remaining_ttl() calls os.clock for accurate expiry checks
+---   - _cleanup() sweeps expired entries, piggybacked on :set() and :get_size()
 ---   - Error margin: expired entries visible for up to cleanup_interval (default 10s)
 ---
 --- TTL Counter: sliding window occurrence counter.
@@ -90,7 +90,7 @@ function _ttl_table_mt:has(key) return self._entries[key] ~= nil end
 --- Calls clock function for accurate expiry check
 --- @param key string
 --- @return number|nil Remaining seconds, or nil if expired/missing
-function _ttl_table_mt:remaining_ttl(key)
+function _ttl_table_mt:get_remaining_ttl(key)
     local entry = self._entries[key]
     if not entry or not entry.expires then return nil end
     local remaining = entry.expires - self._clock()
@@ -104,10 +104,10 @@ function _ttl_table_mt:remove(key)
 end
 
 function _ttl_table_mt:clear() self._entries = {}; self._total[1] = 0 end
-function _ttl_table_mt:size() self:_cleanup(); return self._total[1] end
+function _ttl_table_mt:get_size() self:_cleanup(); return self._total[1] end
 
 --- Return all entries as {key = value}
-function _ttl_table_mt:all()
+function _ttl_table_mt:get_all()
     self:_cleanup()
     local result = {}
     for key, entry in pairs(self._entries) do
@@ -117,7 +117,7 @@ function _ttl_table_mt:all()
 end
 
 --- Export for save/load (values only, TTLs not preserved)
-function _ttl_table_mt:export()
+function _ttl_table_mt:get_snapshot()
     self:_cleanup()
     local result = {}
     for key, entry in pairs(self._entries) do
@@ -127,7 +127,7 @@ function _ttl_table_mt:export()
 end
 
 --- Import from save data (entries with default_ttl get fresh TTL from load time)
-function _ttl_table_mt:import(data)
+function _ttl_table_mt:load(data)
     if not data then return end
     self._entries, self._total[1] = {}, 0
     local now = self._default_ttl and self._clock() or nil
@@ -144,7 +144,7 @@ end
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
 --- @cost O(1) creation, O(n) per cleanup sweep | 0 luabind with os.clock (libc), 2 luabind medium per clock call with xtime.get_game_sec (get_game_time + diffSec)
 --- @param opts table { default_ttl?, capacity?, cleanup_interval?, clock? } durations in seconds
---- @return table TTL table instance with :get(), :has(), :set(), :remove(), :size(), :all()
+--- @return table TTL table instance with :get(), :has(), :set(), :remove(), :get_size(), :get_all()
 function create_ttl_table(opts)
     opts = opts or {}
     return setmetatable({
@@ -168,7 +168,7 @@ function _ttl_counter_mt:add(key, metadata)
     self._buckets[key][#self._buckets[key] + 1] = entry
 end
 
-function _ttl_counter_mt:count(key)
+function _ttl_counter_mt:get_count(key)
     local entries = self._buckets[key]
     if not entries or #entries == 0 then return 0, {} end
     if not self._ttl then return #entries, {} end
@@ -192,14 +192,14 @@ function _ttl_counter_mt:clear() self._buckets = {} end
 
 --- Export bucket state for save/load. Timestamps inside entries are clock-domain-specific
 --- (game_sec persists meaningfully; os.clock does not survive VM restart).
-function _ttl_counter_mt:export() return self._buckets end
+function _ttl_counter_mt:get_snapshot() return self._buckets end
 
 --- Restore bucket state from save data. Replaces current state wholesale.
-function _ttl_counter_mt:import(data) self._buckets = data or {} end
+function _ttl_counter_mt:load(data) self._buckets = data or {} end
 
-function _ttl_counter_mt:all()
+function _ttl_counter_mt:get_all()
     local result = {}
-    for key in pairs(self._buckets) do result[key] = self:count(key) end
+    for key in pairs(self._buckets) do result[key] = self:get_count(key) end
     return result
 end
 
@@ -208,7 +208,7 @@ end
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
 --- @cost O(1) add, O(n) count over key's bucket | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.get_game_sec
 --- @param opts table { ttl?, clock? } duration in seconds
---- @return table Counter instance with :add(), :count(), :reset()
+--- @return table Counter instance with :add(), :get_count(), :reset()
 function create_ttl_counter(opts)
     opts = opts or {}
     return setmetatable({ _ttl = opts.ttl, _clock = opts.clock or clock, _buckets = {} }, _ttl_counter_mt)
@@ -238,7 +238,7 @@ end
 
 --- Check if a token is available for key without consuming it
 --- @cost O(1) | 0 luabind (pure Lua)
-function _token_bucket_mt:peek(key)
+function _token_bucket_mt:check(key)
     local state = self._keys[key]
     if not state then return true end
     local elapsed = self._clock() - state.last_time
@@ -319,7 +319,7 @@ end
 
 --- Count cached entries
 --- @cost O(n) | 0 luabind (pairs over hash table)
-function _fifo_mt:size()
+function _fifo_mt:get_size()
     local count = 0
     for _ in pairs(self._data) do count = count + 1 end
     return count
@@ -328,7 +328,7 @@ end
 --- Iterate all cached values in insertion order (oldest first)
 --- @cost O(capacity) | 0 luabind (pure Lua loop over ring)
 --- @param fn function(value, key) Called for each cached entry
-function _fifo_mt:each(fn)
+function _fifo_mt:iterate(fn)
     local cap = self._capacity
     local head = self._head
     for offset = 0, cap - 1 do
@@ -344,7 +344,7 @@ end
 --- @safety SAFE - pure Lua tables, no luabind, no timers
 --- @cost O(1) get/set | 0 luabind (pure Lua hash + ring buffer mod arithmetic)
 --- @param opts table|nil { capacity = number, on_evict = function(value, key) } (default capacity 128)
---- @return table FIFO cache with :get(key), :set(key, value), :has(key), :each(fn), :clear(), :size()
+--- @return table FIFO cache with :get(key), :set(key, value), :has(key), :iterate(fn), :clear(), :get_size()
 function create_fifo_cache(opts)
     return setmetatable({
         _data = {},
