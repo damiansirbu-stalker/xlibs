@@ -707,7 +707,7 @@ function get_smart_squads(smart_id)
     return data.squads
 end
 
-local function _empty_iter() return nil end
+local function _EMPTY_ITER() return nil end
 
 --- Iterate squads physically stationed at smart, capped (default 5).
 --- Walks SIMBOARD.smarts[smart_id].squads, yields each se whose current_action=1 AND
@@ -727,7 +727,7 @@ local function _empty_iter() return nil end
 --- @return function Iterator yielding stationed se squads
 function iter_stationed_squads(smart_id, exclude_id, cap)
     local squads = get_smart_squads(smart_id)
-    if not squads then return _empty_iter end
+    if not squads then return _EMPTY_ITER end
     cap = cap or DEFAULT_RESULT_CAP
     local checked = 0
     local key = nil

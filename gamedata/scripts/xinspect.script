@@ -45,7 +45,7 @@ end
 --- @src xray/xrGame/script_game_object_script.cpp, anomaly/_g.script(2820)
 --- @param obj userdata Game object
 --- @return string Formatted representation
-function userdata(obj)
+function format_userdata(obj)
     if type(obj) ~= "userdata" then
         return tostring(obj)
     end
@@ -107,7 +107,7 @@ local SIMPLE_TYPES = {
     end,
     ["function"] = function() return "function" end,
     ["thread"] = function() return "thread" end,
-    ["userdata"] = function(v) return userdata(v) end,
+    ["userdata"] = function(v) return format_userdata(v) end,
 }
 
 local format_value
@@ -153,7 +153,7 @@ end
 
 --- Format table with cycle detection and depth limiting
 --- Returns tostring(t) for non-table input; otherwise delegates to the recursive format_value walker
---- (SIMPLE_TYPES dispatch for primitives, userdata delegated to userdata(); cycle detection via ctx.seen)
+--- (SIMPLE_TYPES dispatch for primitives, userdata delegated to format_userdata(); cycle detection via ctx.seen)
 --- @safety SAFE - same path as inspect()
 --- @cost O(n) total values walked | 0 luabind (pure Lua; userdata only entered via inspect path)
 --- @param t table Table to format
