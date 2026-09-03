@@ -1156,7 +1156,7 @@ function xcombat.has_friendly_in_line(npc, npc_pos, ene_pos, lateral_thresh_m)
         dist = dist, thresh_sqr = lateral_thresh_m * lateral_thresh_m,
     }
     local my_id = npc:id()
-    for member_id in xsquad.iter_member_ids(squad) do
+    for member_id in xsquad.iterate_member_ids(squad) do
         if _member_blocks_line(member_id, my_id, axis) then return true end
     end
     return false
@@ -2359,7 +2359,7 @@ function xcombat.get_squad_ordinal(squad_id, npc_id)
     local squad = alife_object(squad_id)
     if not squad then return 0 end
     local i = 0
-    for member_id in xsquad.iter_member_ids(squad) do
+    for member_id in xsquad.iterate_member_ids(squad) do
         if member_id == npc_id then return i end
         i = i + 1
     end

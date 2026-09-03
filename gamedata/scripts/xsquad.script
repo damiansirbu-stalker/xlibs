@@ -465,7 +465,7 @@ end
 --- @cost O(n) squads | 1 luabind medium per squad (sim:object: xr_map find)
 --- @src anomaly/sim_board.script(84), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
 --- @return function Iterator yielding squad server objects
-function iter_squads()
+function iterate_squads()
     if not SIMBOARD or not SIMBOARD.squads then return _EMPTY_ITER end
     local sim = alife()
     if not sim then return _EMPTY_ITER end
@@ -512,7 +512,7 @@ end
 --- @src xray/xrServerEntities/xrServer_Objects_ALife_script.cpp, anomaly/sim_squad_scripted.script(413)
 --- @param squad se_squad Squad server object
 --- @return function Iterator yielding member IDs (numbers)
-function iter_member_ids(squad)
+function iterate_member_ids(squad)
     if not squad or not squad.squad_members then return _EMPTY_ITER end
     if squad:npc_count() == 0 then return _EMPTY_ITER end
     local iter = squad:squad_members()
@@ -527,7 +527,7 @@ end
 -- trader, medic + trader) return the most-specific role: mechanic > medic > trader. So
 -- mech_bandit returns "mechanic" (not "trader") and Yar returns "medic" (not "trader").
 -- @cost O(1) | 1 trivial (commander_id) + 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
-local function _commander_role(squad)
+local function _get_commander_role(squad)
     if not squad or not squad.commander_id then return "?" end
     local cmd_id = squad:commander_id()
     if not cmd_id then return "?" end
@@ -542,7 +542,7 @@ local function _commander_role(squad)
 end
 
 --- Format one squad as a diagnostic record: raw engine fields, commander's service role, and name.
---- The single per-squad formatter, shared by dump_squads and any per-item drain (ap_core_world_trace)
+--- The single per-squad formatter, shared by format_squads and any per-item drain (ap_core_world_trace)
 --- so the record layout lives in one place. name is the commander's character name (%q-quoted for
 --- grep by an in-game display name), "?" when the commander is offline/nameless.
 --- @safety SAFE - all field reads nil-guarded; get_commander_name filters non-stalker commanders
@@ -550,7 +550,7 @@ end
 --- @src anomaly/sim_squad_scripted.script(35,39), xlibs/xdata.script npc_roles
 --- @param squad se_squad Squad server object
 --- @return string One-line diagnostic record
-function squad_record(squad)
+function format_squad_record(squad)
     if not squad then return "?" end
     return string_format("%d:%s:pid=%s:lv%s:npc%d:at=%s:tgt=%s:role=%s:name=%q",
         squad.id,
@@ -560,23 +560,23 @@ function squad_record(squad)
         squad:npc_count(),
         tostring(squad.smart_id or "?"),
         tostring(squad.assigned_target_id or "?"),
-        _commander_role(squad),
+        _get_commander_role(squad),
         get_commander_name(squad) or "?")
 end
 
 --- Dump SIMBOARD squads as a diagnostic string
---- Shows raw engine fields plus commander's service role and name (via squad_record). When level_id is provided, filters to that level.
+--- Shows raw engine fields plus commander's service role and name (via format_squad_record). When level_id is provided, filters to that level.
 --- Offline commanders show role="off"; non-service-NPC commanders show role="none".
---- @safety SAFE - iter_squads handles nil SIMBOARD, read-only field access
---- @cost O(n) squads | per squad: 1 medium (sim:object) + squad_record (community + npc_count + commander_role + commander_name)
+--- @safety SAFE - iterate_squads handles nil SIMBOARD, read-only field access
+--- @cost O(n) squads | per squad: 1 medium (sim:object) + format_squad_record (community + npc_count + commander_role + commander_name)
 --- @src anomaly/sim_squad_scripted.script(35,39), xlibs/xdata.script npc_roles
 --- @param level_id number|nil Restrict to this level when provided
 --- @return string Diagnostic dump
-function dump_squads(level_id)
+function format_squads(level_id)
     local parts = {}
-    for squad in iter_squads() do
+    for squad in iterate_squads() do
         if not level_id or xlevel.get_level_id(squad) == level_id then
-            parts[#parts + 1] = squad_record(squad)
+            parts[#parts + 1] = format_squad_record(squad)
         end
     end
     if #parts == 0 then return "no_simboard" end
@@ -831,8 +831,8 @@ end
 
 --- Release squads from SIMBOARD (delete from world)
 --- Collects IDs first to avoid mutating SIMBOARD.squads during iteration, then calls remove_squad on each
---- @safety SAFE - iter_squads handles nil SIMBOARD; remove_squad is engine standard cleanup
---- @cost O(n) squads | per squad: 1 luabind medium (sim:object xr_map find via iter_squads); protection guards add 4-5 luabind on commander resolve
+--- @safety SAFE - iterate_squads handles nil SIMBOARD; remove_squad is engine standard cleanup
+--- @cost O(n) squads | per squad: 1 luabind medium (sim:object xr_map find via iterate_squads); protection guards add 4-5 luabind on commander resolve
 --- @src anomaly/debug_cmd_list.script(2146), anomaly/sim_squad_scripted.script(413), anomaly/sim_board.script SIMBOARD:remove_squad
 --- @param opts table|nil { common_only = bool } - if common_only, skip non-common squads
 --- @return number Count of squads released
@@ -842,7 +842,7 @@ function release_squads(opts)
     if not sim or not SIMBOARD or not SIMBOARD.squads then return 0 end
 
     local ids = {}
-    for squad in iter_squads() do
+    for squad in iterate_squads() do
         if common_only and not squad.common then goto continue end
         if is_permanent_squad(squad) then goto continue end
         if has_active_role(squad) then goto continue end

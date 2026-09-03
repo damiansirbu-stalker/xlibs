@@ -1162,14 +1162,14 @@ end
 --- @scope online - reads smart.npc_info populated by smart_terrain:update_jobs gated on self.online AND
 --- is_on_actor_level (smart_terrain.script:582-588). Empty for offline smarts even on the actor's level
 --- @safety SAFE - pure Lua table reads (no luabind), nil-guarded
---- @cost O(n) members | 0 luabind beyond squad_members iterator (xsquad.iter_member_ids returns plain numbers; npc_info is a pure Lua hash)
+--- @cost O(n) members | 0 luabind beyond squad_members iterator (xsquad.iterate_member_ids returns plain numbers; npc_info is a pure Lua hash)
 --- @src anomaly/smart_terrain.script(309-327, 626-798, 1369-1376), anomaly/gulag_general.script(114-118), anomaly/gulag_general.script(1018-1022) mutant mob_home oversupply
 --- @param smart smart_terrain Smart terrain to check
 --- @param squad se_squad Squad whose members to verify
 --- @return boolean True if every member has a job
 function has_jobs_for(smart, squad)
     if not smart or not squad then return false end
-    for member_id in xsquad.iter_member_ids(squad) do
+    for member_id in xsquad.iterate_member_ids(squad) do
         local info = smart.npc_info and smart.npc_info[member_id]
         if not info or not info.job then return false end
     end

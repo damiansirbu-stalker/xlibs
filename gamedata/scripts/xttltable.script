@@ -34,7 +34,7 @@ local function _flush_buf(tbl, count)
     end
 end
 
-local function _aggregate_value(agg, key, val)
+local function _collect_value(agg, key, val)
     local vtype = type(val)
     if vtype == "string" then
         agg[key] = agg[key] or {}
@@ -44,9 +44,9 @@ local function _aggregate_value(agg, key, val)
     end
 end
 
-local function _aggregate_event(agg, event)
+local function _collect_event(agg, event)
     for key, val in pairs(event) do
-        if key ~= "time" then _aggregate_value(agg, key, val) end
+        if key ~= "time" then _collect_value(agg, key, val) end
     end
 end
 
@@ -54,7 +54,7 @@ end
 local _ttl_table_mt = {}
 _ttl_table_mt.__index = _ttl_table_mt
 
-function _ttl_table_mt:_cleanup()
+function _ttl_table_mt:_clear_expired()
     local now = self._clock()
     if now - self._last_cleanup < self._cleanup_interval then return end
     self._last_cleanup = now
@@ -67,7 +67,7 @@ function _ttl_table_mt:_cleanup()
 end
 
 function _ttl_table_mt:set(key, value, ttl)
-    self:_cleanup()
+    self:_clear_expired()
     if self._capacity and self._total[1] >= self._capacity and not self._entries[key] then return false end
     if not self._entries[key] then self._total[1] = self._total[1] + 1 end
     local entry = { value = value }
@@ -104,11 +104,11 @@ function _ttl_table_mt:remove(key)
 end
 
 function _ttl_table_mt:clear() self._entries = {}; self._total[1] = 0 end
-function _ttl_table_mt:get_size() self:_cleanup(); return self._total[1] end
+function _ttl_table_mt:get_size() self:_clear_expired(); return self._total[1] end
 
 --- Return all entries as {key = value}
 function _ttl_table_mt:get_all()
-    self:_cleanup()
+    self:_clear_expired()
     local result = {}
     for key, entry in pairs(self._entries) do
         result[key] = entry.value
@@ -118,7 +118,7 @@ end
 
 --- Export for save/load (values only, TTLs not preserved)
 function _ttl_table_mt:get_snapshot()
-    self:_cleanup()
+    self:_clear_expired()
     local result = {}
     for key, entry in pairs(self._entries) do
         result[key] = entry.value
@@ -180,7 +180,7 @@ function _ttl_counter_mt:get_count(key)
         if now - event.time >= self._ttl then goto next_event end
         valid_count = valid_count + 1
         valid_entries[valid_count] = event
-        _aggregate_event(aggregated, event)
+        _collect_event(aggregated, event)
         ::next_event::
     end
     if valid_count < #entries then self._buckets[key] = valid_entries end
