@@ -78,7 +78,7 @@ local DEFAULT_AMMO_TIERS = 2
 local _blacklist_set
 -- Lazy-load the corpse-detection blacklist on first call. Idempotent.
 -- @cost O(~85 ini reads) on first call; O(1) thereafter (early return)
-local function _ensure_blacklist()
+local function _build_blacklist()
     if _blacklist_set then return end
     _blacklist_set = {}
     local ini = ini_file(CORPSE_DETECTION_LTX)
@@ -337,7 +337,7 @@ end
 
 -- Set (hash table) → flat array of keys.
 -- @cost O(n) keys, single pass
-local function _hand_set_to_list(s)
+local function _build_hand_list(s)
     local list = {}
     for k in pairs(s) do list[#list + 1] = k end
     return list
@@ -345,7 +345,7 @@ end
 
 -- Flat array from one Parse_ITM _ITM[bucket] hash. Empty array if bucket missing.
 -- @cost O(n) sections in bucket, single pass
-local function _itm_bucket_to_list(bucket_name)
+local function _build_bucket_list(bucket_name)
     local list = {}
     local bucket = _ITM and _ITM[bucket_name]
     if not bucket then return list end
@@ -355,7 +355,7 @@ end
 
 -- Append unique entries from one bucket into list, tracking dedup via seen hash.
 -- @cost O(n) bucket entries, 1 hash op per entry
-local function _append_bucket_unique(bucket, list, seen)
+local function _add_bucket_unique(bucket, list, seen)
     for sec in pairs(bucket) do
         if not seen[sec] then
             seen[sec] = true
@@ -366,11 +366,11 @@ end
 
 -- Union of N Parse_ITM buckets, de-duped.
 -- @cost O(total sections across buckets), single dedup hash
-local function _itm_buckets_union(buckets)
+local function _merge_buckets(buckets)
     local list, seen = {}, {}
     for i = 1, #buckets do
         local bucket = _ITM and _ITM[buckets[i]]
-        if bucket then _append_bucket_unique(bucket, list, seen) end
+        if bucket then _add_bucket_unique(bucket, list, seen) end
     end
     return list
 end
@@ -378,7 +378,7 @@ end
 -- Filter _ITM["eatable"] (combined food + drink + i_mutant_cooked bucket per Parse_ITM
 -- _g.script:3264-3266) by exact kind. Picks out food vs drink without re-walking ini_sys.
 -- @cost O(n) eatable sections; per-section 1 cached _get_kind hit
-local function _eatable_filtered_by_kind(target_kinds)
+local function _filter_eatable_by_kind(target_kinds)
     local list = {}
     local bucket = _ITM and _ITM["eatable"]
     if not bucket then return list end
@@ -394,41 +394,41 @@ end
 -- section that lacks k_ap is a guaranteed CTD on create (e.g. the packed dormant ammo_dyno). Keep
 -- such sections out of the spawnable ammo pool so trade / market / test never create them.
 -- @cost O(1), 1 luabind (r_float_ex, inheritance-aware)
-local function _ammo_spawnable(sec)
+local function _is_ammo_spawnable(sec)
     return ini_sys:r_float_ex(sec, "k_ap") ~= nil
 end
 
 -- @cost O(n) ammo sections in the bucket, 1 r_float_ex each; built once per session, cached
-local function _ammo_bucket_spawnable()
+local function _get_spawnable_ammo()
     local list = {}
     local bucket = _ITM and _ITM["ammo"]
     if not bucket then return list end
     for sec in pairs(bucket) do
-        if _ammo_spawnable(sec) then list[#list + 1] = sec end
+        if _is_ammo_spawnable(sec) then list[#list + 1] = sec end
     end
     return list
 end
 
 local _SECTION_BUILDERS = {
-    medkit  = function() return _hand_set_to_list(_medkit_set)  end,
-    bandage = function() return _hand_set_to_list(_bandage_set) end,
-    antirad = function() return _hand_set_to_list(_antirad_set) end,
-    stim    = function() return _hand_set_to_list(_stim_set)    end,
-    pill    = function() return _hand_set_to_list(_pill_set)    end,
-    grenade = function() return _hand_set_to_list(_grenade_set) end,
+    medkit  = function() return _build_hand_list(_medkit_set)  end,
+    bandage = function() return _build_hand_list(_bandage_set) end,
+    antirad = function() return _build_hand_list(_antirad_set) end,
+    stim    = function() return _build_hand_list(_stim_set)    end,
+    pill    = function() return _build_hand_list(_pill_set)    end,
+    grenade = function() return _build_hand_list(_grenade_set) end,
 
-    outfit            = function() return _itm_bucket_to_list("outfit")       end,
-    helmet            = function() return _itm_bucket_to_list("helmet")       end,
-    artefact          = function() return _itm_bucket_to_list("artefact")     end,
-    device            = function() return _itm_bucket_to_list("device")       end,
-    money             = function() return _itm_bucket_to_list("money")        end,
-    grenade_ammo      = function() return _itm_bucket_to_list("grenade_ammo") end,
-    ammo_not_equipped = _ammo_bucket_spawnable,
+    outfit            = function() return _build_bucket_list("outfit")       end,
+    helmet            = function() return _build_bucket_list("helmet")       end,
+    artefact          = function() return _build_bucket_list("artefact")     end,
+    device            = function() return _build_bucket_list("device")       end,
+    money             = function() return _build_bucket_list("money")        end,
+    grenade_ammo      = function() return _build_bucket_list("grenade_ammo") end,
+    ammo_not_equipped = _get_spawnable_ammo,
 
-    crafting = function() return _itm_buckets_union({ "tool", "part", "upgrade" }) end,
+    crafting = function() return _merge_buckets({ "tool", "part", "upgrade" }) end,
 
-    food  = function() return _eatable_filtered_by_kind({ i_food = true, i_mutant_cooked = true }) end,
-    drink = function() return _eatable_filtered_by_kind({ i_drink = true }) end,
+    food  = function() return _filter_eatable_by_kind({ i_food = true, i_mutant_cooked = true }) end,
+    drink = function() return _filter_eatable_by_kind({ i_drink = true }) end,
 }
 
 local _category_sections_cache = {}
@@ -531,7 +531,7 @@ function get_section_category(sec)
 
     -- Untouchables
     if IsItem("quest", sec) or IsItem("anim", sec) then return "untouchable" end
-    _ensure_blacklist()
+    _build_blacklist()
     if _blacklist_set[sec] then return "untouchable" end
 
     -- Granular consumables (hand-maintained sets)
@@ -661,7 +661,7 @@ end
 -- True when the actor's rank is below the floor tier named for this section or category. A missing
 -- floor entry or unresolved tier name returns false (no block). Split out to keep get_rank_chance
 -- under the complexity ceiling.
-local function _below_rank_floor(actor, floor, section, category)
+local function _is_below_rank_floor(actor, floor, section, category)
     local tier = floor and (floor[section] or floor[category])
     if not tier then return false end
     local interval = ranks.get_rank_interval(tier)
@@ -690,7 +690,7 @@ end
 function get_rank_chance(section, actor, ruleset)
     if not section or not actor or not ruleset then return 0 end
     local category = get_section_category(section)
-    if _below_rank_floor(actor, ruleset.floor, section, category) then return 0 end
+    if _is_below_rank_floor(actor, ruleset.floor, section, category) then return 0 end
 
     -- Cost band per actor tier (falls back to a default row, then to fully open)
     local bands = ruleset.bands
@@ -880,7 +880,7 @@ end
 
 -- Contribution one item makes to its category count: ammo categories count rounds
 -- (ammo_get_count across stacks), others count 1 item per stack. Internal helper.
-local function _unit(category, item)
+local function _get_unit(category, item)
     if category == "ammo_not_equipped"
         or string_sub(category, 1, 11) == "ammo_slot_2"
         or string_sub(category, 1, 11) == "ammo_slot_3" then
@@ -893,7 +893,7 @@ end
 -- block.specials; {min, max} rows become an ordered block.entries plus a block.rules[key]
 -- mapping. A key is a category name or an item section name; both share one rules map.
 -- Empty/malformed keys/values skipped.
-local function _absorb_policy_line(key, value, specials_set, block)
+local function _read_policy_line(key, value, specials_set, block)
     if not key or key == "" then return end
     if specials_set[key] then
         block.specials[key] = tonumber(value) or 0
@@ -912,7 +912,7 @@ local function _load_policy_block(ini, section, specials_set)
     local line_count = ini:line_count(section)
     for i = 0, line_count - 1 do
         local _, key, value = ini:r_line_ex(section, i, "", "")
-        _absorb_policy_line(key, value, specials_set, block)
+        _read_policy_line(key, value, specials_set, block)
     end
     return block
 end
@@ -945,7 +945,7 @@ end
 --- The item's section when that section is named in rules, otherwise its category. This is the
 --- one place "section overrides category" lives, so every policy walk keys items the same way.
 --- Returns nil for untouchable / equipped items (consumers skip those). Category and section are
---- also returned (category for _unit and on_surplus; section for on_surplus).
+--- also returned (category for _get_unit and on_surplus; section for on_surplus).
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | get_category cost (which also returns the section) + 1 hash lookup
 --- @src xray/xrGame/script_game_object_script.cpp section()
@@ -984,7 +984,7 @@ function classify(npc, opts, rules, max_items)
         if not item then return end
         local key, cat = policy_key(item, opts, rules)
         if not key then return end
-        counts[key] = (counts[key] or 0) + _unit(cat, item)
+        counts[key] = (counts[key] or 0) + _get_unit(cat, item)
     end, max_items)
     return counts, hit_cap
 end
@@ -1021,7 +1021,7 @@ function iterate_surplus(npc, opts, ctx)
         if not key then return end
         local rule = rules[key]
         if not rule or not rule.max then return end
-        local unit = _unit(cat, item)
+        local unit = _get_unit(cat, item)
         local count = counts[key] or 0
         if count <= rule.max then return end
         counts[key] = count - unit
@@ -1038,14 +1038,14 @@ end
 --- whole-stack decrement, hands each over-max item to on_surplus in the identical m_all order. So it
 --- is a drop-in for classify + iterate_surplus -- same released set, same order, same post-release
 --- counts, same hit_cap -- at half the per-item walk cost (one engine walk, one policy_key, one
---- _unit per item instead of two). Untouchable / equipped items and keys without a rule.max never
+--- _get_unit per item instead of two). Untouchable / equipped items and keys without a rule.max never
 --- reach on_surplus (policy_key drops the former, the rule gate the latter). on_surplus owns the
 --- action (release / transfer / credit); returning true stops the release early. counts is returned
 --- post-release so a caller can drive a follow-up pass (e.g. a BUY pass) off it. Release happens
 --- after the walk, over the captured list -- never during a live iterate_inventory -- so it cannot
 --- perturb the walk. max_items bounds the walk (forwarded to iterate_inventory).
 --- @safety SAFE - nil-guarded npc / rules / on_surplus; iterate tolerant of nil items
---- @cost O(min(items, max_items)) | per item: policy_key + 1 _unit + 1 hash; then 0-N on_surplus
+--- @cost O(min(items, max_items)) | per item: policy_key + 1 _get_unit + 1 hash; then 0-N on_surplus
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc)
@@ -1064,7 +1064,7 @@ function collect_surplus(npc, opts, ctx)
         if not item then return end
         local key, cat, sec = policy_key(item, opts, rules)
         if not key then return end
-        local unit = _unit(cat, item)
+        local unit = _get_unit(cat, item)
         counts[key] = (counts[key] or 0) + unit
         local rule = rules[key]
         if rule and rule.max then
@@ -1134,7 +1134,7 @@ end
 -- INVENTORY DUMP (diagnostic)
 
 -- Tally one item's section into counts/order (order preserves first-seen for a stable line).
-local function _dump_add(sec, counts, order)
+local function _add_count(sec, counts, order)
     counts[sec] = (counts[sec] or 0) + 1
     if counts[sec] == 1 then order[#order + 1] = sec end
 end
@@ -1157,7 +1157,7 @@ function dump(npc, tag, log_fn)
     local counts, order, total = {}, {}, 0
     npc:iterate_inventory(function(_, it)
         total = total + 1
-        _dump_add(it:section(), counts, order)
+        _add_count(it:section(), counts, order)
     end, npc)
     local parts = {}
     for k = 1, #order do parts[k] = order[k] .. " x" .. counts[order[k]] end
