@@ -158,8 +158,7 @@ end
 --- Entry shape: { sec = <section at detect time>, roles = <role set> }
 local _npc_role = {}
 
---- Forget one npc's cached roles. Called when the npc is released so the cache
---- follows live npcs instead of every npc the session has seen.
+--- Forget one npc's cached roles. Called on release so the cache follows live npcs, not every npc the session has seen.
 --- @safety SAFE - plain table delete
 --- @cost O(1) | 0 luabind
 --- @param npc_id number
@@ -167,8 +166,7 @@ function forget_npc_role(npc_id)
     _npc_role[npc_id] = nil
 end
 
--- Signal C of the role cascade: substring match on the NPC section name. See
--- _get_role for cascade orchestration and the per-signal rationale.
+-- Signal C of the role cascade: substring match on the NPC section name (see _get_role for orchestration).
 -- @cost O(1) | 9 string:find calls, bounded by literal pattern count.
 local function _get_section_roles(sec)
     local roles = {}
@@ -473,8 +471,7 @@ function is_near_campfire(smart, position, radius)
     return false
 end
 
---- Check if smart terrain is near anomaly zones
---- Proximity check against db.anomaly_by_name; online scope (switch_distance, not current-level)
+--- Check if smart terrain is near anomaly zones (against db.anomaly_by_name; online scope, switch_distance)
 --- @scope online - db.anomaly_by_name populated by anomaly zone binders at net_spawn; binder.object is the online physics object. Same online_distance / offline_distance hysteresis as campfires.
 --- @safety SAFE - nil-guarded, no pcall. binder.object guarded for net_destroy transition edge case
 --- @cost O(k) k=online anomaly zones (5-15) | per zone: binder.object:position() 1 luabind trivial (Fvector return) + distance_to_sqr 1 luabind trivial (inline math)
@@ -514,8 +511,7 @@ function anomaly_near(pos, radius)
     return false
 end
 
---- Get nearest smart terrain to actor
---- Reads engine-maintained nearest_to_actor_smart table (updated every online smart tick, zero search cost)
+--- Get nearest smart terrain to actor from the engine-maintained nearest_to_actor_smart table (zero search cost)
 --- @scope online - smart_terrain.nearest_to_actor_smart is updated by smart tick gated on self.online (smart_terrain.script:1256); only online smarts compete for the slot
 --- @safety SAFE - nil-guarded, alife_object returns nil for invalid IDs
 --- @cost O(log n) | 1 luabind medium (alife_object: xr_map find)
@@ -691,8 +687,7 @@ function is_smart_empty(smart_id)
     return next(data.squads) == nil
 end
 
---- Get squads table for a smart terrain by ID
---- Returns the raw SIMBOARD.smarts[id].squads hash ({[squad_id]=true}); caller iterates via next()
+--- Get squads table for a smart terrain by ID: the raw SIMBOARD.smarts[id].squads hash ({[squad_id]=true})
 --- @scope global - SIMBOARD.smarts populated at register
 --- @safety SAFE - pure Lua, nil-guarded at every level
 --- @cost O(1) | 0 luabind (pure Lua field/table reads)
@@ -1117,8 +1112,7 @@ function is_arrived(squad, smart)
     return smart:am_i_reached(squad)
 end
 
---- Get spatial proximity between squad and smart terrain
---- Mirrors am_i_reached decision tree; returns distance, threshold, and match conditions for diagnostics
+--- Get spatial proximity between squad and smart terrain (mirrors am_i_reached; returns distance, threshold, match for diagnostics)
 --- @scope global - reads game_graph + server-entity position; cross-level safe (returns dist=-1 on level mismatch)
 --- @safety pcall: game_graph() is NULL singleton during transitions, see doc/library/modding/pcall-safety.md
 --- @cost O(1) | gvid match: 0 luabind; cross-vertex: 2 luabind trivial (vertex: ptr+offset, distance_to_sqr inline) + game_graph singleton lookup (pcall-guarded, cached)
@@ -1228,8 +1222,7 @@ function dump_smarts(level_id)
         .. " smarts=" .. #parts .. " [" .. table_concat(parts, ", ") .. "]"
 end
 
---- Iterator over all smart terrains in SIMBOARD
---- Stateful iterator using next() on SIMBOARD.smarts; skips entries without valid smrt ref
+--- Iterator over all smart terrains in SIMBOARD (stateful next() on SIMBOARD.smarts; skips entries without valid smrt)
 --- @scope global - iterates SIMBOARD.smarts (all levels)
 --- @safety SAFE - nil-guarded, returns empty iterator when SIMBOARD unavailable
 --- @cost O(n) smarts | 0 luabind (pure Lua table iteration)

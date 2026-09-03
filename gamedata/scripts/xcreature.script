@@ -17,8 +17,7 @@ ENTITY = {
 --- game_relations rating tiers and the mods' per-rank MCM slider suffixes).
 RANK_TIERS = { "novice", "trainee", "experienced", "professional", "veteran", "expert", "master", "legend" }
 
---- Get class ID from entity
---- Accepts ID, game_object, or server object; resolves to clsid via xobject.get_se + :clsid() luabind
+--- Get class ID from an entity (ID, game_object, or server object), resolved via xobject.get_se + :clsid()
 --- @safety SAFE - returns nil for invalid/missing entities, :clsid() never crashes
 --- @cost O(log n) | 1 luabind medium (alife_object: xr_map find) + 1 luabind trivial (clsid: enum return)
 --- @src anomaly/_g.script(2062), xray/xrGame/script_game_object_script.cpp
@@ -33,8 +32,7 @@ local function get_clsid(input)
     return nil
 end
 
---- Check if entity is a stalker
---- Shorthand: get_clsid + IsStalker(nil, cls) fast path
+--- Check if entity is a stalker (get_clsid + IsStalker(nil, cls) fast path)
 --- @safety SAFE - returns false for nil/invalid
 --- @cost O(log n) | 1 luabind medium (alife_object) + 1 luabind trivial (clsid); IsStalker is pure Lua compare
 --- @src anomaly/_g.script(2820) IsStalker
@@ -52,8 +50,7 @@ function is_stalker(input) local cls = get_clsid(input) return cls and IsStalker
 --- @return boolean
 function is_trader(input) local cls = get_clsid(input) return cls and IsTrader(nil, cls) or false end
 
---- Check if entity is a mutant
---- Shorthand: get_clsid + IsMonster(nil, cls) fast path
+--- Check if entity is a mutant (get_clsid + IsMonster(nil, cls) fast path)
 --- @safety SAFE - returns false for nil/invalid
 --- @cost O(log n) | 1 luabind medium (alife_object) + 1 luabind trivial (clsid); IsMonster is pure Lua hash lookup on lazy-cached monster_classes
 --- @src anomaly/_g.script(2827) IsMonster
@@ -61,8 +58,7 @@ function is_trader(input) local cls = get_clsid(input) return cls and IsTrader(n
 --- @return boolean
 function is_mutant(input) local cls = get_clsid(input) return cls and IsMonster(nil, cls) or false end
 
---- Check if entity is an NPC (stalker or mutant)
---- Shorthand: delegates to is_stalker || is_mutant
+--- Check if entity is an NPC (stalker or mutant); delegates to is_stalker || is_mutant
 --- @safety SAFE - returns false for nil/invalid
 --- @cost O(log n) | up to 4 luabind: stalker path 2 luabind (alife_object medium + clsid trivial), mutant path 2 more on miss
 --- @param input number|userdata|table Entity ID or object
@@ -230,8 +226,7 @@ function get_mutant_variant(input)
     return se:section_name()
 end
 
---- Get faction community from entity
---- Resolves via xobject.get_se then tries get_squad_community (squads) or alife_character_community (NPCs)
+--- Get faction community from an entity via xobject.get_se, then get_squad_community (squads) or alife_character_community (NPCs)
 --- @safety SAFE - returns nil for invalid entities
 --- @cost O(log n) | 2-3 luabind: alife_object medium + get_squad_community heavy (shared_str return) OR alife_character_community heavy (community shared_str)
 --- @src anomaly/_g.script(2273), anomaly/_g.script(2437)
@@ -349,8 +344,7 @@ local MUTANT_NAMES = {
     karlik = "Karlik",
 }
 
--- Hash lookup for O(1) mutant name resolution
--- Handles compound names (psy_dog) by checking part pairs
+-- Hash lookup for O(1) mutant name resolution; handles compound names (psy_dog) by checking part pairs
 local function _get_mutant_display_name(section)
     local lower = section:lower()
     local parts = {}
@@ -425,8 +419,7 @@ function get_name(input)
     return section and _get_mutant_name(section) or nil
 end
 
---- Get current money (rubles) of an inventory owner
---- Money() always returns u32 across luabind; never nil for a valid CInventoryOwner.
+--- Get current money (rubles) of an inventory owner (Money() returns u32, never nil for a valid CInventoryOwner)
 --- @safety SAFE - nil-guarded obj; Money() VERIFY trips only on non-CInventoryOwner
 --- @cost O(1) | 1 luabind medium (Money: smart_cast<CInventoryOwner*> + m_money field read)
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(674-679), xray/xrGame/InventoryOwner.h(117)
