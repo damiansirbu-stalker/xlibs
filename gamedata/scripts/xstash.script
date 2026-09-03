@@ -11,8 +11,8 @@ local DEFAULT_MAX_STASHES = 3
 --- filters by distance/level/fill state. State (filled/looted/hidden) is always read from
 --- treasure_manager.caches[stash_id] since it mutates; the source table only contributes the iteration
 --- set (stash_ids to consider).
---- @safety SAFE - xobject.se returns nil for invalid, .position field nil-guarded, distance_to_sqr is vector inline math
---- @cost O(n) stashes in pool | per stash: 1 medium (xobject.se -> alife_object xr_map find) + 1 trivial (distance_to_sqr); level filter cached (0 luabind)
+--- @safety SAFE - xobject.get_se returns nil for invalid, .position field nil-guarded, distance_to_sqr is vector inline math
+--- @cost O(n) stashes in pool | per stash: 1 medium (xobject.get_se -> alife_object xr_map find) + 1 trivial (distance_to_sqr); level filter cached (0 luabind)
 --- @src anomaly/treasure_manager.script(33), anomaly/_g.script(2062), anomaly/item_backpack.script(27)
 --- @param pos vector Origin position
 --- @param opts table { max_distance, min_distance, max_count, level_id, filled, source }

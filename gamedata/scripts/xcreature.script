@@ -18,7 +18,7 @@ ENTITY = {
 RANK_TIERS = { "novice", "trainee", "experienced", "professional", "veteran", "expert", "master", "legend" }
 
 --- Get class ID from entity
---- Accepts ID, game_object, or server object; resolves to clsid via xobject.se + :clsid() luabind
+--- Accepts ID, game_object, or server object; resolves to clsid via xobject.get_se + :clsid() luabind
 --- @safety SAFE - returns nil for invalid/missing entities, :clsid() never crashes
 --- @cost O(log n) | 1 luabind medium (alife_object: xr_map find) + 1 luabind trivial (clsid: enum return)
 --- @src anomaly/_g.script(2062), xray/xrGame/script_game_object_script.cpp
@@ -231,7 +231,7 @@ function get_mutant_variant(input)
 end
 
 --- Get faction community from entity
---- Resolves via xobject.se then tries get_squad_community (squads) or alife_character_community (NPCs)
+--- Resolves via xobject.get_se then tries get_squad_community (squads) or alife_character_community (NPCs)
 --- @safety SAFE - returns nil for invalid entities
 --- @cost O(log n) | 2-3 luabind: alife_object medium + get_squad_community heavy (shared_str return) OR alife_character_community heavy (community shared_str)
 --- @src anomaly/_g.script(2273), anomaly/_g.script(2437)

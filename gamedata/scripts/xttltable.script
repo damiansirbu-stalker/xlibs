@@ -142,7 +142,7 @@ end
 --- Create TTL table
 --- Returns metatable-backed store with auto-expiry; cleanup piggybacked on set/size
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
---- @cost O(1) creation, O(n) per cleanup sweep | 0 luabind with os.clock (libc), 2 luabind medium per clock call with xtime.game_sec (get_game_time + diffSec)
+--- @cost O(1) creation, O(n) per cleanup sweep | 0 luabind with os.clock (libc), 2 luabind medium per clock call with xtime.get_game_sec (get_game_time + diffSec)
 --- @param opts table { default_ttl?, capacity?, cleanup_interval?, clock? } durations in seconds
 --- @return table TTL table instance with :get(), :has(), :set(), :remove(), :size(), :all()
 function create_ttl_table(opts)
@@ -206,7 +206,7 @@ end
 --- Create TTL-based occurrence counter for sliding window rate limiting
 --- Returns metatable-backed counter with per-key buckets; expired entries pruned on count()
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
---- @cost O(1) add, O(n) count over key's bucket | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.game_sec
+--- @cost O(1) add, O(n) count over key's bucket | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.get_game_sec
 --- @param opts table { ttl?, clock? } duration in seconds
 --- @return table Counter instance with :add(), :count(), :reset()
 function create_ttl_counter(opts)
@@ -257,7 +257,7 @@ function _token_bucket_mt:set_rate(rate) self._rate = rate end
 --- Create per-key token bucket rate limiter
 --- O(1) per acquire with fractional accumulation; bucket capacity is burst limit, rate controls sustained throughput
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
---- @cost O(1) per acquire/peek | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.game_sec
+--- @cost O(1) per acquire/peek | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.get_game_sec
 --- @param opts table { capacity, rate, clock? } capacity = max burst (tokens), rate = refill (tokens/sec)
 --- @return table Token bucket with :acquire(key) -> bool, :reset(key), :clear()
 function create_token_bucket(opts)
