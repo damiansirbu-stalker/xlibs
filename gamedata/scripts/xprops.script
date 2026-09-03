@@ -37,7 +37,7 @@ end
 -- traversal); the getters read its result. A zero/negative distance is "started inside/against a
 -- face" and is treated as no hit so a box edge resting on the floor does not self-trigger.
 -- @cost O(1) | 6 luabind (set_flags/range/position/direction + query spatial scan + get_distance)
-local function _cast(pos, dir, range, flags)
+local function _get_ray_hit(pos, dir, range, flags)
     local ray = _get_ray()
     ray:set_flags(flags)
     ray:set_range(range)
@@ -52,7 +52,7 @@ end
 --- Resolve the ground surface below a position: cast a ray straight down and report where it hits.
 --- @scope global - reads the loaded collision DB via ray_pick; level must be online
 --- @safety SAFE - returns nil when nothing is hit (off-navmesh, offline level, void)
---- @cost O(1) | one _cast
+--- @cost O(1) | one _get_ray_hit
 --- @src xray/xrGame/level_script.cpp(2643-2653) CRayPick binding
 --- @param pos vector Position to drop a ray from (its y is the ceiling of the search)
 --- @param opts table|nil { up = how far above pos to start (default 1.5), depth = how far below to
@@ -64,7 +64,7 @@ function ground_below(pos, opts)
     local up = opts.up or DEFAULT_PROBE_UP_M
     local depth = opts.depth or DEFAULT_PROBE_DEPTH_M
     local start = vector():set(pos.x, pos.y + up, pos.z)
-    local dist, normal, obj = _cast(start, vector():set(0, -1, 0), up + depth, opts.flags or F_STATICS)
+    local dist, normal, obj = _get_ray_hit(start, vector():set(0, -1, 0), up + depth, opts.flags or F_STATICS)
     if not dist then return nil end
     return { pos = vector():set(start.x, start.y - dist, start.z), normal = normal, object = obj }
 end
@@ -86,7 +86,7 @@ local BASE_LIFT = 0.08
 -- Scratch reused across a clearance check (8 box corners + 2 edge directions), lazily created so
 -- module load touches no engine vector ctor.
 local _verts, _fwd, _rev
-local function _scratch()
+local function _init_scratch()
     if _verts then return end
     _verts = {}
     for i = 1, 8 do _verts[i] = vector() end
@@ -100,7 +100,7 @@ end
 --- props, and obstacles.
 --- @scope global - reads the loaded collision DB; level must be online
 --- @safety SAFE - nil-guarded; degenerate (zero) edges are skipped
---- @cost O(1) | up to 48 _cast (24 edges x 2 directions), early-out on the first contact
+--- @cost O(1) | up to 48 _get_ray_hit (24 edges x 2 directions), early-out on the first contact
 --- @src xray/xrGame/level_script.cpp(2643-2653) CRayPick
 --- @param pos vector Ground point the box rests on
 --- @param dims table|nil { w, l, h } box size in meters (default 0.5 each)
@@ -109,7 +109,7 @@ end
 --- @return userdata|nil blocker The game object that blocked it, when the contact was an object
 function is_clear(pos, dims, opts)
     if not pos then return false end
-    _scratch()
+    _init_scratch()
     opts = opts or {}
     local flags = opts.flags or F_ALL
     dims = dims or {}
@@ -124,10 +124,10 @@ function is_clear(pos, dims, opts)
         local edge_dist = a:distance_to(b)
         if edge_dist > 0.001 then
             _fwd:set((b.x - a.x) / edge_dist, (b.y - a.y) / edge_dist, (b.z - a.z) / edge_dist)
-            local hit_a, _, blocker_a = _cast(a, _fwd, edge_dist, flags)
+            local hit_a, _, blocker_a = _get_ray_hit(a, _fwd, edge_dist, flags)
             if hit_a then return false, blocker_a end
             _rev:set(-_fwd.x, -_fwd.y, -_fwd.z)
-            local hit_b, _, blocker_b = _cast(b, _rev, edge_dist, flags)
+            local hit_b, _, blocker_b = _get_ray_hit(b, _rev, edge_dist, flags)
             if hit_b then return false, blocker_b end
         end
     end

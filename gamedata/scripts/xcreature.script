@@ -373,7 +373,7 @@ end
 
 -- Translate key, return nil if untranslatable
 -- @cost O(log n) | 1 luabind medium (game.translate_string: std::map find on STRING_TABLE_MAP)
-local function _translate_or_nil(key)
+local function _get_translation(key)
     local translated = game.translate_string(key)
     return (translated and translated ~= key) and translated or nil
 end
@@ -393,8 +393,8 @@ local function _get_mutant_name(section)
     if cached then return cached end
 
     local inv_name = ini_sys:r_string_ex(section, "inv_name")
-    local name = (inv_name and _translate_or_nil(inv_name))
-        or _translate_or_nil(section)
+    local name = (inv_name and _get_translation(inv_name))
+        or _get_translation(section)
         or _get_mutant_display_name(section)
     if not name then
         local clean = section:gsub("_normal", ""):gsub("_weak", ""):gsub("_strong", "")

@@ -7,9 +7,9 @@ local _registered = false
 local _last_tick = 0
 local TICK_MS = 100
 
--- Forward declaration: play_at/acquire call _ensure_registered, which is defined below _tick. Without this
+-- Forward declaration: play_at/acquire call _register, which is defined below _update. Without this
 -- the name resolves to a nil global at the earlier call sites (LUA runtime error on first play).
-local _ensure_registered
+local _register
 
 local sound_object_t = sound_object
 local time_global = time_global
@@ -97,7 +97,7 @@ function play_at(snd_path, opts)
         releasing     = false,
         oneshot       = true,
     }
-    _ensure_registered()
+    _register()
     return handle
 end
 
@@ -144,7 +144,7 @@ end
 
 -- Step current toward target by smoothing per second
 -- @cost O(1) | 0 luabind
-local function _step(current, target, smoothing, dt_sec)
+local function _compute_step(current, target, smoothing, dt_sec)
     local delta = smoothing * dt_sec
     if math_abs(target - current) <= delta then return target end
     if current < target then return current + delta end
@@ -153,7 +153,7 @@ end
 
 -- Per-frame volume lerp + auto-cleanup on releasing handles reaching 0
 -- @cost O(n_active) | 0 luabind (sound_object.volume is property assign)
-local function _tick()
+local function _update()
     local now = time_global()
     if now - _last_tick < TICK_MS then return end
     local dt_sec = (now - _last_tick) / 1000
@@ -162,7 +162,7 @@ local function _tick()
     for handle, entry in pairs(_active) do
         local finished = entry.oneshot and not entry.sound:playing()
         if not entry.oneshot and entry.volume ~= entry.target_volume then
-            entry.volume = _step(entry.volume, entry.target_volume, entry.smoothing, dt_sec)
+            entry.volume = _compute_step(entry.volume, entry.target_volume, entry.smoothing, dt_sec)
             entry.sound.volume = entry.volume
         end
         if not entry.oneshot and entry.releasing and entry.volume <= 0.001 then
@@ -177,17 +177,17 @@ local function _tick()
     end
 
     if next(_active) == nil and _registered then
-        UnregisterScriptCallback("actor_on_update", _tick)
+        UnregisterScriptCallback("actor_on_update", _update)
         _registered = false
     end
 end
 
 -- Register the actor_on_update callback on first acquire; idempotent on later calls
 -- @cost O(1) | 1 luabind (RegisterScriptCallback) on cold register, 0 luabind on hot path
-_ensure_registered = function()
+_register = function()
     if _registered then return end
     _last_tick = time_global()
-    RegisterScriptCallback("actor_on_update", _tick)
+    RegisterScriptCallback("actor_on_update", _update)
     _registered = true
 end
 
@@ -224,7 +224,7 @@ function acquire(snd_path, opts)
         smoothing     = opts.smoothing or 1.0,
         releasing     = false,
     }
-    _ensure_registered()
+    _register()
     return handle
 end
 
@@ -343,7 +343,7 @@ function on_game_start()
     end
     _active = {}
     if _registered then
-        UnregisterScriptCallback("actor_on_update", _tick)
+        UnregisterScriptCallback("actor_on_update", _update)
         _registered = false
     end
     _NEXT_HANDLE = 1

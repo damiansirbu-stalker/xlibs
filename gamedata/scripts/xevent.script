@@ -10,7 +10,7 @@ local function _get_module(name)
     return rawget(_G, name)
 end
 
-local function _make_key(module_name, func_name)
+local function _create_key(module_name, func_name)
     return module_name .. "." .. func_name
 end
 
@@ -23,7 +23,7 @@ end
 --- @param wrapper function Wrapper fn(original, ...) -> return original(...)
 --- @return boolean success
 function hook(module_name, func_name, wrapper)
-    local key = _make_key(module_name, func_name)
+    local key = _create_key(module_name, func_name)
     if _hooks[key] then return false end
 
     local mod = _get_module(module_name)
@@ -48,5 +48,5 @@ end
 --- @param func_name string Function name
 --- @return boolean
 function is_hooked(module_name, func_name)
-    return _hooks[_make_key(module_name, func_name)] ~= nil
+    return _hooks[_create_key(module_name, func_name)] ~= nil
 end

@@ -39,7 +39,7 @@ local _static_cache = setmetatable({}, { __mode = "k" })
 -- member (vanilla dialogs.script:680 npc_give_task; iTheon PDA Taskboard ui_pda_taskboard_tab:138).
 -- Pass 2 helper: scan squad members against the accumulated giver set.
 -- @cost O(m) members; 1 npc_count luabind + squad_members iterator
-local function _squad_member_in_givers(squad, givers)
+local function _has_giver_member(squad, givers)
     if not squad or not squad.squad_members then return false end
     if squad:npc_count() == 0 then return false end
     for member in squad:squad_members() do
@@ -52,7 +52,7 @@ end
 -- accumulated giver set so non-commander member givers (PDA Taskboard's common case) also
 -- protect the squad. Without pass 2, ag_population.safe_release destroys the giver npc and
 -- xr_conditions.task_giver_alive fails the task on the next status tick.
--- @cost O(t) tasks for pass 1; pass 2 delegates to _squad_member_in_givers when needed
+-- @cost O(t) tasks for pass 1; pass 2 delegates to _has_giver_member when needed
 local function _is_task_giver(squad, squad_id, cmd_id)
     if not task_manager then return false end
     local tm = task_manager.get_task_manager()
@@ -68,11 +68,11 @@ local function _is_task_giver(squad, squad_id, cmd_id)
         ::continue::
     end
     if not givers then return false end
-    return _squad_member_in_givers(squad, givers)
+    return _has_giver_member(squad, givers)
 end
 
 -- Pure build (no state): the O(t) walk over active tasks, collecting each current_target objective id.
-local function _active_task_targets_now()
+local function _get_active_task_targets()
     local set = {}
     local tm = task_manager and task_manager.get_task_manager()
     local ti = (tm and tm.task_info) or {}
@@ -85,7 +85,7 @@ local function _active_task_targets_now()
     return set
 end
 
--- Encapsulated lazy per-frame memo over _active_task_targets_now. The cache state lives ONLY in this
+-- Encapsulated lazy per-frame memo over _get_active_task_targets. The cache state lives ONLY in this
 -- do-block, not as module locals. time_global() is set once per engine frame (frame-stable, including
 -- across a long collect loop), so the set is built on the first call each frame and reused within it.
 do
@@ -100,7 +100,7 @@ do
     --- @return table Set {[id]=true} of active-task objective ids (empty when none)
     function get_active_task_targets()
         local now = time_global()
-        if cache_frame ~= now then cache, cache_frame = _active_task_targets_now(), now end
+        if cache_frame ~= now then cache, cache_frame = _get_active_task_targets(), now end
         return cache
     end
 end
@@ -395,7 +395,7 @@ local function _is_excluded(squad_id, exclude_squad_id, exclude_ids)
     return false
 end
 
-local function _matches_faction(comm, factions)
+local function _is_faction_match(comm, factions)
     if not factions then return true end
     if type(factions) == "table" then return factions[comm] end
     return comm == factions
@@ -444,7 +444,7 @@ end
 -- Level check first: `xlevel.get_level_id` is cached per gvid (xlevel.script:39-49) so wrong-level rejects pay 0 luabind
 -- on warm cache, vs paying position/npc_count/player_id reads (3 luabind) before the level mismatch under the old order.
 -- @cost O(1) typical | 1-5 luabind (npc_count, get_level_id cold, is_protected)
-local function _squad_base_valid(squad, opts)
+local function _is_base_valid(squad, opts)
     if not squad then return false end
     if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then return false end
     if not squad.position then return false end
@@ -614,8 +614,8 @@ function find_squad(pos, opts)
     for squad_id in pairs(pool) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
-        local ok, comm = _squad_base_valid(squad, opts)
-        if not ok or not _matches_faction(comm, factions) then goto continue end
+        local ok, comm = _is_base_valid(squad, opts)
+        if not ok or not _is_faction_match(comm, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
         if dist_sqr <= best_dist and dist_sqr >= min_dist_sqr then
             best_squad, best_dist = squad, dist_sqr
@@ -661,12 +661,12 @@ function find_squads(pos, opts)
     for squad_id in pairs(pool) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
-        local ok, comm, skip_reason = _squad_base_valid(squad, opts)
+        local ok, comm, skip_reason = _is_base_valid(squad, opts)
         if not ok then
             if skip_reason == "protected" then skipped_protected = skipped_protected + 1 end
             goto continue
         end
-        if not _matches_faction(comm, factions) then goto continue end
+        if not _is_faction_match(comm, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
         if dist_sqr <= max_dist_sqr and dist_sqr >= min_dist_sqr then
             candidates[#candidates + 1] = squad
@@ -714,8 +714,8 @@ function has_squad(pos, opts)
     for squad_id in pairs(pool) do
         if _is_excluded(squad_id, exclude_squad_id, exclude_ids) then goto continue end
         local squad = sim:object(squad_id)
-        local ok, comm = _squad_base_valid(squad, opts)
-        if not ok or not _matches_faction(comm, factions) then goto continue end
+        local ok, comm = _is_base_valid(squad, opts)
+        if not ok or not _is_faction_match(comm, factions) then goto continue end
         local dist_sqr = pos:distance_to_sqr(squad.position)
         if dist_sqr <= max_dist_sqr and dist_sqr >= min_dist_sqr then
             if not match or match(squad) then return true end

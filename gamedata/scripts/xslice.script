@@ -47,7 +47,7 @@ end
 
 -- Drive all active queues; defer on_done to after iteration for pairs() safety
 -- @cost O(step * queues) per frame | 0 luabind (pure Lua dispatch)
-local function _tick()
+local function _update()
     local done = {}
 
     for name, queue in pairs(_queues) do
@@ -70,7 +70,7 @@ end
 --- Start a time-sliced queue. Processes step items per frame from an array.
 --- Deferred compaction: survivors collected per pass, swapped as next input. No table.remove.
 --- @safety SAFE - pure Lua table iteration + AddUniqueCall registration
---- @cost O(1) setup, O(step) per frame via _tick | 0 luabind (AddUniqueCall is anomaly Lua _g.script registration)
+--- @cost O(1) setup, O(step) per frame via _update | 0 luabind (AddUniqueCall is anomaly Lua _g.script registration)
 --- @param name string Unique queue name (rejected if already active)
 --- @param items table Array to process (referenced, not copied; do not modify while active)
 --- @param opts table { func(item,index)->true|false|nil, on_done(), step }
@@ -97,13 +97,13 @@ function start(name, items, opts)
     }
     if not _running then
         _running = true
-        AddUniqueCall(_tick)
+        AddUniqueCall(_update)
     end
     return true
 end
 
 --- Cancel a running queue. Fires on_done unless silent.
---- Nils the queue entry; pending _tick iteration skips removed keys safely
+--- Nils the queue entry; pending _update iteration skips removed keys safely
 --- @safety SAFE - pure Lua table nil assignment
 --- @cost O(1) | 0 luabind (pure Lua hash assign)
 --- @param name string Queue name

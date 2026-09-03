@@ -142,7 +142,7 @@ end
 --- Strip "Level. " prefix from any smart display string
 --- Anomaly authors smart names as "Zaton. Claw Anomaly Camp" in st_smart_names.xml; warfare keys same pattern
 -- @cost O(1) | 0 luabind pure Lua regex
-local function _strip_level_prefix(text)
+local function _get_stripped_name(text)
     if not text then return nil end
     local prefix, rest = text:match("^([^%.]+)%.%s+(.+)$")
     if not prefix then return text end
@@ -152,7 +152,7 @@ end
 
 --- Get translated smart terrain display name
 --- Cascades: Anomaly smart_names.ltx (named smarts) -> Warfare "st_<name>_name" key -> level display name -> cleaned raw.
---- Every return path passes through _strip_level_prefix so "Zaton. Claw Anomaly Camp" -> "Claw Anomaly Camp" regardless of source.
+--- Every return path passes through _get_stripped_name so "Zaton. Claw Anomaly Camp" -> "Claw Anomaly Camp" regardless of source.
 --- Returns nil on invalid input; callers decide the fallback (xlibs stays pure, no baked-in English defaults).
 --- @safety SAFE - nil-guarded on smart/name, returns nil on bad input
 --- @cost O(1) | 0 luabind on cache hit, 2-5 luabind on miss (cascading: smart_names, st_<name>_name key, level fallback)
@@ -166,13 +166,13 @@ function get_smart_display_name(smart)
     if smart_terrain and smart_terrain.get_smart_terrain_name then
         local translated = smart_terrain.get_smart_terrain_name(smart)
         if translated and translated ~= raw then
-            return _strip_level_prefix(translated)
+            return _get_stripped_name(translated)
         end
     end
     local key = "st_" .. raw .. "_name"
     local warfare_translated = game.translate_string(key)
     if warfare_translated and warfare_translated ~= key then
-        return _strip_level_prefix(warfare_translated:gsub(" %- ", " "))
+        return _get_stripped_name(warfare_translated:gsub(" %- ", " "))
     end
     local level_name = _resolve_smart_level_name(smart)
     if level_name then return level_name end
@@ -291,7 +291,7 @@ end
 
 -- Expand frontier by one hop; returns the freshly-discovered ids only
 -- @cost O(f * k) f=frontier size, k=avg neighbors | 0 luabind (pure Lua pairs)
-local function _expand_one_hop(frontier, visited)
+local function _get_next_frontier(frontier, visited)
     local next_frontier = {}
     for level_id in pairs(frontier) do
         _collect_unvisited_neighbors(level_id, next_frontier, visited)
@@ -326,7 +326,7 @@ function get_neighbor_levels(source_id, hops)
     local visited = { [source_id] = true }
     local frontier = { [source_id] = true }
     for _ = 1, hops do
-        frontier = _expand_one_hop(frontier, visited)
+        frontier = _get_next_frontier(frontier, visited)
     end
     visited[source_id] = nil
     _neighbors_cache[key] = visited

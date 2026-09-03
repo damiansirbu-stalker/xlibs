@@ -41,7 +41,7 @@ for k, v in pairs(SQUADS_BY_SPECIES) do _SQUADS_BY_IDENTITY[k] = v end
 -- smart_terrain.script:1716), so no writer may store one that is absent. A nil return lets the
 -- writer decline the row; the consumer that owns the diagnostic reports the missing section.
 -- @cost O(#squads) | #squads luabind (section_exist each); inject-time only, arrays are <= 3
-local function _existing(squads)
+local function _filter_existing(squads)
     if type(squads) ~= "table" then return nil end
     local kept, count = {}, 0
     for i = 1, #squads do
@@ -70,7 +70,7 @@ function set_shared_spawn(smart, key, identity, spawn_num)
     if not smart or not key then return false end
     local squads = _SQUADS_BY_IDENTITY[identity]
     if not squads then return false end
-    squads = _existing(squads)
+    squads = _filter_existing(squads)
     if not squads then return false end
     smart.respawn_params = smart.respawn_params or {}
     smart.already_spawned = smart.already_spawned or {}
@@ -144,7 +144,7 @@ function set_exclusive_spawn_section(smart, key, section, spawn_num)
     if not faction then return false end
     local squads = (type(section) == "table") and section or { section }
     if not squads[1] then return false end
-    squads = _existing(squads)
+    squads = _filter_existing(squads)
     if not squads then return false end
     smart.respawn_params = smart.respawn_params or {}
     smart.already_spawned = smart.already_spawned or {}
@@ -158,7 +158,7 @@ end
 -- Shared writer for the exclusive (faction_controlled) form: sets the gate + owner faction and
 -- installs the entry. Callers resolve the squads array (full identity pool or a tier subset).
 local function _write_exclusive(smart, key, identity, squads, spawn_num)
-    squads = _existing(squads)
+    squads = _filter_existing(squads)
     if not squads then return false end
     smart.faction_controlled = key
     smart.faction = identity
