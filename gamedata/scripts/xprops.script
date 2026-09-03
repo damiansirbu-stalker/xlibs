@@ -102,7 +102,6 @@ end
 --- @safety SAFE - nil-guarded; degenerate (zero) edges are skipped
 --- @cost O(1) | up to 48 _cast (24 edges x 2 directions), early-out on the first contact
 --- @src xray/xrGame/level_script.cpp(2643-2653) CRayPick
---- @see ground_below (resolves the pos it tests), place (the caller that gates on it)
 --- @param pos vector Ground point the box rests on
 --- @param dims table|nil { w, l, h } box size in meters (default 0.5 each)
 --- @param opts table|nil { flags = collision set (default all) }
@@ -181,7 +180,6 @@ end
 --- @safety SAFE - nil-guarded; false when the id does not resolve
 --- @cost O(1) | 1 luabind (alife_object) + release
 --- @src anomaly/alife() release; xray/xrGame/alife_simulator_script.cpp
---- @see place (creates the id this removes)
 --- @param id number Server object id
 --- @return boolean True when a live object was released
 function remove(id)

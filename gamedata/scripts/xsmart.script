@@ -169,7 +169,7 @@ end
 
 -- Signal C of the role cascade: substring match on the NPC section name. See
 -- _detect_role for cascade orchestration and the per-signal rationale.
--- @complexity O(1) | 9 string:find calls, bounded by literal pattern count.
+-- @cost O(1) | 9 string:find calls, bounded by literal pattern count.
 local function _section_roles(sec)
     local roles = {}
     if sec:find("mechanic") or sec:find("_tech") or sec:find("mech_mlr") or sec:find("mechan") then roles.mechanic = true end
@@ -182,7 +182,7 @@ end
 -- (Demonized's classifier; stalker_anomaly_mods/Trader Destockifier/trader_autoinject.script:85).
 -- companion catalogs are exclusion-only; returns sentinel "_exclude" so the caller can
 -- distinguish "no trade field set" (nil) from "explicitly companion-only" ("_exclude").
--- @complexity O(1) | 1 db.storage lookup + 1 r_string_ex + at most 4 string:find.
+-- @cost O(1) | 1 db.storage lookup + 1 r_string_ex + at most 4 string:find.
 local function _trade_cat_role(npc)
     local st = db.storage[npc:id()]
     if not (st and st.ini and st.section_logic) then return nil end
@@ -228,7 +228,7 @@ end
 -- quest), causing false-positive trader classification. The trade = field is the engine's
 -- actual trade-catalog enabler — present iff the NPC has a trade catalog.
 --
--- @complexity O(1) | 1 community + 1 clsid + delegates to _section_roles / _trade_cat_role
+-- @cost O(1) | 1 community + 1 clsid + delegates to _section_roles / _trade_cat_role
 --       (section read by get_npc_roles and passed in). All cached per NPC id after first call.
 local function _detect_role(npc, sec)
     local roles = _section_roles(sec)
@@ -246,10 +246,8 @@ end
 --- reference. Pre-bind empty sets not cached so a later call after logic binds re-detects.
 --- @safety SAFE - nil-guarded; all engine reads are standard game_object methods
 --- @cost O(1) | 1 luabind on hit (section verify vs id recycling), 2-5 luabind heavy on miss (community + clsid + section + optional r_string_ex)
---- @complexity O(1) amortized | luabind cost as above
---- @see anomaly/xr_logic.script:113 (engine trade= consumer)
---- @src stalker_anomaly_mods/Trader Destockifier .../trader_autoinject.script:85 (Demonized get_trader_type);
----      anomaly/utils_obj.script:74 (vanilla is_trader 4-signal); anomaly/xr_logic.script:113 (engine trade= consumer)
+--- @cost O(1) amortized | luabind cost as above
+--- @src anomaly/utils_obj.script:74 (vanilla is_trader), anomaly/xr_logic.script:113 (engine trade= consumer)
 --- @param npc game_object Online NPC game_object
 --- @return table Role set, e.g. {trader=true, medic=true}. Empty table for non-service NPCs.
 function get_npc_roles(npc)
@@ -754,8 +752,8 @@ end
 --- actor_on_first_update); callers must nil-check.
 --- @scope global - SIMBOARD.smarts_by_names populated at sim_board init across all levels
 --- @safety SAFE - nil-guarded; returns nil if SIMBOARD or smarts_by_names is unavailable
---- @complexity O(1) | 0 luabind, table identity return
---- @see anomaly/sim_board.script (SIMBOARD.smarts_by_names initialized at sim_board setup)
+--- @cost O(1) | 0 luabind, table identity return
+--- @src anomaly/sim_board.script (SIMBOARD.smarts_by_names initialized at sim_board setup)
 --- @cost O(1) | 0 luabind
 --- @return table|nil { [name] = smart_terrain, ... } or nil if SIMBOARD not loaded
 function smarts_by_names()
@@ -801,7 +799,7 @@ local OCCUPANCY_TTL_SEC = 60
 local _occupancy_cache = xttltable.create_ttl_table({ default_ttl = OCCUPANCY_TTL_SEC })
 
 -- Set of communities with a stationed squad at the smart, or nil when none.
--- @complexity O(min(n,5)) stationed squads | per squad: 1 medium (alife_object)
+-- @cost O(min(n,5)) stationed squads | per squad: 1 medium (alife_object)
 local function _stationed_communities(smart_id)
     local communities
     for se in iter_stationed_squads(smart_id) do
@@ -812,7 +810,7 @@ local function _stationed_communities(smart_id)
 end
 
 -- Snapshot one level: per smart, the set of stationed communities. nil before SIMBOARD setup.
--- @complexity O(all smarts) x xlevel.get_level_id + _stationed_communities per level smart
+-- @cost O(all smarts) x xlevel.get_level_id + _stationed_communities per level smart
 local function _build_level_occupancy(level_id)
     local pool = SIMBOARD and SIMBOARD.smarts_by_names
     if not pool then return nil end
@@ -826,7 +824,7 @@ local function _build_level_occupancy(level_id)
 end
 
 -- True when any community in the set has a stationed squad in the communities set.
--- @complexity O(communities at smart) pure Lua
+-- @cost O(communities at smart) pure Lua
 local function _matches_any(communities, faction_set)
     for community in pairs(communities) do
         if faction_set[community] then return true end
@@ -898,7 +896,7 @@ end
 --- write is gated on table state, so on a base that already synced (e.g. a fixed overlay) it is a
 --- no-op; safe to run on top of any update-method wrapper chain.
 --- @safety SAFE - pure SIMBOARD table writes; nil-guarded; mutates no engine object
---- @complexity O(n) squads per affected smart (population recount) | up to 2n luabind (alife_object per counted squad), 0-2 callback emits
+--- @cost O(n) squads per affected smart (population recount) | up to 2n luabind (alife_object per counted squad), 0-2 callback emits
 --- @cost O(n) smarts | 0 luabind (walks the cached name table)
 --- @src anomaly/sim_board.script(237-265) the synced path this mirrors
 --- @src anomaly/sim_squad_scripted.script(289,356) the roster-blind assign_smart calls
@@ -1033,7 +1031,6 @@ end
 --- the bias; nil then means no rear-hemisphere base qualifies, and the caller declines.
 --- @safety SAFE - nil when no non-enemy-held base (in the rear hemisphere, when away_from_pos is given)
 --- @cost O(n smarts x min(5,squads)) per find_smart, run at a maneuver commit (not per tick); +1 dot per candidate
---- @see find_smart, is_base, has_enemy_squad
 --- @param community string the NPC's community
 --- @param pos vector the NPC's position
 --- @param opts table { level_id = number the level to search, away_from_pos = vector|nil threat position for

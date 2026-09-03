@@ -38,7 +38,7 @@ local _static_cache = setmetatable({}, { __mode = "k" })
 -- it may be a squad id (drx dialog path, axr_task_manager:792-794) OR an npc id of any squad
 -- member (vanilla dialogs.script:680 npc_give_task; iTheon PDA Taskboard ui_pda_taskboard_tab:138).
 -- Pass 2 helper: scan squad members against the accumulated giver set.
--- @complexity O(m) members; 1 npc_count luabind + squad_members iterator
+-- @cost O(m) members; 1 npc_count luabind + squad_members iterator
 local function _squad_member_in_givers(squad, givers)
     if not squad or not squad.squad_members then return false end
     if squad:npc_count() == 0 then return false end
@@ -52,7 +52,7 @@ end
 -- accumulated giver set so non-commander member givers (PDA Taskboard's common case) also
 -- protect the squad. Without pass 2, ag_population.safe_release destroys the giver npc and
 -- xr_conditions.task_giver_alive fails the task on the next status tick.
--- @complexity O(t) tasks for pass 1; pass 2 delegates to _squad_member_in_givers when needed
+-- @cost O(t) tasks for pass 1; pass 2 delegates to _squad_member_in_givers when needed
 local function _is_task_giver(squad, squad_id, cmd_id)
     if not task_manager then return false end
     local tm = task_manager.get_task_manager()

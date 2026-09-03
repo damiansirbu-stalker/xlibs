@@ -40,7 +40,7 @@ for k, v in pairs(SQUADS_BY_SPECIES) do _SQUADS_BY_IDENTITY[k] = v end
 -- only name a section present on disk at startup (try_respawn picks from the array raw,
 -- smart_terrain.script:1716), so no writer may store one that is absent. A nil return lets the
 -- writer decline the row; the consumer that owns the diagnostic reports the missing section.
--- @complexity O(#squads) | #squads luabind (section_exist each); inject-time only, arrays are <= 3
+-- @cost O(#squads) | #squads luabind (section_exist each); inject-time only, arrays are <= 3
 local function _existing(squads)
     if type(squads) ~= "table" then return nil end
     local kept, count = {}, 0

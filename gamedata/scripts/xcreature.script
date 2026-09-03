@@ -263,7 +263,7 @@ end
 --- individual overrides. nil when there is no actor or the object has no relation (e.g. an offline server obj).
 --- @safety SAFE - nil-guarded on actor; caller passes a live game_object
 --- @cost O(1) | 1 luabind (game_object:relation)
---- @see xray/script_game_object_script2.cpp:133 (game_object:relation = CScriptGameObject::GetRelationType)
+--- @src xray/script_game_object_script2.cpp:133 (game_object:relation = CScriptGameObject::GetRelationType)
 --- @src anomaly game_object:relation; the >= game_object.enemy pattern (AlifePlus ap_ext_loot_claim.script:184)
 --- @param obj game_object online object (NPC / monster)
 --- @return string|nil "enemy" | "neutral" | "friend", or nil

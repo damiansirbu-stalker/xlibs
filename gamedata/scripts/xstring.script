@@ -9,7 +9,6 @@ local tostring, string_gsub = tostring, string.gsub
 --- @param str string Template with {key} placeholders
 --- @param vars table Key-value pairs for substitution
 --- @return string Interpolated string
---- @usage xstring.interpolate("{name} is {age}", {name="John", age=30})
 function interpolate(str, vars)
     if not vars then return str end
     return string_gsub(str, "{(%w+)}", function(key)

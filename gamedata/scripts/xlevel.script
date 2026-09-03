@@ -263,7 +263,7 @@ DANGER_TIER_DEFAULT = 2
 --- "no data" -- fall back to DANGER_TIER_DEFAULT unless the consumer has a better idea.
 --- @safety SAFE - nil-guarded; number input needs a live alife() for the name lookup
 --- @cost O(1) | 1 luabind medium (sim:level_name) on number input, 0 on string input
---- @see xray/xrGame/alife_simulator_script.cpp(313) level_name binding; xsmart_spawn.set_exclusive_spawn_tiered (first consumer); DANGER_TIER above for the curation sources
+--- @src xray/xrGame/alife_simulator_script.cpp(313) level_name binding
 --- @param level number|string Level id, or raw engine level name (sim:level_name format)
 --- @return number|nil 0-5, or nil when the level is not in DANGER_TIER
 function get_danger_tier(level)

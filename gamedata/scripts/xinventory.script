@@ -77,7 +77,7 @@ local DEFAULT_AMMO_TIERS = 2
 
 local _blacklist_set
 -- Lazy-load the corpse-detection blacklist on first call. Idempotent.
--- @complexity O(~85 ini reads) on first call; O(1) thereafter (early return)
+-- @cost O(~85 ini reads) on first call; O(1) thereafter (early return)
 local function _ensure_blacklist()
     if _blacklist_set then return end
     _blacklist_set = {}
@@ -96,7 +96,7 @@ end
 -- the section universe is LTX-bounded, so the cache is naturally capped.
 local _kind_cache = {}
 -- Cached kind-field lookup. `false` sentinel records nil to avoid re-querying.
--- @complexity O(1) on cache hit; 1 luabind heavy on miss (r_string_ex)
+-- @cost O(1) on cache hit; 1 luabind heavy on miss (r_string_ex)
 local function _get_kind(sec)
     if not sec then return nil end
     local cached = _kind_cache[sec]
@@ -108,7 +108,7 @@ end
 
 local _class_cache = {}
 -- Cached class-field lookup. `false` sentinel records nil to avoid re-querying.
--- @complexity O(1) on cache hit; 1 luabind heavy on miss (r_string_ex)
+-- @cost O(1) on cache hit; 1 luabind heavy on miss (r_string_ex)
 local function _get_class(sec)
     if not sec then return nil end
     local cached = _class_cache[sec]
@@ -336,7 +336,7 @@ end
 -- CATEGORY → SECTIONS (reverse map; used by trade BUY pass)
 
 -- Set (hash table) → flat array of keys.
--- @complexity O(n) keys, single pass
+-- @cost O(n) keys, single pass
 local function _hand_set_to_list(s)
     local list = {}
     for k in pairs(s) do list[#list + 1] = k end
@@ -344,7 +344,7 @@ local function _hand_set_to_list(s)
 end
 
 -- Flat array from one Parse_ITM _ITM[bucket] hash. Empty array if bucket missing.
--- @complexity O(n) sections in bucket, single pass
+-- @cost O(n) sections in bucket, single pass
 local function _itm_bucket_to_list(bucket_name)
     local list = {}
     local bucket = _ITM and _ITM[bucket_name]
@@ -354,7 +354,7 @@ local function _itm_bucket_to_list(bucket_name)
 end
 
 -- Append unique entries from one bucket into list, tracking dedup via seen hash.
--- @complexity O(n) bucket entries, 1 hash op per entry
+-- @cost O(n) bucket entries, 1 hash op per entry
 local function _append_bucket_unique(bucket, list, seen)
     for sec in pairs(bucket) do
         if not seen[sec] then
@@ -365,7 +365,7 @@ local function _append_bucket_unique(bucket, list, seen)
 end
 
 -- Union of N Parse_ITM buckets, de-duped.
--- @complexity O(total sections across buckets), single dedup hash
+-- @cost O(total sections across buckets), single dedup hash
 local function _itm_buckets_union(buckets)
     local list, seen = {}, {}
     for i = 1, #buckets do
@@ -377,7 +377,7 @@ end
 
 -- Filter _ITM["eatable"] (combined food + drink + i_mutant_cooked bucket per Parse_ITM
 -- _g.script:3264-3266) by exact kind. Picks out food vs drink without re-walking ini_sys.
--- @complexity O(n) eatable sections; per-section 1 cached _get_kind hit
+-- @cost O(n) eatable sections; per-section 1 cached _get_kind hit
 local function _eatable_filtered_by_kind(target_kinds)
     local list = {}
     local bucket = _ITM and _ITM["eatable"]
@@ -393,12 +393,12 @@ end
 -- The engine's CWeaponAmmo::Load strict-reads k_ap (r_string) for every ammo spawn, so an ammo
 -- section that lacks k_ap is a guaranteed CTD on create (e.g. the packed dormant ammo_dyno). Keep
 -- such sections out of the spawnable ammo pool so trade / market / test never create them.
--- @complexity O(1), 1 luabind (r_float_ex, inheritance-aware)
+-- @cost O(1), 1 luabind (r_float_ex, inheritance-aware)
 local function _ammo_spawnable(sec)
     return ini_sys:r_float_ex(sec, "k_ap") ~= nil
 end
 
--- @complexity O(n) ammo sections in the bucket, 1 r_float_ex each; built once per session, cached
+-- @cost O(n) ammo sections in the bucket, 1 r_float_ex each; built once per session, cached
 local function _ammo_bucket_spawnable()
     local list = {}
     local bucket = _ITM and _ITM["ammo"]
@@ -483,7 +483,7 @@ end
 --- always a usable display string.
 --- @safety SAFE - nil-guarded sec; returns the section id on any miss
 --- @cost O(1) | 1 r_string_ex + 1 translate
---- @see xray/xrServerEntities/script_ini_file.cpp r_string_ex; anomaly inv_name -> game.translate_string convention
+--- @src xray/xrServerEntities/script_ini_file.cpp r_string_ex; anomaly inv_name -> game.translate_string convention
 --- @param sec string Item section name
 --- @return string Display name, or the section id on miss
 function get_item_name(sec)
@@ -524,8 +524,6 @@ end
 --- clsid-only). Hand grenades detected via _grenade_set hand-curated lookup.
 --- @safety SAFE - nil-guarded sec
 --- @cost O(1) | up to ~14 hash lookups + 1 luabind heavy on cache miss (kind, class via cached _get_kind / _get_class)
---- @see get_category (adds per-NPC opts for equipped + ammo tier)
---- @see is_in_category (predicate wrapper)
 --- @param sec string Item section name
 --- @return string Category name
 function get_section_category(sec)
@@ -609,7 +607,6 @@ end
 --- @safety SAFE - nil-guarded item; opts entirely optional; axr_companions module guarded
 --- @cost O(1) | get_section_category cost + item:section/id luabind + 3 hash lookups (story_id, assigned, strapped)
 --- @src xray/xrGame/script_game_object_script.cpp section(), anomaly/_g.script get_object_story_id, anomaly/axr_companions.script is_assigned_item
---- @see get_section_category (pure section), is_in_category (predicate wrapper)
 --- @param item game_object Inventory item
 --- @param opts table|nil { equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }
 --- @return string Category name
@@ -652,7 +649,6 @@ end
 --- false — use get_category(item, opts) for those.
 --- @safety SAFE - nil-guarded sec and category
 --- @cost O(1) | get_section_category cost (~13 hash lookups + cached kind/class on miss)
---- @see get_section_category, get_category
 --- @param sec string Item section name
 --- @param category string Category name from the get_section_category result set
 --- @return boolean
@@ -687,7 +683,6 @@ end
 --- @safety SAFE - nil-guarded section / actor / ruleset; bad tier name skips the floor
 --- @cost O(1) | get_section_category + get_cost + 2 ranks lookups + O(bands) row walk (~3)
 --- @src anomaly/ranks.script(56) get_obj_rank_name, (89) get_rank_interval; xray/xrGame/script_game_object_script2.cpp(106) character_rank
---- @see get_section_category (category), get_cost (cost)
 --- @param section string Item section name
 --- @param actor game_object Player object (character_rank + rank tier source)
 --- @param ruleset table { floor = { [section|category] = tier_name }, bands = { [tier_name] = { {cost,chance}, ... asc }, default = {...} } }
@@ -954,7 +949,6 @@ end
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | get_category cost (which also returns the section) + 1 hash lookup
 --- @src xray/xrGame/script_game_object_script.cpp section()
---- @see get_category (resolves the category + section), classify / iterate_surplus / collect_surplus (callers)
 --- @param item game_object Inventory item
 --- @param opts table|nil From get_category_opts(npc)
 --- @param rules table|nil From load_policy(...).rules; nil = category key only
@@ -1053,7 +1047,6 @@ end
 --- @safety SAFE - nil-guarded npc / rules / on_surplus; iterate tolerant of nil items
 --- @cost O(min(items, max_items)) | per item: policy_key + 1 _unit + 1 hash; then 0-N on_surplus
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
---- @see classify (count only), iterate_surplus (caller-owned counts, streamed release), build_surplus_map
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc)
 --- @param ctx table { rules = hash from load_policy(...).rules,
@@ -1154,7 +1147,7 @@ end
 --- mod's own debug gate; it does no gating itself.
 --- @safety SAFE - nil-guarded npc and log_fn
 --- @cost O(inventory): 1 walk + 1 section read per item + 1 write
---- @see xray/xrGame/script_game_object_inventory_owner.cpp:256 (iterate_inventory)
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp:256 (iterate_inventory)
 --- @param npc game_object trader or NPC to dump
 --- @param tag string label for the log line (the calling feature: "trade", "market", "service", ...)
 --- @param log_fn function(fmt, ...) sink, called once with the summary (a mod's own debug logger)

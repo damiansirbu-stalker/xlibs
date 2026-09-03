@@ -2281,8 +2281,6 @@ end
 --- @src xray/xr_collide_defs.h:73 (rqtStatic = baked level mesh), xray/GamePersistent.cpp:285 (hemi rejected)
 --- @param pos vector world position
 --- @return boolean true if enclosed (underground level, or roofed-and-walled outdoor spot)
---- @validated 2026-08-06 (probe stealth_lum, 10 Cordon spots): true for every real enclosure (house,
---- basement, lit bunker), correctly false in the open and for a broken-roof structure. No false positive.
 function xcombat.is_indoor(pos)
     if xcombat.INDOOR_LEVELS[level.name()] then return true end
     local enc = xcombat.get_enclosure(pos)

@@ -12,7 +12,7 @@ local ini_file, parse_list, type = ini_file, parse_list, type
 --- @cost 1 luabind (ini_file) for a path; 0 for a handle
 --- @param src string|userdata An ltx path, or an already-open ini handle
 --- @return userdata|nil The ini handle
---- @see xray/xrServerEntities/script_ini_file.cpp (ini_file -> CScriptIniFile); section / list / str / num / bool consume the handle
+--- @src xray/xrServerEntities/script_ini_file.cpp (ini_file -> CScriptIniFile); section / list / str / num / bool consume the handle
 function open(src)
     return type(src) == "string" and ini_file(src) or src
 end
