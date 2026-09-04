@@ -162,7 +162,7 @@ local _npc_role = {}
 --- @safety SAFE - plain table delete
 --- @cost O(1) | 0 luabind
 --- @param npc_id number
-function forget_npc_role(npc_id)
+function remove_npc_role(npc_id)
     _npc_role[npc_id] = nil
 end
 
@@ -377,18 +377,18 @@ end
 --- which is exactly the base you are standing in. Objective only: returns the OWNER, never a friendliness
 --- verdict (friendliness is per-actor; the caller relates the owner via game_relations). Warfare-correct -
 --- a captured base's seller changes faction, so the owner follows.
---- @scope online - iterates online game objects via xcreature.online_iter_with_id
+--- @scope online - iterates online game objects via xcreature.iterate_online
 --- @safety SAFE - nil-guarded on pos; skips non-stalkers; community nil-safe
 --- @cost O(n) online objects | per stalker: get_npc_roles (cached) + 1 distance; + 1 community on the winner
 --- @src anomaly/db.script online storage; anomaly/_g.script(2273,2437) community
 --- @param pos vector World position to measure from (the actor's position)
 --- @param radius number|nil Metres; default 60 (a base footprint)
 --- @return string|nil owner community, number|nil its distance - both nil if no seller within radius
-function base_owner_near(pos, radius)
+function find_base_owner(pos, radius)
     if not pos then return nil end
     radius = radius or DEFAULT_SMART_RADIUS_M
     local best_dist, best = radius, nil
-    for _, obj in xcreature.online_iter_with_id() do
+    for _, obj in xcreature.iterate_online() do
         if not (obj and xcreature.is_stalker(obj)) then goto continue end
         local roles = get_npc_roles(obj)
         if not (roles.trader or roles.medic or roles.mechanic) then goto continue end
@@ -501,7 +501,7 @@ end
 --- @param pos vector World position to measure from
 --- @param radius number|nil Metres; default 50 (matches has_anomaly)
 --- @return boolean True if pos is within radius of any online anomaly zone
-function anomaly_near(pos, radius)
+function is_anomaly_near(pos, radius)
     if not (pos and db.anomaly_by_name) then return false end
     local r2 = (radius or 50) * (radius or 50)
     for _, binder in pairs(db.anomaly_by_name) do
@@ -537,7 +537,7 @@ end
 --- @param smart smart_terrain Smart terrain to check
 --- @param faction string Faction community (e.g. "bandit", "monster_predatory_day", "zombied")
 --- @return boolean True if smart accepts this faction's presence
-function accepts_faction(smart, faction)
+function can_accept_faction(smart, faction)
     if not smart or not faction then return false end
     local props = smart.props
     if not props then return false end
@@ -640,7 +640,7 @@ end
 
 --- Get stalker factions declared in smart terrain's props (LTX simulation_objects_props.ltx)
 --- Builds {[faction]=true} from props keys with value >0 (only STALKER_FACTIONS list); cached
---- per smart.id since props are static INI. Use accepts_faction for the engine Tier 1 routing
+--- per smart.id since props are static INI. Use can_accept_faction for the engine Tier 1 routing
 --- question (includes all/all_stalker fallbacks); use this when you need the literal explicit
 --- faction declaration set.
 --- @scope global - smart.props from simulation_objects_props.ltx
@@ -751,7 +751,7 @@ end
 --- @src anomaly/sim_board.script (SIMBOARD.smarts_by_names initialized at sim_board setup)
 --- @cost O(1) | 0 luabind
 --- @return table|nil { [name] = smart_terrain, ... } or nil if SIMBOARD not loaded
-function smarts_by_names()
+function get_smarts_by_names()
     return SIMBOARD and SIMBOARD.smarts_by_names
 end
 
@@ -921,7 +921,7 @@ end
 -- @cost O(k) factions | 0 luabind (pure Lua pairs); short-circuits on first accept
 local function _can_accept_any_faction(smart, fset)
     for f in pairs(fset) do
-        if accepts_faction(smart, f) then return true end
+        if can_accept_faction(smart, f) then return true end
     end
     return false
 end
@@ -950,7 +950,7 @@ function find_smart(pos, opts)
     local filter = opts.filter
     local factions_check
     if factions then
-        if type(factions) == "table" then factions_check = _can_accept_any_faction else factions_check = accepts_faction end
+        if type(factions) == "table" then factions_check = _can_accept_any_faction else factions_check = can_accept_faction end
     end
     local min_dist_sqr = -1
     if opts.min_distance then min_dist_sqr = opts.min_distance * opts.min_distance end
@@ -1004,7 +1004,7 @@ function find_first_smart(opts)
     local factions = opts.factions
     local factions_check
     if factions then
-        if type(factions) == "table" then factions_check = _can_accept_any_faction else factions_check = accepts_faction end
+        if type(factions) == "table" then factions_check = _can_accept_any_faction else factions_check = can_accept_faction end
     end
     for _, smart in pairs(pool) do
         if _is_smart_match(smart, opts.exclude_id, factions, factions_check, opts.level_id, opts.filter) then
@@ -1016,7 +1016,7 @@ end
 
 --- Nearest base for an NPC routing out of a fight: the nearest is_base smart with no enemy squad stationed (a
 --- place its enemies do not hold). Keys on actual squad occupancy, NOT declared faction props (most vanilla
---- smarts declare none, so an accepts_faction filter matches nothing). nil when no base qualifies - the caller
+--- smarts declare none, so an can_accept_faction filter matches nothing). nil when no base qualifies - the caller
 --- then flees in place rather than running to a non-base edge smart. Same find_smart + is_base reuse as
 --- AlifePlus's flee (ap_ext_consequences_basekill), with an occupancy gate instead of a fixed own-faction.
 --- With away_from_pos (a threat position), keeps only bases in the REAR hemisphere (bearing from pos points away
@@ -1076,7 +1076,7 @@ end
 --- via get_section_faction match. Returns smart objects directly (caller extracts .id if needed);
 --- smart terrains are not released mid-session so the references stay valid for the session.
 --- Answers the spawning-side question "which smarts on this level produce faction X"; distinct
---- from accepts_faction (engine routing acceptance) and smart.faction (runtime holder).
+--- from can_accept_faction (engine routing acceptance) and smart.faction (runtime holder).
 --- @safety SAFE - nil-guarded; returns empty array when SIMBOARD missing or no matches
 --- @cost O(S*R*Q) smarts * recipes * sections (R,Q ~1-5) | 1 luabind trivial per smart (xlevel.get_level_id cached); get_section_faction cached per section
 --- @src anomaly/sim_board.script(96) SIMBOARD.smarts, anomaly/smart_terrain.script(1681-1700) respawn_params shape

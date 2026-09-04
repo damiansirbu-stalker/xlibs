@@ -283,7 +283,7 @@ end
 -- The vanilla queue removes an event whose callback returns true (_g.script:374-377) and
 -- re-invokes a nil-returner every update with an unchanged timer; without reset_timer in
 -- the bindings, fall back to the one-shot (return true) rather than spin per-frame.
-local function periodic_flush_callback()
+local function _run_periodic_flush()
     local rearmed = false
     if platform and platform.reset_timer then
         platform.reset_timer("xlog", "flush", defaults.flush_interval)
@@ -298,7 +298,7 @@ local function start_periodic_flush()
     if timer_active then return end
     if not platform or not platform.create_timer then return end
 
-    platform.create_timer("xlog", "flush", defaults.flush_interval, periodic_flush_callback)
+    platform.create_timer("xlog", "flush", defaults.flush_interval, _run_periodic_flush)
     timer_active = true
 end
 

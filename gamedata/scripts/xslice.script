@@ -17,7 +17,7 @@ local _running = false
 
 -- Drain step items from queue; returns true if queue finished this frame
 -- @cost O(step) per call | 0 luabind (pure Lua loop + survivor array append)
-local function _process_queue(queue)
+local function _run_queue_step(queue)
     local items = queue.items
     local len = queue.len
     local i = queue.index
@@ -51,7 +51,7 @@ local function _update()
     local done = {}
 
     for name, queue in pairs(_queues) do
-        if _process_queue(queue) then
+        if _run_queue_step(queue) then
             done[#done + 1] = { name = name, on_done = queue.on_done }
         end
     end

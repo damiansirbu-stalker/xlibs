@@ -262,7 +262,7 @@ end
 --- @src anomaly game_object:relation; the >= game_object.enemy pattern (AlifePlus ap_ext_loot_claim.script:184)
 --- @param obj game_object online object (NPC / monster)
 --- @return string|nil "enemy" | "neutral" | "friend", or nil
-function relation_to_actor(obj)
+function get_actor_relation(obj)
     local actor = db.actor
     if not (obj and actor and obj.relation) then return nil end
     local rel = obj:relation(actor)
@@ -271,13 +271,13 @@ function relation_to_actor(obj)
     return "neutral"
 end
 
---- True if an online object is an enemy of the actor (per-NPC relation, not community). See relation_to_actor.
---- @safety SAFE - delegates to relation_to_actor
+--- True if an online object is an enemy of the actor (per-NPC relation, not community). See get_actor_relation.
+--- @safety SAFE - delegates to get_actor_relation
 --- @cost O(1) | 1 luabind
 --- @param obj game_object online object
 --- @return boolean
 function is_enemy_to_actor(obj)
-    return relation_to_actor(obj) == "enemy"
+    return get_actor_relation(obj) == "enemy"
 end
 
 --- Numeric per-NPC goodwill of an online object toward the actor (engine general_goodwill), or nil.
@@ -287,14 +287,14 @@ end
 --- @src xray/script_game_object_script3.cpp:304 (general_goodwill = CScriptGameObject::GetAttitude)
 --- @param obj game_object online object (NPC)
 --- @return number|nil goodwill value, or nil if unresolvable
-function goodwill_to_actor(obj)
+function get_actor_goodwill(obj)
     local actor = db.actor
     if not (obj and actor and obj.general_goodwill) then return nil end
     return obj:general_goodwill(actor)
 end
 
 --- Relation between two online objects: "enemy" | "neutral" | "friend", or nil if unresolvable.
---- The general form of relation_to_actor: per-NPC engine relation (honours individual overrides), NOT community.
+--- The general form of get_actor_relation: per-NPC engine relation (honours individual overrides), NOT community.
 --- @safety SAFE - nil-guarded on both objects and the method
 --- @cost O(1) | 1 luabind (game_object:relation)
 --- @src xray/script_game_object_script2.cpp:133 (game_object:relation = CScriptGameObject::GetRelationType)
@@ -522,7 +522,7 @@ end
 --- @cost O(n) online objects | 0 luabind (pure Lua next() on table)
 --- @src modded-exes/callbacks_gameobject.script(28-45), anomaly/db.script(15,70-83)
 --- @return function Iterator yielding (id, game_object) pairs
-function online_iter_with_id()
+function iterate_online()
     return _online_iter_with_id()
 end
 
@@ -533,7 +533,7 @@ end
 --- @cost O(n) online objects, early-out on first mutant | per object: 1 luabind (clsid via IsMonster)
 --- @src anomaly/db.script online storage; xray clsid via IsMonster
 --- @return boolean
-function any_mutant_online()
+function has_online_mutant()
     for _, obj in _online_iter_with_id() do
         if obj and is_mutant(obj) then return true end
     end
@@ -546,7 +546,7 @@ end
 --- @cost O(n) online objects, early-out on first stalker | per object: 1 luabind (clsid via IsStalker)
 --- @src anomaly/db.script online storage; xray clsid via IsStalker
 --- @return boolean
-function any_human_online()
+function has_online_human()
     local actor = db.actor
     local actor_id = actor and actor:id()
     for id, obj in _online_iter_with_id() do
@@ -566,7 +566,7 @@ local MONSTER_ITER_CAP = 400
 --- @cost O(k) via registry (k monsters) | fallback O(min(n, CAP)) online objects, 1 clsid luabind each
 --- @src modded-exes/db.OnlineMonsters (pending PR), anomaly/db.script(7,149,164) db.OnlineStalkers parity
 --- @return function Iterator yielding (id, monster game_object) pairs
-function online_monster_iter()
+function iterate_online_monsters()
     local reg = db.OnlineMonsters
     if reg then
         local i = 0
@@ -687,7 +687,7 @@ local BI_NONE = 65535
 --- @param name string particle group name (config-referenced)
 --- @param bone string skeleton bone name
 --- @return boolean true if attached, false when the skeleton lacks the bone
-function attach_particle(obj, name, bone)
+function start_particle(obj, name, bone)
     if obj:get_bone_id(bone) == BI_NONE then return false end
     obj:start_particles(name, bone)
     return true
