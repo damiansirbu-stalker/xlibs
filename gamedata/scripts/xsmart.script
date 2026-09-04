@@ -898,7 +898,7 @@ end
 --- @src anomaly/smart_terrain.script(1487-1496) smart_terrain_squad_count
 --- @param squad se_squad Squad whose smart_id may have changed
 --- @param from_smart_id number|nil Smart id captured before the vanilla update ran
-function reconcile_squad_roster(squad, from_smart_id)
+function update_squad_roster(squad, from_smart_id)
     if not squad or not SIMBOARD or not SIMBOARD.smarts then return end
     local to_smart_id = squad.smart_id
     if to_smart_id == from_smart_id then return end

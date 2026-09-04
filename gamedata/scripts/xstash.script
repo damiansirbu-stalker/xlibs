@@ -97,7 +97,7 @@ end
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(459,535)
 --- @param stash_id number Stash object ID
 --- @return table|nil Array of section names
-function loot_stash(stash_id)
+function collect_stash_items(stash_id)
     if not stash_id then return nil end
     if not treasure_manager or not treasure_manager.caches then return nil end
 
@@ -120,7 +120,7 @@ end
 --- @param items table Array of section names
 --- @param add_marker boolean|nil Add map marker (default false)
 --- @return boolean Success
-function fill_stash(stash_id, items, add_marker)
+function add_stash_items(stash_id, items, add_marker)
     if not stash_id then return false end
     if not items or #items == 0 then return false end
     if not treasure_manager or not treasure_manager.caches then return false end

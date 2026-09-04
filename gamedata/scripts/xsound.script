@@ -1,4 +1,4 @@
---- xsound: sound wrap - one-shots (play fire-and-forget; play_at retained/stoppable) + loops (acquire/release, volume lerp)
+--- xsound: sound wrap - one-shots (play fire-and-forget; play_at retained/stoppable) + loops (create_sound/release, volume lerp)
 
 local _NEXT_HANDLE = 1
 local _active = {}
@@ -7,7 +7,7 @@ local _registered = false
 local _last_tick = 0
 local TICK_MS = 100
 
--- Forward declaration: play_at/acquire call _register, which is defined below _update. Without this
+-- Forward declaration: play_at/create_sound call _register, which is defined below _update. Without this
 -- the name resolves to a nil global at the earlier call sites (LUA runtime error on first play).
 local _register
 
@@ -18,7 +18,7 @@ local math_abs = math.abs
 local assert, type = assert, type
 
 --- Verified-safe sound paths. Sourced from vanilla scripts and configs/misc/sound/*.ltx.
---- Usage: xsound.acquire(xsound.SND.PSY_ANTENNA_L, { volume = 0.7 })
+--- Usage: xsound.create_sound(xsound.SND.PSY_ANTENNA_L, { volume = 0.7 })
 --- Missing paths log a Lua "File not found" error and fall back to $no_sound (no crash, script_sound.cpp:25), but waste a handle slot.
 --- @src anomaly/sr_psy_antenna.script(42): PSY_ANTENNA_L, PSY_ANTENNA_R
 --- @src anomaly/psi_storm_manager.script(384): PSI_STORM
@@ -48,7 +48,7 @@ SND = {
 --- Play a one-shot sound (fire-and-forget: no handle, no lerp).
 --- Uses play_no_feedback so the emitter is engine-owned and is NOT cut when the Lua object is
 --- garbage-collected -- play()/play_at_pos() set a feedback handle that ~CScriptSound stops on GC.
---- For short cues that never need stopping; use play_at for a STOPPABLE one-shot, acquire/release for loops.
+--- For short cues that never need stopping; use play_at for a STOPPABLE one-shot, create_sound/release for loops.
 --- @safety SAFE - nil-guarded on db.actor and sound_object_t constructor
 --- @cost O(1) | 1 luabind heavy (sound_object ctor + play_no_feedback)
 --- @src xray/xrGame/script_sound_script.cpp:51 (play_no_feedback); xrSound/SoundRender_Core.cpp:353-381 (detaches the emitter to engine ownership)
@@ -182,7 +182,7 @@ local function _update()
     end
 end
 
--- Register the actor_on_update callback on first acquire; idempotent on later calls
+-- Register the actor_on_update callback on first create_sound; idempotent on later calls
 -- @cost O(1) | 1 luabind (RegisterScriptCallback) on cold register, 0 luabind on hot path
 _register = function()
     if _registered then return end
@@ -191,7 +191,7 @@ _register = function()
     _registered = true
 end
 
---- Acquire a sound handle for a looping sound. Plays the sound immediately at volume 0 so the handle is live.
+--- Create a sound handle for a looping sound. Plays the sound immediately at volume 0 so the handle is live.
 --- Caller ramps the audible volume via set_volume(handle, target); release(handle) lerps back to 0 and frees the slot.
 --- @safety SAFE - guards db.actor, returns nil if sound_object constructor fails
 --- @cost O(1) | 1 luabind heavy (sound_object ctor + play_at_pos)
@@ -199,7 +199,7 @@ end
 --- @param snd_path string Sound path (e.g. xsound.SND.PSY_ANTENNA_L), backslashes
 --- @param opts table|nil { looped (default true), s2d (default true), position (vector), smoothing (default 1.0) }
 --- @return number|nil handle
-function acquire(snd_path, opts)
+function create_sound(snd_path, opts)
     if not db.actor then return nil end
     opts = opts or {}
     local snd = sound_object_t(snd_path)
@@ -231,7 +231,7 @@ end
 --- Set the target volume. Lerp drives current volume toward target each tick (100ms).
 --- @safety SAFE - rejects unknown or already-releasing handles
 --- @cost O(1) | 0 luabind (state write)
---- @param handle number Handle from acquire()
+--- @param handle number Handle from create_sound()
 --- @param target number Target volume, clamped to [0, 1]
 --- @param smoothing number|nil Override smoothing for this transition (units/sec)
 --- @return boolean ok
@@ -259,7 +259,7 @@ end
 
 --- Check if a handle is still tracked. Tracking ends when release()'s lerp finishes.
 --- @cost O(1) | 0 luabind (hash table lookup)
---- @param handle number Handle from acquire()
+--- @param handle number Handle from create_sound()
 --- @return boolean True while the handle has an entry in _active
 function is_active(handle)
     return _active[handle] ~= nil
@@ -267,7 +267,7 @@ end
 
 --- Snapshot of a handle's state for diagnostics. Pure read, does not affect lerp or scheduling.
 --- @cost O(1) | 0 luabind (hash lookup + table copy of small fields)
---- @param handle number Handle from acquire()
+--- @param handle number Handle from create_sound()
 --- @return table|nil { path, volume, target_volume, smoothing, releasing }, nil for unknown handle
 function get_snapshot(handle)
     local entry = _active[handle]

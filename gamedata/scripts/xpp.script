@@ -11,7 +11,7 @@ local level = level
 
 --- Verified-safe .ppe filenames. All 35 entries tested 2026-05-19 in GAMMA install.
 --- Sourced from postprocess.ltx and vanilla scripts; see doc/library/modding/post-process-effectors.md.
---- Usage: xpp.acquire(xpp.PPE.PSY_ANTENNA, { smoothing = 0.5 })
+--- Usage: xpp.create_effector(xpp.PPE.PSY_ANTENNA, { smoothing = 0.5 })
 --- Engine fatal-errors on missing .ppe (PostprocessAnimator.cpp:80), not catchable via pcall.
 PPE = {
     -- psi / horror
@@ -56,16 +56,16 @@ PPE = {
     AGR_U_FADE           = "agr_u_fade.ppe",
 }
 
---- Acquire a post-process effector slot. Returns handle (slot id) or nil if no actor.
+--- Create a post-process effector slot. Returns handle (slot id) or nil if no actor.
 --- Engine renders the .ppe at default factor (curve max) immediately on add. Call
---- set_target(handle, value) right after acquire to drive factor to your starting value.
+--- set_target(handle, value) right after create_effector to drive factor to your starting value.
 --- @safety SAFE - guards db.actor before engine call (level.add_pp_effector crashes without actor)
 --- @cost O(1) | 1 luabind heavy (xr_new<CPostprocessAnimator> + Load + AddPPEffector)
 --- @src xray/xrGame/level_script.cpp(987) add_pp_effector
 --- @param ppe_name string Filename relative to gamedata/anims/ (e.g. "psy_antenna.ppe")
 --- @param opts table|nil { cyclic = bool (default true), smoothing = number (default 0.3) }
 --- @return number|nil handle
-function acquire(ppe_name, opts)
+function create_effector(ppe_name, opts)
     if not db.actor then return nil end
     opts = opts or {}
     local cyclic = opts.cyclic ~= false
@@ -86,7 +86,7 @@ end
 --- @safety SAFE - rejects unknown or already-releasing handles
 --- @cost O(1) | 1 luabind trivial (smart_cast + SetDesiredFactor)
 --- @src xray/xrGame/level_script.cpp(1001) set_pp_effector_factor 3-arg
---- @param handle number Slot id from acquire()
+--- @param handle number Slot id from create_effector()
 --- @param value number Target factor, clamped to [0, 1]
 --- @param smoothing number|nil Override smoothing for this transition
 --- @return boolean ok
@@ -125,7 +125,7 @@ end
 
 --- Check if a handle is still tracked (not yet removed by the release timer)
 --- @cost O(1) | 0 luabind
---- @param handle number Slot id from acquire()
+--- @param handle number Slot id from create_effector()
 --- @return boolean True while the handle is registered in _active
 function is_active(handle)
     return _active[handle] ~= nil
@@ -133,7 +133,7 @@ end
 
 --- Snapshot of a slot's state (for diagnostics)
 --- @cost O(1) | 0 luabind
---- @param handle number Slot id from acquire()
+--- @param handle number Slot id from create_effector()
 --- @return table|nil { ppe, smoothing, cyclic, releasing } or nil if handle unknown
 function get_snapshot(handle)
     local entry = _active[handle]

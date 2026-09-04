@@ -1106,7 +1106,7 @@ end
 --- True when a before_move event is the actor taking an item OUT of a dead body: loot mode with the
 --- source list being the dead-body bag (a deposit into the corpse reads iActorBag and is false).
 --- Every take path (move, move-all, take-all, drag, double-click) funnels through Cond_Move, so a
---- before_move handler that vetoes here with deny_move blocks them all.
+--- before_move handler that vetoes here with disable_move blocks them all.
 --- @safety SAFE - pure enum compare, no luabind
 --- @cost O(1) | 0 luabind
 --- @src EDDListType.iDeadBodyBag; ui_inventory.script:241-242,908-918,2251 (Cond_Move funnel; npc_bag -> iDeadBodyBag)
@@ -1121,7 +1121,7 @@ end
 --- @safety SAFE - sets one field on the engine-provided flags table
 --- @cost O(1) | 0 luabind
 --- @param flags table the before_move callback's 1st arg
-function deny_move(flags)
+function disable_move(flags)
     if flags then flags.ret_value = false end
 end
 

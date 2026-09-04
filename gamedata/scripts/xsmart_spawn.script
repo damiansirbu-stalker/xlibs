@@ -289,8 +289,8 @@ end
 --- @safety SAFE - delegates to engine's fill_start_position (runs on every new game start)
 --- @cost O(n) smarts reset + fill_start_position | 0 luabind for reset_spawns; fill_start_position is engine spawn injection (heavy per smart)
 --- @src anomaly/se_actor.script(14), anomaly/sim_board.script(284)
---- @return boolean True if repopulate ran
-function repopulate()
+--- @return boolean True if reset_population ran
+function reset_population()
     if not SIMBOARD then return false end
     reset_spawns()
     SIMBOARD.start_position_filled = false
