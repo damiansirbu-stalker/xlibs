@@ -64,7 +64,7 @@ local _sweep_keys = {}
 --- @cost O(1) between sweeps, O(n) entries on one | 0 luabind
 --- @param cache table id-keyed cache of { expires = <ms> }
 --- @param tg number time_global() in ms
-local function _sweep_expired(cache, tg)
+local function _clear_expired(cache, tg)
     if tg < (_next_sweep[cache] or 0) then return end
     _next_sweep[cache] = tg + CACHE_SWEEP_INTERVAL_MS
     local found = 0
@@ -111,7 +111,7 @@ function xcombat.get_weapon_kind(npc)
             if section then kind = ini_sys:r_string_ex(section, "kind") end
         end
     end
-    _sweep_expired(_weapon_kind_cache, tg)
+    _clear_expired(_weapon_kind_cache, tg)
     _weapon_kind_cache[id] = { kind = kind, expires = tg + WEAPON_TTL_MS }
     return kind
 end
@@ -176,7 +176,7 @@ end
 -- timestamp and a last-known position. The takeover reads these instead of re-deriving them with its own
 -- raycast clock: memory_time is the signal vanilla uses to disengage (xr_combat_ignore.script:111),
 -- memory_position is what the reference graft mod pursues when the enemy is not currently visible
--- (rx_combat.script:298). sees() is the tactical "can I shoot right now" check over the same memory.
+-- (rx_combat.script:298). can_see() is the tactical "can I shoot right now" check over the same memory.
 
 --- True when the NPC sees the object RIGHT NOW - the engine's accumulated visible_now state, the exact
 --- test vanilla kill_enemy fires on (stalker_combat_actions.cpp:483-494). A visual-memory read, not a
@@ -190,7 +190,7 @@ end
 --- @param npc game_object the perceiving NPC
 --- @param obj game_object the object under test
 --- @return boolean true when visible now
-function xcombat.sees(npc, obj)
+function xcombat.can_see(npc, obj)
     if not (npc and obj) then return false end
     -- A dead SUBJECT (npc) faults CheckObjectVisibility: it logs "cannot check visibility of dead
     -- object!" (script_game_object.cpp:314) and returns false. SAFE_WRAP stops the Lua error but not
@@ -210,10 +210,10 @@ end
 --- @param obj game_object the object under test
 --- @param radius number range in metres
 --- @return boolean true when within range and visible now
-function xcombat.sees_within(npc, obj, radius)
+function xcombat.can_see_within(npc, obj, radius)
     if not (npc and obj) then return false end
     if npc:position():distance_to_sqr(obj:position()) >= radius * radius then return false end
-    return xcombat.sees(npc, obj)
+    return xcombat.can_see(npc, obj)
 end
 
 --- Milliseconds since the NPC last perceived the enemy by ANY sense (sight, sound, or hit).
@@ -247,9 +247,9 @@ function xcombat.resolve_enemy(id)
 end
 
 --- The engine's selected enemy for this combatant, or nil - the alive-guarded best_enemy read. The raw
---- bind reaches into the memory manager of a possibly-dead object (the sees dead-subject class), so the
+--- bind reaches into the memory manager of a possibly-dead object (the can_see dead-subject class), so the
 --- guard bails first; a caller's nil branch keeps meaning "not fighting" and covers the dead case for free.
---- @safety SAFE - nil- and dead-guarded (the sees dead-subject precedent)
+--- @safety SAFE - nil- and dead-guarded (the can_see dead-subject precedent)
 --- @cost O(1) | 2 luabind trivial (alive + best_enemy)
 --- @src xray/script_game_object_script2.cpp:206 (bind), script_game_object2.cpp:200-209 (GetBestEnemy:
 ---   CCustomMonster cast, memory().enemy().selected() - no alive guard of its own)
@@ -302,7 +302,7 @@ local _has_make_visible = nil
 --- @param enemy game_object hostile object to disclose
 --- @param opts table|nil { memory_only = true } skips the seen-class promotion (pre-bind behavior)
 --- @return boolean true when applied
-function xcombat.disclose_enemy(npc, enemy, opts)
+function xcombat.show_enemy(npc, enemy, opts)
     if not npc or not enemy then return false end
     npc:enable_memory_object(enemy, true)
     if _has_make_visible == nil then _has_make_visible = type(npc.make_enemy_visible) == "function" end
@@ -359,13 +359,13 @@ local _blocked_planners = nil
 
 -- Append one id, only when it resolves to a number. A modpack that removes a scheme leaves its module
 -- global nil; one that renumbers leaves a non-number. Either is skipped rather than faulting the install.
-local function _block(list, id)
+local function _add_planner_id(list, id)
     if type(id) == "number" then list[#list + 1] = id end
 end
 
 -- An action id off a scheme module, or nil when that scheme is not installed. Auto-load returns nil for a
 -- missing .script, so the module reference itself must be checked before indexing it.
-local function _scheme_id(module_ref, field)
+local function _get_scheme_id(module_ref, field)
     if not module_ref then return nil end
     return module_ref[field]
 end
@@ -402,36 +402,36 @@ function xcombat.get_blocked_planners()
     if _blocked_planners then return _blocked_planners end
     local list = {}
     -- Engine planners: combat and danger own the fight, alife owns everything outside it.
-    _block(list, stalker_ids.action_combat_planner)
-    _block(list, stalker_ids.action_danger_planner)
-    _block(list, xr_actions_id.alife)
+    _add_planner_id(list, stalker_ids.action_combat_planner)
+    _add_planner_id(list, stalker_ids.action_danger_planner)
+    _add_planner_id(list, xr_actions_id.alife)
     -- The danger scheme's scripted action (the one AT itself patches).
-    _block(list, _scheme_id(xr_danger, "actid"))
+    _add_planner_id(list, _get_scheme_id(xr_danger, "actid"))
     -- state_mgr's two idle actions. +2 (idle alife) was always here; +1 (idle combat) was the omission:
     -- its action re-sends the NPC to his own vertex, clears animations and forces state "idle"
     -- (anomaly/state_mgr.script:194-210), which deletes whatever combat state the consumer applied.
-    _block(list, xr_actions_id.state_mgr + 1)
-    _block(list, xr_actions_id.state_mgr + 2)
+    _add_planner_id(list, xr_actions_id.state_mgr + 1)
+    _add_planner_id(list, xr_actions_id.state_mgr + 2)
     -- The three script-combat schemes. Each registers its actions into the TOP-LEVEL manager, so an NPC
     -- with a script_combat_type carries a complete second combat brain beside the takeover. Monolith
     -- ships four (fight_close/fight_far/look_around/go_to_pos), the other two ship two each.
-    for i = 0, 3 do _block(list, xr_actions_id.combat_monolith_base + i) end
-    for i = 0, 1 do _block(list, xr_actions_id.combat_zombied_base + i) end
-    for i = 0, 1 do _block(list, xr_actions_id.combat_camper_base + i) end
+    for i = 0, 3 do _add_planner_id(list, xr_actions_id.combat_monolith_base + i) end
+    for i = 0, 1 do _add_planner_id(list, xr_actions_id.combat_zombied_base + i) end
+    for i = 0, 1 do _add_planner_id(list, xr_actions_id.combat_camper_base + i) end
     -- Rival combat behaviours: fight-from-cover is a combat scheme by its own header, and the combat
     -- smartcover action would seat an NPC in a cover the seize gate already refuses to seize him in.
-    _block(list, _scheme_id(axr_fight_from_cover, "actid"))
-    _block(list, xr_actions_id.smartcover_action + 2)
+    _add_planner_id(list, _get_scheme_id(axr_fight_from_cover, "actid"))
+    _add_planner_id(list, xr_actions_id.smartcover_action + 2)
     -- Close-range behaviours that fight the same rows the maneuvers run at: the punch/sneak-up pair and
     -- the wounded finisher.
-    _block(list, _scheme_id(xrs_facer, "actid_facer"))
-    _block(list, _scheme_id(xrs_facer, "actid_steal_up_facer"))
-    _block(list, _scheme_id(xrs_kill_wounded, "actid"))
+    _add_planner_id(list, _get_scheme_id(xrs_facer, "actid_facer"))
+    _add_planner_id(list, _get_scheme_id(xrs_facer, "actid_steal_up_facer"))
+    _add_planner_id(list, _get_scheme_id(xrs_kill_wounded, "actid"))
     -- The friendly-fire brake. Blocked because it holds an NPC out of a maneuver for as long as a
     -- squadmate stands in his line (993 ticks measured in one session); the damage it exists to prevent
     -- is already filtered downstream by the consumer's own friendly-fire gate, so what is lost is the
     -- hold, not the protection.
-    _block(list, _scheme_id(rx_ff, "actid"))
+    _add_planner_id(list, _get_scheme_id(rx_ff, "actid"))
     _blocked_planners = list
     return _blocked_planners
 end
@@ -490,7 +490,7 @@ local _takeover_spec = nil
 local _takeover_installed = {}
 -- npc id -> { [action_id] = true }: which blocked-list ids have received the TAKEOVER_ID==false
 -- precondition on THIS NPC's manager. The block list is applied at install AND topped up at each
--- consumer seize (topup_takeover_block), because a scheme can bind to an NPC after install (a gulag
+-- consumer seize (apply_takeover_block), because a scheme can bind to an NPC after install (a gulag
 -- job change re-runs configure_schemes, xr_logic.script:279-295) and would otherwise stay unblocked
 -- for the NPC's life. The set is what makes the top-up idempotent: add_condition THROWs on a
 -- duplicate condition id in debug and silently skips in release (condition_state_inline.h:44-53),
@@ -525,7 +525,7 @@ function xcombat_takeover_action:initialize()
     npc:set_path_type(game_object.level_path)
     npc:set_mental_state(anim.danger)
     -- Squad combat-mask bit: the blocked CStalkerCombatPlanner::initialize no longer sets it, so the graft
-    -- does, through the module's guarded wrapper. The disclosure leaf (AT at_disclosure -> disclose_enemy)
+    -- does, through the module's guarded wrapper. The disclosure leaf (AT at_disclosure -> show_enemy)
     -- writes the same bit for a different reason (make a shooter an enemy); two leaves, one engine bit,
     -- neither redundant.
     xcombat.register_in_combat(npc)
@@ -559,10 +559,10 @@ end
 --- @param spec table { gate = function(npc) -> boolean, on_begin = function(npc) issued when the engine
 ---   grants control, on_release = function(npc)|nil called when the engine takes it away again }
 --- @return boolean true when grafted or already grafted, false when the NPC has no action manager
-function xcombat.install_takeover(npc, spec)
+function xcombat.register_takeover(npc, spec)
     if not npc or not spec then return false end
     assert(_takeover_spec == nil or _takeover_spec == spec,
-        "xcombat.install_takeover: a second differing takeover spec - the takeover is single-consumer")
+        "xcombat.register_takeover: a second differing takeover spec - the takeover is single-consumer")
     local id = npc:id()
     if _takeover_installed[id] then return true end
     local manager = npc:motivation_action_manager()
@@ -580,12 +580,12 @@ function xcombat.install_takeover(npc, spec)
     manager:add_action(TAKEOVER_ID, action)
 
     _takeover_blocked[id] = {}
-    xcombat.topup_takeover_block(npc)
+    xcombat.apply_takeover_block(npc)
     return true
 end
 
 --- Apply the TAKEOVER_ID==false precondition to every blocked-list action present on this NPC's
---- manager that has not received it yet - the late-bind closure (t148). install_takeover runs it
+--- manager that has not received it yet - the late-bind closure (t148). register_takeover runs it
 --- once at graft time; the consumer re-runs it at each seize, the only moment the hole matters, so a
 --- scheme whose action bound AFTER the graft (a later configure_schemes from a gulag job change,
 --- xr_logic.script:279-295) is blocked before the gate goes up. Idempotent per NPC via the
@@ -595,8 +595,8 @@ end
 --- @cost O(b) blocked ids | one manager:action lookup per id still missing (ids already blocked cost a table read)
 --- @src anomaly/xr_logic.script:279-295 (the once-per-NPC bind guard and the late-registration hole)
 --- @src xray/condition_state_inline.h:44-53 (duplicate condition THROW - why the set gates the add)
---- @param npc game_object stalker previously passed to install_takeover
-function xcombat.topup_takeover_block(npc)
+--- @param npc game_object stalker previously passed to register_takeover
+function xcombat.apply_takeover_block(npc)
     if not npc then return end
     local done = _takeover_blocked[npc:id()]
     if not done then return end
@@ -708,7 +708,7 @@ end
 local _operators = nil
 
 -- Register the +1/+2/+3 sub-action labels for one numeric action id, skipping any id already mapped.
-local function _assign_variants(ops, name, aid)
+local function _set_variants(ops, name, aid)
     if type(aid) ~= "number" then return end
     for i = 1, 3 do
         if ops[aid + i] == nil then ops[aid + i] = name .. "+" .. i end
@@ -737,7 +737,7 @@ function xcombat.get_operator(npc)
             if type(aid) == "number" and _operators[aid] == nil then _operators[aid] = name end
         end
         for name, aid in pairs(xr_actions_id) do
-            _assign_variants(_operators, name, aid)
+            _set_variants(_operators, name, aid)
         end
         if xr_danger.actid and _operators[xr_danger.actid] == nil then _operators[xr_danger.actid] = "danger_s" end
         -- The grafted takeover action itself: without this the label reads as a bare 188347 exactly when a
@@ -799,7 +799,7 @@ end
 -- NPC control - the takeover writes the NPC through set_combat, so the consumer issues no raw engine calls.
 -- set_combat owns weapon mode + posture + movement, resolves the fire DISCIPLINE internally (a FIRE/SNIPE
 -- intent degrades to READY when no shot makes sense), and hands the fire state its look_object, so the
--- engine object-track aims and fires at the enemy autonomously every frame (the turret model); send_to
+-- engine object-track aims and fires at the enemy autonomously every frame (the turret model); set_destination
 -- owns destination.
 
 -- The combat-state matrix: [fire][posture][movement] -> the one state_lib state that bundles exactly that
@@ -834,7 +834,7 @@ local MOVE_KEY = { STILL = "stand", WALK = "walk", RUN = "run" }
 
 -- State for a (fire, posture, movement) combo, or nil when the engine ships none.
 -- @cost O(1) | 0 luabind (nested table lookup)
-local function _combat_state(fire, posture, movement)
+local function _get_combat_state(fire, posture, movement)
     local by_fire = COMBAT_STATES[fire]
     local by_post = by_fire and by_fire[posture]
     return by_post and by_post[movement]
@@ -892,7 +892,7 @@ end
 
 local function _resolve_fire(npc, requested, enemy)
     if xcombat.is_reloading(npc) then return xcombat.READY, "reloading" end
-    if enemy and xcombat.sees(npc, enemy) then return requested, "seen" end
+    if enemy and xcombat.can_see(npc, enemy) then return requested, "seen" end
     if enemy and xcombat.fire_make_sense(npc, enemy) then return requested, "memory" end
     return xcombat.READY, "hold"
 end
@@ -922,7 +922,7 @@ function xcombat.set_combat(npc, opts)
     if intent == xcombat.FIRE or intent == xcombat.SNIPE then
         fire, gate = _resolve_fire(npc, intent, opts.enemy)
     end
-    local state = opts.state or _combat_state(fire, opts.posture, opts.movement)
+    local state = opts.state or _get_combat_state(fire, opts.posture, opts.movement)
     if not state then return false, gate end
     local aim = (intent == xcombat.FIRE or intent == xcombat.SNIPE) and opts.enemy or nil
     state_mgr.set_state(npc, state, nil, nil, { look_object = aim }, { fast_set = true })
@@ -1126,7 +1126,7 @@ end
 
 -- One member check; lifted out so the loop body has no nested if-chain
 -- @cost O(1) | 2 luabind (level.object_by_id + alive) on hit; vector field access
-local function _member_blocks_line(member_id, my_id, axis)
+local function _is_member_on_line(member_id, my_id, axis)
     if member_id == my_id then return false end
     local member = level_object_by_id(member_id)
     if not member or not member:alive() then return false end
@@ -1156,7 +1156,7 @@ function xcombat.has_friendly_in_line(npc, npc_pos, ene_pos, lateral_thresh_m)
     }
     local my_id = npc:id()
     for member_id in xsquad.iterate_member_ids(squad) do
-        if _member_blocks_line(member_id, my_id, axis) then return true end
+        if _is_member_on_line(member_id, my_id, axis) then return true end
     end
     return false
 end
@@ -1177,7 +1177,7 @@ local _actor_dist_cache = {}
 --- @src xray/script_game_object_script2.cpp (position), the _weapon_kind_cache TTL precedent above
 --- @param npc game_object
 --- @return number squared distance in m^2, math.huge when no actor exists
-function xcombat.actor_dist_sqr(npc)
+function xcombat.get_actor_dist_sqr(npc)
     local id = npc:id()
     local tg = time_global()
     local entry = _actor_dist_cache[id]
@@ -1185,7 +1185,7 @@ function xcombat.actor_dist_sqr(npc)
     local actor = db.actor
     if not actor then return math_huge end
     local dist_sqr = npc:position():distance_to_sqr(actor:position())
-    _sweep_expired(_actor_dist_cache, tg)
+    _clear_expired(_actor_dist_cache, tg)
     _actor_dist_cache[id] = { dist_sqr = dist_sqr, expires = tg + ACTOR_DIST_TTL_MS }
     return dist_sqr
 end
@@ -1397,7 +1397,7 @@ end
 --- @param shit CScriptHit the hit object passed to the before-hit callback
 --- @param factor number|nil the damage multiplier (nil = no change)
 --- @return boolean true when a factor was applied, false when skipped
-function xcombat.scale_hit_power(shit, factor)
+function xcombat.apply_hit_power(shit, factor)
     if not (shit and factor) then return false end
     shit.power = shit.power * factor
     return true
@@ -1415,7 +1415,7 @@ end
 --- @param temp_disp table the shared { dispersion = number } table passed to the callback
 --- @param factor number|nil the cone multiplier (nil = no change)
 --- @return boolean true when a factor was applied, false when skipped
-function xcombat.scale_dispersion(temp_disp, factor)
+function xcombat.apply_dispersion(temp_disp, factor)
     if not (temp_disp and factor and temp_disp.dispersion) then return false end
     temp_disp.dispersion = temp_disp.dispersion * factor
     return true
@@ -1434,7 +1434,7 @@ local FRIENDLY_LANE_THRESH_M = 1.5
 -- guard mirrors utils_obj.safe_bone_pos), STAND_EYE height over npc:position() when the skeleton lacks the
 -- bone (the engine fires from eye_matrix.c, ai_stalker_fire.cpp:208).
 -- @cost O(1) | 2-3 luabind trivial (get_bone_id + bone_position, or position)
-local function _fire_origin(npc)
+local function _get_fire_origin(npc)
     if npc:get_bone_id(FIRE_BONE) ~= INVALID_BONE_ID then
         return npc:bone_position(FIRE_BONE)
     end
@@ -1448,7 +1448,7 @@ end
 -- ai_stalker_fire.cpp:700-712), so glass/bushes read as blockers the engine's own gate shoots through.
 -- Returns (blocker distance from origin or nil when the capped lane is clear, distance to the enemy chest).
 -- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query + get_distance)
-local function _fire_lane_hit_m(origin, enemy_pos)
+local function _get_fire_lane_hit(origin, enemy_pos)
     local dx = enemy_pos.x - origin.x
     local dy = (enemy_pos.y + BODY_Y.CHEST) - origin.y
     local dz = enemy_pos.z - origin.z
@@ -1493,7 +1493,7 @@ end
 function xcombat.can_kill_enemy(npc, enemy)
     if not (npc and enemy) then return false end
     if _has_bind(npc, "can_kill_enemy") then return npc:can_kill_enemy() end
-    local hit_m = _fire_lane_hit_m(_fire_origin(npc), enemy:position())
+    local hit_m = _get_fire_lane_hit(_get_fire_origin(npc), enemy:position())
     return hit_m == nil
 end
 
@@ -1518,11 +1518,11 @@ end
 function xcombat.can_kill_member(npc, enemy_pos)
     if not (npc and enemy_pos) then return false end
     if _has_bind(npc, "can_kill_member") then return npc:can_kill_member() end
-    return xcombat.has_friendly_in_line(npc, _fire_origin(npc), enemy_pos, FRIENDLY_LANE_THRESH_M)
+    return xcombat.has_friendly_in_line(npc, _get_fire_origin(npc), enemy_pos, FRIENDLY_LANE_THRESH_M)
 end
 
 -- Vanilla fire-gate values (the engine defaults, ai_stalker_fire.cpp:65-68). Post-floor exes expose them
--- as the ai_fire_* cvars (upstream 2d37af073, 2026-06-03 - after the floor build); _fire_gate_values
+-- as the ai_fire_* cvars (upstream 2d37af073, 2026-06-03 - after the floor build); _get_fire_gate_values
 -- probes once via get_console():get_string (nil = the command does not exist with no error path,
 -- XR_IOConsole_get.cpp:76-85 - the only getter that signals absence without a value ambiguity or a
 -- warning log line, so no pcall) and reads live values when present, keeping a tuned post-floor exe
@@ -1541,7 +1541,7 @@ local _fire_cvars = nil
 
 -- The 4 gate values: the live ai_fire_* cvars when the exe has them, the vanilla constants otherwise.
 -- @cost O(1) | 0 luabind on the floor after the first probe, 5 luabind trivial per call when cvars exist
-local function _fire_gate_values()
+local function _get_fire_gate_values()
     if _fire_cvars == nil then
         _fire_cvars = get_console():get_string("ai_fire_range_extension") ~= nil
     end
@@ -1580,10 +1580,10 @@ end
 function xcombat.fire_make_sense(npc, enemy)
     if not (npc and enemy) then return false end
     if _has_bind(npc, "fire_make_sense") then return npc:fire_make_sense() end
-    local ext_m, height_m, min_dist_m, unseen_ms = _fire_gate_values()
+    local ext_m, height_m, min_dist_m, unseen_ms = _get_fire_gate_values()
     local enemy_pos = enemy:position()
     if math_abs(npc:position().y - enemy_pos.y) > height_m then return false end
-    local hit_m, dist_m = _fire_lane_hit_m(_fire_origin(npc), enemy_pos)
+    local hit_m, dist_m = _get_fire_lane_hit(_get_fire_origin(npc), enemy_pos)
     local pick_m = hit_m or dist_m
     if pick_m + ext_m < dist_m then return false end
     if pick_m < min_dist_m then return false end
@@ -1616,7 +1616,7 @@ function xcombat.on_action_switch(fn)
     return true
 end
 
---- Register `fn` on the best-cover re-pick veto (npc_on_best_cover_repick): fn(npc, flags), set
+--- Register `fn` on the best-cover re-pick veto (npc_on_find_best_cover_repick): fn(npc, flags), set
 --- flags.allow = false to keep the NPC's current cover instead of moving to a newly-found one (suppress
 --- the in-combat cover shuffle). Asked once per invalidation for the event drivers (enemy re-select,
 --- danger add/remove, the held cover's value degrading - a deny refreshes the stored value, so that one
@@ -1631,14 +1631,14 @@ end
 --- xcombat registers nothing on its own behalf: fn is the caller's, registered at the caller's call.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path (no crash on old exes)
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
---- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick) + update_best_cover_actuality; xray gamedata callbacks_gameobject.script
+--- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick) + update_find_best_cover_actuality; xray gamedata callbacks_gameobject.script
 --- @param fn function subscriber fn(npc, flags)
 --- @return boolean true when registered on the engine callback, false when this exe has no veto seam
 function xcombat.on_cover_repick(fn)
     if type(fn) ~= "function" then return false end
     if callbacks_gameobject == nil then return false end
     if type(rawget(_G, "CAI_Stalker__AllowCoverRepick")) ~= "function" then return false end
-    RegisterScriptCallback("npc_on_best_cover_repick", fn)
+    RegisterScriptCallback("npc_on_find_best_cover_repick", fn)
     return true
 end
 
@@ -1655,7 +1655,7 @@ local function _register_forwarded(fn, forwarder, callback_name)
 end
 
 --- Register `fn` on the cover-band minimum ask (npc_on_get_min_combat_dist): fn(npc, base_min, flags),
---- fired inside compute_enemy_distances every time find_best_cover re-searches (invalidation cadence,
+--- fired inside compute_enemy_distances every time find_find_best_cover re-searches (invalidation cadence,
 --- never per frame; the cached best_cover() read runs zero Lua). base_min is the engine's own value
 --- (MIN_SUITABLE_ENEMY_DISTANCE or the sniper cvar); the handler SCALES it into flags.ret_value -
 --- an invalid or negative return is ignored engine-side with an error log, and min > max is swapped.
@@ -1758,7 +1758,7 @@ end
 -- object-aware, so a crate or barrel between the vertex and the enemy disqualifies it (it would stop the shot),
 -- while the enemy's own body/cover does not (the ray stops short of it). Returns the vertex or nil.
 -- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
-local function _probe_firing_vid(npc, from_lvid, dir, step, enemy_pos)
+local function _find_firing_vid(npc, from_lvid, dir, step, enemy_pos)
     local vid = level.vertex_in_direction(from_lvid, dir, step)
     if not vid or vid >= INVALID_LVID or vid == from_lvid or not _is_free(npc, vid) then return nil end
     if xcombat.has_obstacle_to_target(level.vertex_position(vid), enemy_pos, BODY_Y.STAND_EYE) then return nil end
@@ -1767,11 +1767,11 @@ end
 
 -- One ring of probes around a centre vertex: PROBE_DIRS directions at `step`, first with a clear shot wins.
 -- @cost O(d) dirs | up to PROBE_DIRS (vertex_in_direction + accessible + raycast) per ring
-local function _probe_ring(npc, from_lvid, step, enemy_pos)
+local function _find_ring_vid(npc, from_lvid, step, enemy_pos)
     local dir = vector()
     for index = 0, PROBE_DIRS - 1 do
         local angle = index * PROBE_ARC
-        local vid = _probe_firing_vid(npc, from_lvid, dir:set(math_cos(angle), 0, math_sin(angle)), step, enemy_pos)
+        local vid = _find_firing_vid(npc, from_lvid, dir:set(math_cos(angle), 0, math_sin(angle)), step, enemy_pos)
         if vid then return vid end
     end
     return nil
@@ -1779,10 +1779,10 @@ end
 
 -- Sweep rings of increasing radius around a centre vertex for the nearest free vertex with a clear shot.
 -- @cost O(r*d) | up to (rings*PROBE_DIRS) raycasts
-local function _sweep_for_shot(npc, from_lvid, enemy_pos)
+local function _find_shot_vid(npc, from_lvid, enemy_pos)
     local step = PROBE_MIN_M
     while step <= PROBE_MAX_M do
-        local vid = _probe_ring(npc, from_lvid, step, enemy_pos)
+        local vid = _find_ring_vid(npc, from_lvid, step, enemy_pos)
         if vid then return vid end
         step = step + PROBE_STEP_M
     end
@@ -1791,7 +1791,7 @@ end
 
 -- True when the baked cover point at `vid` is walled toward `dir` - hides from an enemy in that direction.
 -- @cost O(1) | 2 baked cover reads
-local function _hides_from(vid, dir)
+local function _is_concealed(vid, dir)
     local hi = xcombat.get_stand_openness(vid, dir)
     local lo = xcombat.get_crouch_openness(vid, dir)
     return (hi < lo and hi or lo) < CONCEAL_THRESH
@@ -1800,7 +1800,7 @@ end
 -- True when reaching `cover_pos` means moving toward `enemy_pos` - the path runs within 30deg of the enemy
 -- and he is not far past the cover (best_cover's threat_on_the_way, cover_evaluators.cpp:172).
 -- @cost O(1) | pure vector math
-local function _toward_enemy(npc_pos, cover_pos, enemy_pos)
+local function _is_toward_enemy(npc_pos, cover_pos, enemy_pos)
     local cx, cy, cz = cover_pos.x - npc_pos.x, cover_pos.y - npc_pos.y, cover_pos.z - npc_pos.z
     local cover_mag = math_sqrt(cx*cx + cy*cy + cz*cz)
     local ex, ey, ez = enemy_pos.x - npc_pos.x, enemy_pos.y - npc_pos.y, enemy_pos.z - npc_pos.z
@@ -1813,28 +1813,28 @@ end
 
 -- The fire/hide terminal check for a cover point that already passed the loop guards. Returns the vid to use -
 -- a firing vertex beside it when shooting, the cover itself when hiding - or nil.
--- @cost O(rings) shoot / O(1) hide | _sweep_for_shot or _hides_from
-local function _cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
-    if firing then return _sweep_for_shot(npc, vid, enemy_pos) end
+-- @cost O(rings) shoot / O(1) hide | _find_shot_vid or _is_concealed
+local function _resolve_cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
+    if firing then return _find_shot_vid(npc, vid, enemy_pos) end
     dir:set(enemy_pos.x - cpos.x, enemy_pos.y - cpos.y, enemy_pos.z - cpos.z)
-    return _hides_from(vid, dir) and vid or nil
+    return _is_concealed(vid, dir) and vid or nil
 end
 
 -- Best-hidden reachable cover (best_cover, distance-blind, with the engine's own floor/threat/distance guards).
 -- firing=true sweeps for a firing vertex beside it; firing=false returns the cover point itself.
 -- @cost O(covers-in-radius) + O(rings) when firing | 1 best_cover heavy, then the sweep only when firing
-local function _best_cover(npc, enemy_pos, radius, search_pos, firing)
+local function _find_best_cover(npc, enemy_pos, radius, search_pos, firing)
     local cover = npc:best_cover(search_pos, enemy_pos, radius, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
     if not cover then return nil end
     local vid = cover:level_vertex_id()
-    if firing then return _sweep_for_shot(npc, vid, enemy_pos) end
+    if firing then return _find_shot_vid(npc, vid, enemy_pos) end
     return vid
 end
 
 -- Nearest reachable cover (get_nearby_covers walk), guarded to his floor and never toward the enemy. firing=true
 -- keeps the nearest whose firing vertex is clear; firing=false keeps the nearest that hides him.
 -- @cost O(covers-in-radius) walk | per nearer candidate: _cover_candidate
-local function _nearest_cover(npc, enemy_pos, radius, search_pos, firing)
+local function _find_nearest_cover(npc, enemy_pos, radius, search_pos, firing)
     local covers = level.get_nearby_covers(search_pos, radius)
     local dir = vector()
     local best_vid, best_dist_sqr = nil, radius * radius + 1
@@ -1843,8 +1843,8 @@ local function _nearest_cover(npc, enemy_pos, radius, search_pos, firing)
         local dist_sqr = search_pos:distance_to_sqr(cpos)
         local dy = cpos.y - search_pos.y
         local chosen = dist_sqr < best_dist_sqr and dy < 3 and dy > -3
-            and not _toward_enemy(search_pos, cpos, enemy_pos) and npc:accessible(vid)
-            and _cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
+            and not _is_toward_enemy(search_pos, cpos, enemy_pos) and npc:accessible(vid)
+            and _resolve_cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
         if chosen then best_vid, best_dist_sqr = chosen, dist_sqr end
     end
     return best_vid
@@ -1859,7 +1859,7 @@ end
 --- Firing cannot use fire_make_sense or can_kill_enemy: those read the NPC's CURRENT position, not a candidate
 --- vertex (can_kill_at is unbound), so the shot check is positional - has_obstacle_to_target from the vertex.
 --- @safety SAFE - nil when nothing qualifies; asserts on a missing opt
---- @cost see _best_cover / _nearest_cover | no raycasts on a hide search, ring-sweep raycasts on a shoot search
+--- @cost see _find_best_cover / _find_nearest_cover | no raycasts on a hide search, ring-sweep raycasts on a shoot search
 --- @src xray/script_game_object3.cpp:68 (best_cover), xray/level_script.cpp:329 (get_nearby_covers)
 --- @param npc game_object
 --- @param enemy_pos vector the enemy to fight or hide from
@@ -1870,18 +1870,18 @@ function xcombat.find_cover(npc, enemy_pos, opts)
         and (opts.selection == "nearest" or opts.selection == "best"),
         "xcombat.find_cover requires opts.selection ('nearest'|'best'), opts.firing (boolean), opts.radius, opts.search_pos")
     if opts.selection == "best" then
-        return _best_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
+        return _find_best_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
     end
-    return _nearest_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
+    return _find_nearest_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
 end
 
 -- One flee-lane probe: a free reachable vertex the full `distance_m` along `dir` AND a clear straight line out
--- to it with no wall OR object (crate, barrel) in the run lane. Unlike _probe_firing_vid the ray is the NPC's
+-- to it with no wall OR object (crate, barrel) in the run lane. Unlike _find_firing_vid the ray is the NPC's
 -- own run lane, not a line to the enemy, it tests objects not just static geometry (a flee must not run into a
 -- crate the navmesh routes through), and the vertex must reach the full distance (no decreasing step) - a flee
 -- wants a long open lane, not the nearest reachable node.
 -- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
-local function _probe_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
+local function _find_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
     local vid = level.vertex_in_direction(own_lvid, dir, distance_m)
     if not vid or vid >= INVALID_LVID or vid == own_lvid or not _is_free(npc, vid) then return nil end
     if xcombat.has_obstacle_between(npc_pos, level.vertex_position(vid)) then return nil end
@@ -1889,7 +1889,7 @@ local function _probe_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
 end
 
 -- The validated stub fallback (f005): farthest reachable partial along `dir` whose run lane is ALSO
--- clear - _probe_flee_lane (accessible + has_obstacle_between raycast) at decreasing lengths, where
+-- clear - _find_flee_lane (accessible + has_obstacle_between raycast) at decreasing lengths, where
 -- the old _find_toward fallback checked accessibility only and could send a flee straight into a tree
 -- trunk or crate the navmesh routes around (the Georg Bumper snag, 2026-07-26). nil when no clear
 -- partial validates, so the caller declines instead of taking an unvalidated lane.
@@ -1897,7 +1897,7 @@ end
 local function _find_toward_clear(npc, own_lvid, npc_pos, dir, step)
     local step_m = step
     while step_m >= STEP_DECREMENT_M do
-        local vid = _probe_flee_lane(npc, own_lvid, npc_pos, dir, step_m)
+        local vid = _find_flee_lane(npc, own_lvid, npc_pos, dir, step_m)
         if vid then return vid end
         step_m = step_m - STEP_DECREMENT_M
     end
@@ -1908,13 +1908,13 @@ end
 -- is clear for the full distance wins, else nil. The XZ rotation of away_dir by +-offset is the 2D rotation
 -- matrix, no atan2.
 -- @cost O(1) | up to 2 (vertex_in_direction + accessible + raycast)
-local function _flee_lane_at(npc, own_lvid, npc_pos, away_dir, offset_deg, distance_m)
+local function _find_flee_lane_at(npc, own_lvid, npc_pos, away_dir, offset_deg, distance_m)
     local dir = vector()
     for side = 1, (offset_deg == 0 and 1 or 2) do
         local angle = (side == 1 and offset_deg or -offset_deg) * DEG_TO_RAD
         local cos_a, sin_a = math_cos(angle), math_sin(angle)
         dir:set(away_dir.x * cos_a - away_dir.z * sin_a, 0, away_dir.x * sin_a + away_dir.z * cos_a)
-        local vid = _probe_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
+        local vid = _find_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
         if vid then return vid end
     end
     return nil
@@ -1945,7 +1945,7 @@ function xcombat.find_flee_lane(npc, away_dir, distance_m, arc_deg, max_spread_d
     local npc_pos = npc:position()
     local offset_deg = 0
     while offset_deg <= max_spread_deg do
-        local vid = _flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, distance_m)
+        local vid = _find_flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, distance_m)
         if vid then return vid end
         offset_deg = offset_deg + arc_deg
     end
@@ -1953,7 +1953,7 @@ function xcombat.find_flee_lane(npc, away_dir, distance_m, arc_deg, max_spread_d
     if half_m >= STEP_DECREMENT_M then
         offset_deg = 0
         while offset_deg <= max_spread_deg do
-            local vid = _flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, half_m)
+            local vid = _find_flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, half_m)
             if vid then return vid end
             offset_deg = offset_deg + arc_deg
         end
@@ -1970,7 +1970,7 @@ end
 --- @param npc game_object
 --- @param vid number desired destination vertex id
 --- @return number the vertex the NPC was actually sent to
-function xcombat.send_to(npc, vid)
+function xcombat.set_destination(npc, vid)
     if not vid or vid >= INVALID_LVID then
         local own = npc:level_vertex_id()
         npc:set_dest_level_vertex_id(own)
@@ -1996,7 +1996,7 @@ end
 --- True when the NPC has reached its movement destination - the committed-maneuver arrival check.
 --- Wraps path_completed() = (m_path_state == ePathStatePathCompleted) && actual(); the actual() term self-guards
 --- the new-destination race - set_dest_level_vertex_id drops path actuality, so this stays false until the new
---- path is built and walked, never a stale true on the first tick after a send_to. The engine's stricter
+--- path is built and walked, never a stale true on the first tick after a set_destination. The engine's stricter
 --- actual_all() pairing is not script-bound, so this is the full arrival truth available. Meaningless for a hold
 --- maneuver (dest == own node makes it trivially true); a hold ends on its time cap, not on arrival.
 --- @safety SAFE - path_completed is SAFE_WRAPped, returns false on a torn-down object
@@ -2226,7 +2226,7 @@ local ENC_BUILD_M        = 8
 -- Distance to the first static-mesh hit from `pos` along `dir` within `range`, or nil (rqtStatic = baked
 -- level mesh only, so objects/NPCs never count as a wall).
 -- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
-local function _static_dist(pos, dir, range)
+local function _get_static_dist(pos, dir, range)
     local ray = ray_pick()
     ray:set_flags(RQ_STATIC)
     ray:set_position(pos)
@@ -2250,12 +2250,12 @@ end
 function xcombat.get_enclosure(pos)
     if not xmath.check_pos(pos) then return nil end
     local chest = vector():set(pos.x, pos.y + INDOOR_PROBE_Y, pos.z)
-    local roof = _static_dist(chest, vector():set(0, 1, 0), ENC_ROOF_RANGE)
+    local roof = _get_static_dist(chest, vector():set(0, 1, 0), ENC_ROOF_RANGE)
     local walls = {
-        _static_dist(chest, vector():set( 1, 0,  0), ENC_WALL_RANGE),
-        _static_dist(chest, vector():set(-1, 0,  0), ENC_WALL_RANGE),
-        _static_dist(chest, vector():set( 0, 0,  1), ENC_WALL_RANGE),
-        _static_dist(chest, vector():set( 0, 0, -1), ENC_WALL_RANGE),
+        _get_static_dist(chest, vector():set( 1, 0,  0), ENC_WALL_RANGE),
+        _get_static_dist(chest, vector():set(-1, 0,  0), ENC_WALL_RANGE),
+        _get_static_dist(chest, vector():set( 0, 0,  1), ENC_WALL_RANGE),
+        _get_static_dist(chest, vector():set( 0, 0, -1), ENC_WALL_RANGE),
     }
     local nearest, count = nil, 0
     for i = 1, 4 do
@@ -2303,7 +2303,7 @@ end
 --- @src xray via xcombat.is_indoor (rqtStatic roof+wall raycast)
 --- @param pos vector world position
 --- @return string "outdoor" | "indoor" | "underground"
-function xcombat.enclosure(pos)
+function xcombat.get_enclosure_state(pos)
     if GetEvent("underground") then return "underground" end
     if xcombat.is_indoor(pos) then return "indoor" end
     return "outdoor"
@@ -2319,7 +2319,7 @@ end
 --- @param lvid number level vertex id
 --- @param owner_id number reserving NPC id
 --- @return boolean true if reserved by this owner
-function xcombat.claim_cover(lvid, owner_id)
+function xcombat.register_cover(lvid, owner_id)
     if not lvid or lvid >= INVALID_LVID then return false end
     local owner = db.used_level_vertex_ids[lvid]
     if owner and owner ~= owner_id then return false end
