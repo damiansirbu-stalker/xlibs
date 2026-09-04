@@ -8,7 +8,7 @@ local db = db
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(69), xray/xrGame/inventory_owner_info.cpp(96)
 --- @param info_id string Info portion ID
 --- @return boolean Success (false when actor or info_id is nil)
-function give_info(info_id)
+function add_info_portion(info_id)
     local actor = db.actor
     if not info_id or not actor then return false end
     actor:give_info_portion(info_id)

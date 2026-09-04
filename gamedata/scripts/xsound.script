@@ -269,7 +269,7 @@ end
 --- @cost O(1) | 0 luabind (hash lookup + table copy of small fields)
 --- @param handle number Handle from acquire()
 --- @return table|nil { path, volume, target_volume, smoothing, releasing }, nil for unknown handle
-function inspect(handle)
+function get_snapshot(handle)
     local entry = _active[handle]
     if not entry then return nil end
     return {

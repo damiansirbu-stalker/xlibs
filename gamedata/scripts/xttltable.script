@@ -218,7 +218,7 @@ local _token_bucket_mt = {}
 _token_bucket_mt.__index = _token_bucket_mt
 
 --- Acquire one token for key, return true if allowed
-function _token_bucket_mt:acquire(key)
+function _token_bucket_mt:get_token(key)
     local now = self._clock()
     local state = self._keys[key]
     if not state then
@@ -257,7 +257,7 @@ function _token_bucket_mt:set_rate(rate) self._rate = rate end
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
 --- @cost O(1) per acquire/peek | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.get_game_sec
 --- @param opts table { capacity, rate, clock? } capacity = max burst (tokens), rate = refill (tokens/sec)
---- @return table Token bucket with :acquire(key) -> bool, :reset(key), :clear()
+--- @return table Token bucket with :get_token(key) -> bool, :reset(key), :clear()
 function create_token_bucket(opts)
     return setmetatable({
         _capacity = opts.capacity,

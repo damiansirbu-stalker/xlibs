@@ -135,7 +135,7 @@ end
 --- @cost O(1) | 0 luabind
 --- @param handle number Slot id from acquire()
 --- @return table|nil { ppe, smoothing, cyclic, releasing } or nil if handle unknown
-function inspect(handle)
+function get_snapshot(handle)
     local entry = _active[handle]
     if not entry then return nil end
     return { ppe = entry.ppe, smoothing = entry.smoothing, cyclic = entry.cyclic, releasing = entry.releasing }

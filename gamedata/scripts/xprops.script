@@ -12,7 +12,7 @@ local ray_pick, alife, alife_create, alife_object = ray_pick, alife, alife_creat
 -- Physic-object classes safe to alife_create as a standalone world object (dynamic_objects.ltx:10,18).
 -- A section of any other class -- a weapon like W_MOUNTD, an item, an artefact -- makes the engine
 -- read inventory fields it lacks and HARD-CTDs inside alife_create (not a Lua error, cannot be
--- pcall'd), so place() rejects it up front. An unknown/typo section also fails this and is refused.
+-- pcall'd), so spawn_object() rejects it up front. An unknown/typo section also fails this and is refused.
 local _SAFE_CLASS = { O_PHYSIC = true, O_PHYS_S = true, P_DSTRBL = true, O_DSTR_S = true }
 
 -- Collision-DB ray flags (xrCDB, xr_collide_defs.h:72-76): Objects=1, Statics=2, Shapes=4, Obstacles=8.
@@ -58,7 +58,7 @@ end
 --- @param opts table|nil { up = how far above pos to start (default 1.5), depth = how far below to
 ---   search (default 5), flags = collision set (default Statics = terrain + baked geometry) }
 --- @return table|nil { pos = surface point, normal = surface normal, object = hit game object or nil }
-function ground_below(pos, opts)
+function find_ground(pos, opts)
     if not pos then return nil end
     opts = opts or {}
     local up = opts.up or DEFAULT_PROBE_UP_M
@@ -135,26 +135,26 @@ function is_clear(pos, dims, opts)
 end
 
 --- Place a prop: snap to the ground below pos, reject if the spot is occupied, then spawn the section
---- there. Level orientation (no slope tilt in this version; ground_below returns the normal for a
+--- there. Level orientation (no slope tilt in this version; find_ground returns the normal for a
 --- caller that wants to tilt). Server-side spawn, so it works while the area is online.
 --- @scope global - spawns a server entity; requires the level online for the ground/clear rays
 --- @safety SAFE - returns nil (never crashes) when there is no ground, the spot is blocked, or spawn fails
---- @cost O(1) | ground_below + is_clear (<=49 casts) + alife_create
+--- @cost O(1) | find_ground + is_clear (<=49 casts) + alife_create
 --- @src xray/xrGame/level_script.cpp(2643-2653), anomaly/dynamic_objects.ltx physic sections
 --- @param section string A dynamic_objects physic section (e.g. "box_1a")
 --- @param pos vector Rough target position (its ground is resolved by a down-ray)
 --- @param opts table|nil { dims = clearance box {w,l,h}, no_clear = skip the occupancy check,
 ---   ground = false to spawn at pos as-is, lvid/gvid = spawn vertices (default: level vertex at the
----   ground point + the actor's game vertex), up/depth/flags forwarded to ground_below }
+---   ground point + the actor's game vertex), up/depth/flags forwarded to find_ground }
 --- @return userdata|nil se_obj The spawned server object, or nil
 --- @return string|userdata|nil reason "bad_class" / "no_ground" / "spawn_failed", "blocked" or the blocker object
-function place(section, pos, opts)
+function spawn_object(section, pos, opts)
     if not section or not pos then return nil, "bad_args" end
     if not _SAFE_CLASS[ini_sys:r_string_ex(section, "class") or ""] then return nil, "bad_class" end
     opts = opts or {}
     local at = pos
     if opts.ground ~= false then
-        local ground = ground_below(pos, opts)
+        local ground = find_ground(pos, opts)
         if not ground then return nil, "no_ground" end
         at = ground.pos
     end

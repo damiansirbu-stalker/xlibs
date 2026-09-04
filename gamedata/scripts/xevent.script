@@ -21,7 +21,7 @@ end
 --- @param func_name string Function name (e.g., "consume_medkit")
 --- @param wrapper function Wrapper fn(original, ...) -> return original(...)
 --- @return boolean success
-function hook(module_name, func_name, wrapper)
+function register_hook(module_name, func_name, wrapper)
     local key = _create_key(module_name, func_name)
     if _hooks[key] then return false end
 

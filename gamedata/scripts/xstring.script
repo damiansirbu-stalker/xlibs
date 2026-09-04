@@ -8,7 +8,7 @@ local tostring, string_gsub = tostring, string.gsub
 --- @param str string Template with {key} placeholders
 --- @param vars table Key-value pairs for substitution
 --- @return string Interpolated string
-function interpolate(str, vars)
+function format_template(str, vars)
     if not vars then return str end
     return string_gsub(str, "{(%w+)}", function(key)
         local v = vars[key]
