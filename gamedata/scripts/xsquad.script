@@ -313,7 +313,7 @@ end
 --- Mod-specific fields (__lock, registered_with_warfare) handled by AP ownership registry.
 ---
 --- Fields checked (order = priority):
----   scripted_target - Any mod calling acquire_squad or setting directly (AP, Guards Spawner, etc.)
+---   scripted_target - Any mod calling set_target_smart or setting directly (AP, Guards Spawner, etc.)
 ---   action_condlist - Vanilla Anomaly: LTX condlist-driven target logic
 ---   random_targets  - Vanilla Anomaly: random patrol system
 ---
@@ -763,7 +763,7 @@ end
 --- @param target_smart table Target smart terrain
 --- @param rush boolean|nil Rush to target (move.run + anim.danger when online)
 --- @return boolean Success
-function acquire_squad(squad, target_smart, rush)
+function set_target_smart(squad, target_smart, rush)
     if not squad or not target_smart then return false end
     local name = target_smart:name()
     if not name or name == "" then return false end
@@ -778,7 +778,7 @@ function acquire_squad(squad, target_smart, rush)
 end
 
 --- Release: clear scripted_target (stops specific_update) + __lock (unblocks generic_update so sim resumes)
---- Inverse of acquire_squad/target_actor; squad returns to SIMBOARD autonomous targeting
+--- Inverse of set_target_smart/set_target_actor; squad returns to SIMBOARD autonomous targeting
 --- @safety SAFE - pure field writes, nil-guarded
 --- @cost O(1) | 3 luabind trivial (scripted_target, __lock, rush_to_target field writes on squad userdata)
 --- @src anomaly/sim_squad_scripted.script(258)
@@ -797,7 +797,7 @@ end
 --- @param squad table Squad server object
 --- @param target string Expected scripted_target value
 --- @return boolean True if target was overwritten and restored
-function reassert_target(squad, target)
+function set_target(squad, target)
     if not squad or not target then return false end
     if squad.scripted_target == target then return false end
     squad.scripted_target = target
@@ -813,7 +813,7 @@ end
 --- @param squad se_squad Squad to command
 --- @param rush boolean Sprint to target
 --- @return boolean Success
-function target_actor(squad, rush)
+function set_target_actor(squad, rush)
     if not squad then return false end
     squad.scripted_target = "actor"
     squad.__lock = nil
