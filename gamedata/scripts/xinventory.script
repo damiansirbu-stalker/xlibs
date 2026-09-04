@@ -608,7 +608,7 @@ end
 --- @param opts table|nil { equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }
 --- @return string Category name
 --- @return string|nil The item's section, resolved here already, so callers that also need it
----         (policy_key) need not re-read it; nil for a nil / sectionless item
+---         (get_policy_key) need not re-read it; nil for a nil / sectionless item
 function get_category(item, opts)
     if not item then return "other" end
     local sec = item:section()
@@ -833,7 +833,7 @@ function release_item_id(id)
     return true
 end
 
--- POLICY PRIMITIVES (load + classify + iterate surplus + surplus map)
+-- POLICY PRIMITIVES (load + collect_policy_counts + iterate surplus + surplus map)
 -- Three near-identical orchestrators (trade, stash, inventory-balance) historically
 -- carried their own LTX loader, inventory counting pass, and surplus iterator. These
 -- primitives factor the common kernel into one uniform shape:
@@ -851,7 +851,7 @@ end
 --
 --   A row key is EITHER a category OR an item section -- both live in one rules map. An item
 --   resolves to its section's rule when that section is named in the policy, otherwise to its
---   category's rule (see policy_key). So a config caps a whole category (grenade = 3) or names
+--   category's rule (see get_policy_key). So a config caps a whole category (grenade = 3) or names
 --   individual items (grenade_f1 = 0, 3) and leaves others unmentioned -- an unmentioned item
 --   has no rule and is left alone. Mixing is allowed; the more specific (section) rule wins.
 
@@ -950,21 +950,21 @@ end
 --- @return string|nil policy key (section name or category name), nil if untouchable/equipped
 --- @return string|nil item category
 --- @return string|nil item section
-function policy_key(item, opts, rules)
+function get_policy_key(item, opts, rules)
     local cat, sec = get_category(item, opts)
     if cat == "untouchable" or cat == "equipped" then return nil, cat end
     return (rules and rules[sec]) and sec or cat, cat, sec
 end
 
 --- Count NPC inventory items per policy key (online NPC)
---- Single iterate over the NPC's inventory; policy_key drops untouchable and equipped
+--- Single iterate over the NPC's inventory; get_policy_key drops untouchable and equipped
 --- automatically (caller never sees them). Ammo keys count in ROUNDS (sum of ammo_get_count
 --- across stacks); other keys count in ITEMS. With rules given, an item whose section is named
 --- in rules counts under its SECTION key, otherwise its category key, so a category cap sees
 --- only items that have no section rule of their own. max_items bounds the walk (forwarded to
 --- iterate_inventory) and is returned as the second value when the cap truncated it.
 --- @safety SAFE - nil-guarded npc; offline npc yields empty (iterate_inventory online-only)
---- @cost O(min(items, max_items)) | per item: policy_key + 0-1 ammo_get_count
+--- @cost O(min(items, max_items)) | per item: get_policy_key + 0-1 ammo_get_count
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc); nil opts treats every ammo as ammo_not_equipped
@@ -972,12 +972,12 @@ end
 --- @param max_items number|nil Cap forwarded to iterate_inventory; nil = unbounded
 --- @return table { [category|section] = count }
 --- @return boolean|nil true when the walk was capped at max_items (more items remained)
-function classify(npc, opts, rules, max_items)
+function collect_policy_counts(npc, opts, rules, max_items)
     local counts = {}
     if not npc then return counts end
     local _, hit_cap = iterate_inventory(npc:id(), function(_, item)
         if not item then return end
-        local key, cat = policy_key(item, opts, rules)
+        local key, cat = get_policy_key(item, opts, rules)
         if not key then return end
         counts[key] = (counts[key] or 0) + _get_unit(cat, item)
     end, max_items)
@@ -985,7 +985,7 @@ function classify(npc, opts, rules, max_items)
 end
 
 --- Walk NPC inventory and surface items above their policy max
---- For each non-untouchable non-equipped item: policy_key resolves the rule key (section if the
+--- For each non-untouchable non-equipped item: get_policy_key resolves the rule key (section if the
 --- item's section is named in ctx.rules, else category). If a rule exists AND count > max,
 --- mutates ctx.counts in place (counts[key] -= unit) and invokes ctx.on_surplus(item, cat, sec, unit).
 --- Returning true from on_surplus stops iteration (engine convention).
@@ -994,15 +994,15 @@ end
 --- of max by up to (unit - 1) when the boundary stack overshoots.
 --- The caller's on_surplus owns the action: trade transfers + credits, inventory-balance
 --- releases. No release happens unless on_surplus does it. ctx.max_items bounds the walk
---- (forwarded to iterate_inventory); pass the same value classify used so both walks cover the
+--- (forwarded to iterate_inventory); pass the same value collect_policy_counts used so both walks cover the
 --- identical first-N items (m_all order is stable across calls, no mutation between them).
 --- @safety SAFE - nil-guarded args; iterate_inventory tolerant of nil items
---- @cost O(min(items, max_items)) | per item: policy_key + 1 hash lookup + 0-1 ammo_get_count
+--- @cost O(min(items, max_items)) | per item: get_policy_key + 1 hash lookup + 0-1 ammo_get_count
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc)
 --- @param ctx table { rules = hash from load_policy(...).rules,
----                    counts = mutable counts from classify(npc, opts, rules),
+---                    counts = mutable counts from collect_policy_counts(npc, opts, rules),
 ---                    on_surplus = function(item, category, section, unit),
 ---                    max_items = number|nil cap forwarded to iterate_inventory }
 --- @return number Count of surplus items ctx.on_surplus was called on
@@ -1012,7 +1012,7 @@ function iterate_surplus(npc, opts, ctx)
     local invoked = 0
     iterate_inventory(npc:id(), function(_, item)
         if not item then return end
-        local key, cat, sec = policy_key(item, opts, rules)
+        local key, cat, sec = get_policy_key(item, opts, rules)
         if not key then return end
         local rule = rules[key]
         if not rule or not rule.max then return end
@@ -1027,20 +1027,20 @@ function iterate_surplus(npc, opts, ctx)
 end
 
 --- Count an NPC's inventory per policy key and release its surplus in a SINGLE walk
---- The single-walk form of classify + iterate_surplus for the common "count and release the same
+--- The single-walk form of collect_policy_counts + iterate_surplus for the common "count and release the same
 --- NPC's surplus" case. One iterate_inventory pass builds the per-key counts and, in m_all order,
 --- the list of releasable-key items; a second pure-Lua pass walks that list and, with the identical
 --- whole-stack decrement, hands each over-max item to on_surplus in the identical m_all order. So it
---- is a drop-in for classify + iterate_surplus -- same released set, same order, same post-release
---- counts, same hit_cap -- at half the per-item walk cost (one engine walk, one policy_key, one
+--- is a drop-in for collect_policy_counts + iterate_surplus -- same released set, same order, same post-release
+--- counts, same hit_cap -- at half the per-item walk cost (one engine walk, one get_policy_key, one
 --- _get_unit per item instead of two). Untouchable / equipped items and keys without a rule.max never
---- reach on_surplus (policy_key drops the former, the rule gate the latter). on_surplus owns the
+--- reach on_surplus (get_policy_key drops the former, the rule gate the latter). on_surplus owns the
 --- action (release / transfer / credit); returning true stops the release early. counts is returned
 --- post-release so a caller can drive a follow-up pass (e.g. a BUY pass) off it. Release happens
 --- after the walk, over the captured list -- never during a live iterate_inventory -- so it cannot
 --- perturb the walk. max_items bounds the walk (forwarded to iterate_inventory).
 --- @safety SAFE - nil-guarded npc / rules / on_surplus; iterate tolerant of nil items
---- @cost O(min(items, max_items)) | per item: policy_key + 1 _get_unit + 1 hash; then 0-N on_surplus
+--- @cost O(min(items, max_items)) | per item: get_policy_key + 1 _get_unit + 1 hash; then 0-N on_surplus
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc)
@@ -1048,7 +1048,7 @@ end
 ---                    on_surplus = function(item, category, section, unit) (return true to stop early),
 ---                    max_items = number|nil cap forwarded to iterate_inventory }
 --- @return number Count of surplus items on_surplus was called on
---- @return table Post-release per-key counts (identical to classify then iterate_surplus)
+--- @return table Post-release per-key counts (identical to collect_policy_counts then iterate_surplus)
 --- @return boolean|nil true when the walk was capped at max_items (more items remained)
 function collect_surplus(npc, opts, ctx)
     local counts = {}
@@ -1057,7 +1057,7 @@ function collect_surplus(npc, opts, ctx)
     local list = {}
     local _, hit_cap = iterate_inventory(npc:id(), function(_, item)
         if not item then return end
-        local key, cat, sec = policy_key(item, opts, rules)
+        local key, cat, sec = get_policy_key(item, opts, rules)
         if not key then return end
         local unit = _get_unit(cat, item)
         counts[key] = (counts[key] or 0) + unit
@@ -1082,12 +1082,12 @@ end
 
 --- Derive surplus per policy key from counts vs rules (pure)
 --- Returns keys where count > rule.max with the surplus amount. Keys without a rule or with no
---- max are ignored. Keys are categories or item sections, matching classify and the rules map,
+--- max are ignored. Keys are categories or item sections, matching collect_policy_counts and the rules map,
 --- so an unmentioned item (no key in rules) never shows as surplus. Used by stash fill to plan
 --- deposits without re-walking inventory.
 --- @safety SAFE - nil-guarded inputs (returns empty)
 --- @cost O(counts) pure Lua, no luabind
---- @param counts table From classify(npc, opts, rules)
+--- @param counts table From collect_policy_counts(npc, opts, rules)
 --- @param rules table From load_policy(...).rules
 --- @return table { [category|section] = surplus_count } (only entries with surplus > 0)
 function build_surplus_map(counts, rules)
@@ -1146,7 +1146,7 @@ end
 --- @param tag string label for the log line (the calling feature: "trade", "market", "service", ...)
 --- @param log_fn function(fmt, ...) sink, called once with the summary (a mod's own debug logger)
 --- @return nil
-function dump(npc, tag, log_fn)
+function log_inventory(npc, tag, log_fn)
     if not (npc and log_fn) then return end
     local counts, order, total = {}, {}, 0
     npc:iterate_inventory(function(_, it)

@@ -489,7 +489,7 @@ end
 --- @param cfg_path string Trade config path, e.g. "items\\trade\\trade_generic_medic.ltx"
 --- @param stock_now boolean|nil Force conditions + stock now; omit to let the NPC's next motivator update apply them
 --- @return boolean true when the registration ran (not proof of stock), false on nil args or missing trade_manager
-function make_trader(npc, cfg_path, stock_now)
+function create_trader(npc, cfg_path, stock_now)
     if not npc or not cfg_path then return false end
     if type(trade_manager) ~= "table" or type(trade_manager.trade_init) ~= "function" then return false end
     trade_manager.trade_init(npc, cfg_path)

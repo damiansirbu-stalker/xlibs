@@ -15,7 +15,7 @@ local DEFAULT_SHOWTIME_SEC = 7
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot: Level().MapManager().RemoveMapLocation lookup + erase)
 --- @src xray/xrGame/level_script.cpp(459,535)
 --- @param squad_id number Squad ID
-function unmark_squad(squad_id)
+function remove_squad_marker(squad_id)
     if not squad_id then return end
     local stored_type = squad_markers[squad_id]
     if not stored_type then return end
@@ -32,7 +32,7 @@ end
 --- @param squad_id number Squad ID
 --- @param opts table { label, marker_type }
 --- @return boolean True if the spot exists after the add (false during transitions or if rejected)
-function mark_squad(squad_id, opts)
+function add_squad_marker(squad_id, opts)
     if not squad_id then return false end
     if not level.present() then return false end
     opts = opts or {}
@@ -70,7 +70,7 @@ end
 --- @param id number Entity ID
 --- @param opts table { marker_type, label }
 --- @return boolean True if the spot exists after the add (false during transitions or if rejected)
-function mark_entity(id, opts)
+function add_entity_marker(id, opts)
     if not id then return false end
     if not level.present() then return false end
     opts = opts or {}
@@ -87,7 +87,7 @@ end
 --- @src xray/xrGame/level_script.cpp(459,535)
 --- @param id number Entity ID
 --- @param marker_type string|nil Marker type (default: red_location)
-function unmark_entity(id, marker_type)
+function remove_entity_marker(id, marker_type)
     if not id then return end
     marker_type = marker_type or DEFAULT_MARKER_TYPE
     if level.present() then level.map_remove_object_spot(id, marker_type) end
@@ -101,7 +101,7 @@ end
 --- @param msg string Message text (caller adds color prefix)
 --- @param icon string|nil Icon texture (default: generic)
 --- @return boolean
-function send(caption, msg, icon)
+function publish_news(caption, msg, icon)
     if not caption or not msg then return false end
     local actor = db and db.actor
     if not actor then return false end

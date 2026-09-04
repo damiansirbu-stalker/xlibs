@@ -10,7 +10,7 @@ local math_random, math_min, type = math.random, math.min, type
 --- @param a vector position
 --- @param b vector position
 --- @return number squared XZ distance in m^2
-function dist_flat_sqr(a, b)
+function get_flat_dist_sqr(a, b)
     local dx, dz = a.x - b.x, a.z - b.z
     return dx * dx + dz * dz
 end

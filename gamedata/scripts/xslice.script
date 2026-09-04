@@ -108,7 +108,7 @@ end
 --- @cost O(1) | 0 luabind (pure Lua hash assign)
 --- @param name string Queue name
 --- @param silent boolean If true, skip on_done callback
-function cancel(name, silent)
+function stop_queue(name, silent)
     local queue = _queues[name]
     if not queue then return end
     _queues[name] = nil
