@@ -189,8 +189,8 @@ local function _check_deadband(self, msg, lvl)
     return false
 end
 
---- Format the log line via protected string.format when fmt contains a format spec and args follow; otherwise fall through to format_args
---- @safety pcall: string.format throws on a bad format string, recovers and returns the original fmt, see doc/library/modding/pcall-safety.md
+--- Format the log line via protected string.format when fmt holds a spec and args follow, else fall through to format_args.
+--- @safety pcall: string.format throws on a bad format string, recovers and returns the original fmt (doc/library/modding/pcall-safety.md)
 --- @cost O(n) args | 0 luabind (pure Lua string.format / table.concat, ~2-3x overhead on format error path)
 local function _format_msg(fmt, ...)
     if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then
@@ -279,10 +279,8 @@ local function flush_all_loggers()
     end
 end
 
--- Re-arm BEFORE flushing, return nil so the event stays queued with the new deadline.
--- The vanilla queue removes an event whose callback returns true (_g.script:374-377) and
--- re-invokes a nil-returner every update with an unchanged timer; without reset_timer in
--- the bindings, fall back to the one-shot (return true) rather than spin per-frame.
+-- Re-arm BEFORE flushing and return nil so the event stays queued with the new deadline.
+-- Without reset_timer in the bindings, fall back to the one-shot (return true) rather than spin per-frame on a nil-returner.
 local function _run_periodic_flush()
     local rearmed = false
     if platform and platform.reset_timer then
@@ -374,8 +372,8 @@ function get_levels()
     return LEVELS
 end
 
---- Initialize logging system with game-specific callbacks
---- Wires getFS():update_path("$logs$") for path, CreateTimeEvent + ResetTimeEvent for the periodic flush, RegisterScriptCallback for lifecycle
+--- Initialize the logging system with game-specific callbacks.
+--- Wires getFS():update_path for the path, CreateTimeEvent + ResetTimeEvent for the periodic flush, and RegisterScriptCallback for lifecycle.
 --- @safety SAFE - all bindings are nil-checked in init(); getFS/update_path deferred to first flush
 --- @cost O(1) at startup | 0 luabind here (closures defer); first flush triggers 2 luabind heavy (getFS singleton + update_path concat)
 --- @src xray/xrGame/fs_registrator_script.cpp(9,289), anomaly/_g.script(339,104), RavenAscendant/mcm_log.script(52)

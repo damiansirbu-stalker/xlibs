@@ -1,14 +1,9 @@
---- xobject: Generic game_object lookup (ID extraction, server/game object resolution)
----
---- Inventory-domain methods (item categorization, slot accessors, ammo config, item lifecycle:
---- iterate_inventory, create_item, transfer_item, release_item, get_box_size) live in
---- `xinventory.script`. Boundary rule: xobject = generic game_object lookup; xinventory =
---- anything that takes an item or talks about an NPC's items.
+--- xobject: generic game_object lookup (ID extraction, server/game object resolution); item-domain methods live in xinventory.script
 
 local type, alife_object = type, alife_object
 local level = level
 
--- Extract numeric id from number, userdata, or table; dispatches :id() method vs .id field
+-- Extract a numeric id from a number, userdata, or table (dispatching the :id() method vs the .id field).
 -- @cost O(1) | 0 luabind for number, 1 luabind trivial for userdata field/method access
 local function _get_id(input)
     if not input then return nil end
@@ -20,8 +15,8 @@ local function _get_id(input)
     return nil
 end
 
---- Get server object from ID, game object, or server object
---- m_game_vertex_id ~= nil discriminates a server object. A game object exposes it as a method, so the field is nil and falls through to _get_id.
+--- Get the server object from an ID, game object, or server object (m_game_vertex_id ~= nil discriminates a server object).
+--- A game object exposes m_game_vertex_id as a method, so the field is nil and falls through to _get_id.
 --- @safety SAFE - alife_object Lua wrapper nil-guards id and rejects id >= 65535 (_g.script:2045)
 --- @cost O(log n) on alife_object | 0 luabind for pass-through server object, 1 luabind medium otherwise (alife_object: xr_map<u16,*> find on OBJECT_REGISTRY)
 --- @src anomaly/_g.script(2062), xray/xrGame/alife_simulator_script.cpp(40), xray/xrGame/alife_object_registry_inline.h(36)
@@ -49,7 +44,7 @@ function is_story(se_obj)
     return story_id ~= nil and story_id ~= -1
 end
 
---- Get online game object by ID. Complement to get_se(); returns nil when entity is offline, ID is invalid, or level not loaded.
+--- Get an online game object by ID - the complement to get_se(); nil when the entity is offline, the ID is invalid, or no level is loaded.
 --- @safety SAFE - level.present() guards NULL g_pGameLevel during transitions; net_Find rejects id==0xffff (xr_object_list.h:72)
 --- @cost O(1) | 2 luabind trivial (level.present: pointer check, level.object_by_id: flat array index map_NETID[ID])
 --- @src xray/xrGame/level_script.cpp(586), xray/xrEngine/xr_object_list.h(70)
@@ -60,11 +55,8 @@ function get_go(id)
     return level.object_by_id(id)
 end
 
---- Release a server object via the anomaly alife_release dispatcher (NOT a raw alife():release).
---- alife_release routes by class: a grouped NPC through squad:remove_npc (proper member detach), a
---- squad through remove_squad, other classes through alife():release, and it fires
---- server_entity_on_unregister for registered classes. A caller needing the raw engine destroy that
---- bypasses this dispatch (e.g. an entity whose group_id is a non-squad group) must call alife():release directly.
+--- Release a server object via the anomaly alife_release dispatcher (NOT a raw alife():release), which routes by class.
+--- A grouped NPC goes through squad:remove_npc, a squad through remove_squad, other classes through alife():release, firing server_entity_on_unregister.
 --- @safety SAFE - nil-guarded; alife_release itself prints an error on a nil server object
 --- @cost O(1) | 1-3 luabind (clsid dispatch + remove_npc / remove_squad / alife():release)
 --- @src anomaly/_g.script(2196 alife_release), xray/xrGame/alife_simulator_script.cpp(288 CALifeSimulator__release)

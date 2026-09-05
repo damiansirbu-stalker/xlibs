@@ -1,17 +1,6 @@
 --- xdata: Static data tables for xlibs (unscriptable NPCs, faction lists, campfire smarts)
 
--- Per-NPC role declarations. Each section maps to a set of roles it fulfills.
--- Multi-role NPCs are common: mechanics with dm_init_trader (sell ammo + parts),
--- leaders with dm_init_trader (Sakharov, Petrenko), quest NPCs with dm_init_trader
--- (Kruglov, Povar, Physicist) and so on. Each role this NPC actually serves
--- (per vanilla character_desc <actor_dialog>) is tagged true.
--- Roles: trader, medic, mechanic, guide, guard, bodyguard, leader, quest.
--- faction: real allegiance, verified from character_desc <community> when possible. For NPCs
--- whose community is "trader" (universal-neutral) the faction encodes their real allegiance
--- by lore. Pre-populated so _se_faction can short-circuit on hash lookup
--- without paying community() heavy luabind. Missing faction (a few unverified ids) falls
--- back to community read.
--- src: grok_no_north_faction_in_south.script, surge_manager_ignore_npc.script
+-- Per-NPC role declarations: each section maps to the set of roles it fulfills (trader/medic/mechanic/guide/guard/bodyguard/leader/quest) plus a faction.
 npc_roles = {
     -- Cordon
     ["esc_m_trader"]                                     = { trader = true, faction = "stalker" },
@@ -170,9 +159,7 @@ npc_roles = {
     ["lazarus_stalker"]                                  = { quest = true, faction = "stalker" },
 }
 
--- Per-role buckets and the unscriptable_npcs union, derived from npc_roles at module load.
--- Existing callers (xcreature.is_unscriptable, xsquad.script:83, ap_ext_test.script:302)
--- bare-truthy-check unscriptable_npcs[section]; the union preserves that contract.
+-- Per-role buckets and the unscriptable_npcs union, derived from npc_roles at module load; callers bare-truthy-check unscriptable_npcs[section].
 traders, medics, mechanics            = {}, {}, {}
 guides, guards, bodyguards            = {}, {}, {}
 leaders, quests                       = {}, {}
@@ -193,10 +180,7 @@ do
     end
 end
 
--- Smarts owning an SDK-placed campfire (<smart>_campfire_N), keyed by smart name. Static map
--- geometry (CSE_ALifeAnomalousZone, immutable); enumerated once across all levels, identical on
--- base-Anomaly and GAMMA. xsmart.has_campfire answers offline map campfires from this set; the
--- online bind_campfire table (db.campfire_table_by_smart_names) covers player-placed / non-base fires.
+-- Smarts owning an SDK-placed campfire, keyed by smart name (static map geometry); xsmart.has_campfire answers offline map campfires from this set.
 campfire_smarts = {
     ["aes_smart_terrain_monolit_blockpost4"] = true,
     ["aes2_monolith_camp1"] = true,

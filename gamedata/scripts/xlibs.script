@@ -2,18 +2,13 @@
 local tonumber = tonumber
 local _VERSION = "next"
 
---- The unreleased development build. Between releases every mod's own version reads this instead of
---- the last released number, so a log says at a glance whether a tester runs a release or a dev
---- build (stalker-release.md, "The next Version").
+-- The unreleased development build; every mod's version reads this between releases so a log shows whether a tester runs a release or dev build.
 local DEV_VERSION = "next"
 
---- Major of the API this build speaks. "next" carries no number for is_compatible to compare, so a
---- dev build would otherwise answer compatible even across a breaking change; this is what it
---- compares instead. Bumped in the same commit as any breaking rename or removal, together with
---- every downstream XLIBS_MIN_VERSION (Cross-Release API Coordination, stalker-release.md).
+-- Major of the API this build speaks: what is_compatible compares against in dev (where "next" carries no number), bumped on any breaking change.
 local API_MAJOR = 1
 
---- Get xlibs package version string. Constant read from module-local _VERSION literal, set at file load.
+--- Get the xlibs package version string (the module-local _VERSION literal set at file load).
 --- @safety SAFE - returns a constant string literal
 --- @cost O(1) | 0 luabind (return local)
 --- @return string Version string (e.g. "1.5.0", or "next" between releases)
@@ -21,14 +16,8 @@ function get_version()
     return _VERSION
 end
 
---- Check if xlibs version is compatible with required minimum (semver: same major, actual >= required)
---- Parses both required and actual as major.minor.patch via Lua pattern; rejects on major mismatch, then compares minor then patch
---- "next" is the development build and sorts above every release within its API major: it satisfies
---- any numeric requirement on that major, and no released build satisfies a required "next". Without
---- this the semver pattern would not match, act_maj would be nil, and a dev xlibs would report
---- incompatible with every consumer at once -- blocking the whole family rather than loading it.
---- The major is still enforced in dev, against API_MAJOR rather than a parsed version, so a
---- consumer pinned to an older major is rejected exactly as it would be against a release.
+--- Check if the xlibs version satisfies a required minimum (semver: same major, actual >= required).
+--- "next" is the dev build: it satisfies any numeric requirement on API_MAJOR (enforced), and no release satisfies a required "next".
 --- @safety SAFE - tonumber returns nil for malformed patches (defaulted to 0); required must match "^%d+%.%d+" or tonumber crashes (caller passes valid semver)
 --- @cost O(1) | 0 luabind (pure Lua string.match + tonumber + integer compares)
 --- @param required string Minimum version ("1.2" or "1.2.2", or "next")

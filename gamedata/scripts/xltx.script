@@ -1,13 +1,9 @@
---- xltx: LTX/config reading - clean maps, lists and typed fields over ini_file + r_line_ex + parse_list,
---- absence-safe. The single home for reading Anomaly .ltx config: callers never touch ini_file / line_count
---- / r_line_ex / section_exist / r_*_ex directly. Every reader takes a path OR an already-open handle, so a
---- caller reading many fields from one file opens it once (resolve_handle) and passes the handle to avoid reopening.
+--- xltx: absence-safe LTX/config reading - clean maps, lists and typed fields over ini_file + r_line_ex + parse_list (path or open handle)
 
 local ini_file, parse_list, type = ini_file, parse_list, type
 
---- Resolve a path or an existing handle to an ltx handle - the module's one opener and internal resolver.
---- A handle passes through unchanged; a string path is opened via ini_file. Absence is the caller's to
---- guard (has() or a nil check on the result).
+--- Resolve a path or an existing handle to an ltx handle - the module's one opener (a handle passes through, a path is opened via ini_file).
+--- Absence is the caller's to guard (has() or a nil check on the result).
 --- @safety SAFE - nil-guarded by the caller
 --- @cost 1 luabind (ini_file) for a path; 0 for a handle
 --- @param src string|userdata An ltx path, or an already-open ini handle

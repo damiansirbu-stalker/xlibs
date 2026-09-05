@@ -4,7 +4,7 @@ local _hooks = {}
 
 local type, rawget = type, rawget
 
--- Resolve module table from _G by name
+-- Resolve a module table from _G by name.
 -- @cost O(1) | 0 luabind (pure Lua rawget bypasses _G's auto_load __index)
 local function _get_module(name)
     return rawget(_G, name)

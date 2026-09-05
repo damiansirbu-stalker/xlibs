@@ -4,7 +4,7 @@ local trace_counter = 0
 
 local _NULL = { id = 0 }
 
---- Create new trace with a fresh monotonic id
+--- Create a new trace with a fresh monotonic id.
 --- @safety SAFE - pure Lua table
 --- @cost O(1) | 0 luabind (pure Lua table op)
 --- @return table Trace object with id

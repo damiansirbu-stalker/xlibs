@@ -3,8 +3,7 @@
 local math_random, math_min, type = math.random, math.min, type
 
 --- Squared flat (XZ) distance between two position vectors - the ground-plane displacement read.
---- Squared so a radius compare needs no sqrt; flat so a height difference (stairs, a ledge) does
---- not read as movement.
+--- Squared so a radius compare needs no sqrt; flat so a height difference (stairs, a ledge) does not read as movement.
 --- @safety SAFE - pure Lua field reads
 --- @cost O(1) | 0 luabind (vector field math)
 --- @param a vector position
@@ -15,16 +14,9 @@ function get_flat_dist_sqr(a, b)
     return dx * dx + dz * dz
 end
 
---- Validate a caller-supplied position argument at a public spatial-query boundary.
---- Returns true iff `pos` is a luabind vector (userdata). A nil returns false silently (an
---- expected empty-input path). Any other non-vector type (function, table, number) is the
---- signature of a foreign mod shadowing an object's C++ `position` member with a Lua method:
---- luabind resolves the instance/class table before the C++ member (class_rep.cpp:1216-1253),
---- so `obj.position` returns the function and every downstream `pos:distance_to_sqr()` / `pos.x`
---- crashes with "attempt to index a function value". Returning false on that case lets the
---- caller return its own empty result instead of a CTD.
---- @src xray-monolith class_rep.cpp(1216-1253) instance/class table lookup precedes m_getters;
----   xrServer_Objects_script.cpp(114) position is a def_readwrite C++ member on cse_abstract
+--- Validate a caller-supplied position argument at a public spatial-query boundary: true iff pos is a luabind vector (userdata).
+--- A non-vector type is the signature of a foreign mod shadowing the C++ position member with a Lua method; returning false avoids the CTD.
+--- @src xray-monolith class_rep.cpp(1216-1253) instance/class table lookup precedes m_getters; position is a def_readwrite member on cse_abstract
 --- @safety SAFE - pure type() check
 --- @cost O(1) | 0 luabind (type() is a VM primitive)
 --- @param pos any value to validate
@@ -47,7 +39,7 @@ function is_in_range(pos, x, z, radius)
     return dx * dx + dz * dz <= radius * radius
 end
 
---- Return random element from array. Uses math.random for index selection; assumes #t > 0.
+--- Return a random element from an array (math.random index; assumes #t > 0).
 --- @safety SAFE - pure Lua, crashes on empty table (caller's responsibility)
 --- @cost O(1) | 0 luabind (pure Lua: math.random + table index)
 --- @param t table Array to sample from
@@ -56,7 +48,7 @@ function select(t)
     return t[math_random(#t)]
 end
 
---- Shuffle first n elements of array in-place. Fisher-Yates partial shuffle: swaps each position with random later element.
+--- Shuffle the first n elements of an array in-place (Fisher-Yates partial: swap each position with a random later element).
 --- @safety SAFE - pure Lua, mutates input table
 --- @cost O(n) | 0 luabind (pure Lua loop + math.random per step)
 --- @param t table Array to shuffle
@@ -71,10 +63,8 @@ function shuffle_partial(t, n)
     return t
 end
 
---- Select a uniformly random NUMBER of elements from array: k = random(1, min(n, #t))
---- Delegates to shuffle_partial then picks the random count; the random-sized take is the
---- contract (consumer dispatch variability). For an exact-count take, use shuffle_partial
---- directly and slice (the xstash.find_stashes pattern).
+--- Select a uniformly random NUMBER of elements from an array: k = random(1, min(n, #t)), the random-sized take being the contract.
+--- For an exact-count take, use shuffle_partial directly and slice.
 --- @safety SAFE - pure Lua, mutates input table
 --- @cost O(n) | 0 luabind (pure Lua loop + math.random per step)
 --- @param t table Source array

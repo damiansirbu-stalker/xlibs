@@ -28,10 +28,8 @@ function register(id, fn)
     _registry[#_registry + 1] = { id = id, fn = fn }
 end
 
---- Run all registered changesets not yet applied to this save.
---- Stamps applied id with os.time (libc); xtime.get_game_sec AVs at load_state because
---- CLevel::game is null during CALifeSimulator ctor (alife_storage_manager.cpp:131).
---- Idempotent: changesets in the log are skipped on subsequent loads.
+--- Run all registered changesets not yet applied to this save, idempotent (logged ids are skipped on later loads).
+--- Stamps the applied id with os.time (libc), not xtime.get_game_sec, which AVs at load_state (CLevel::game is null).
 --- @safety SAFE - pure table writes, no engine APIs (os.time is libc)
 --- @cost O(n) registry | 1 libc os.time per applied
 --- @param m_data table Save data table

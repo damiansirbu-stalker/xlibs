@@ -8,9 +8,8 @@ local squad_markers = {}
 -- Seconds a PDA marker stays on screen when the caller names none.
 local DEFAULT_SHOWTIME_SEC = 7
 
---- Remove map marker from squad
---- Guards level.present() (Level() is NULL during transitions, where map_remove is a C++ NULL deref
---- pcall cannot catch; the guard returns before the deref), then removes the spot and clears the ledger.
+--- Remove a squad's map marker, guarding level.present() (Level() is a NULL deref during transitions, uncatchable by pcall).
+--- Removes the spot and clears the ledger.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot: Level().MapManager().RemoveMapLocation lookup + erase)
 --- @src xray/xrGame/level_script.cpp(459,535)
@@ -23,9 +22,8 @@ function remove_squad_marker(squad_id)
     squad_markers[squad_id] = nil
 end
 
---- Add map marker to squad
---- Removes any prior stored spot, adds the new one, then returns whether the spot actually EXISTS
---- (map_has_object_spot != 0) instead of merely whether the call did not error -- a rejected add surfaces.
+--- Add a squad's map marker: remove any prior stored spot, add the new one, then verify the spot actually EXISTS (map_has_object_spot != 0).
+--- Returning existence rather than call success surfaces a rejected add.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 3 luabind heavy (map_remove + map_add + map_has verify)
 --- @src xray/xrGame/level_script.cpp(434,459,505,535)
@@ -61,9 +59,8 @@ function clear_squad_markers()
     squad_markers = {}
 end
 
---- Mark an entity (NPC, long-lived marker - caller owns persistence)
---- Removes any existing spot of this type, adds the new one, then returns whether the spot actually
---- EXISTS (map_has_object_spot != 0) -- so a rejected add (bad spot type, invalid object) surfaces to the caller.
+--- Mark an entity (a long-lived marker; the caller owns persistence): remove any existing spot of this type, add the new one, then verify existence.
+--- Returning map_has_object_spot != 0 surfaces a rejected add (bad spot type, invalid object) to the caller.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 3 luabind heavy (map_remove + map_add + map_has verify)
 --- @src xray/xrGame/level_script.cpp(434,459,505,535)
@@ -109,11 +106,8 @@ function publish_news(caption, msg, icon)
     return true
 end
 
---- Send an NPC-attributed PDA tip: header is the speaker's name, body is a message, icon is the
---- speaker's portrait, plus a PDA sound. Direct to the actor (not faction-channel routed), so it
---- always reaches the player regardless of the speaker's faction. Wraps dynamic_news_helper
---- (icon_by "npc" path), with a give_game_news fallback for engines lacking the helper. The
---- message is a string id; the helper translates it (the fallback translates it explicitly).
+--- Send an NPC-attributed PDA tip (speaker name header, portrait icon, PDA sound) direct to the actor, so it always reaches the player.
+--- Wraps dynamic_news_helper with a give_game_news fallback; the message is a string id the helper translates.
 --- @safety SAFE - returns false if npc / msg / db.actor unavailable; never crashes
 --- @cost O(1) | 1 luabind heavy (give_game_news) + character_name + character_icon + sound play
 --- @src anomaly/dynamic_news_helper.script send_tip, xray/xrGame/script_game_object_script3.cpp(208)

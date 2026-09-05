@@ -1,6 +1,4 @@
---- xfs: virtual filesystem enumeration - clean folder/file lists over getFS():file_list_open + the FS.*
---- flag bits. The single home for on-disk listing (the review player's sound browser, etc.); callers never
---- touch getFS / FS.FS_ListFolders / FS.FS_RootOnly directly. Results are unsorted (sort at the call site).
+--- xfs: virtual filesystem enumeration - clean folder/file lists over getFS():file_list_open + the FS.* flag bits (results unsorted)
 
 local getFS, bit_or, FS = getFS, bit_or, FS
 

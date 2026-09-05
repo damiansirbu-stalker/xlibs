@@ -6,20 +6,13 @@ local xobject, xlevel, xmath = xobject, xlevel, xmath
 -- Stashes returned when the caller sets no max_count.
 local DEFAULT_MAX_STASHES = 3
 
---- Find stashes matching criteria
---- Iterates opts.source (when provided) or treasure_manager.caches; excludes player-created stashes,
---- filters by distance/level/fill state. State (filled/looted/hidden) is always read from
---- treasure_manager.caches[stash_id] since it mutates; the source table only contributes the iteration
---- set (stash_ids to consider).
+--- Find stashes matching the criteria in opts, iterating opts.source or treasure_manager.caches (source contributes only the id set).
+--- Excludes player-created stashes and filters by distance/level/fill state; state is always read from treasure_manager.caches[stash_id].
 --- @safety SAFE - xobject.get_se returns nil for invalid, .position field nil-guarded, distance_to_sqr is vector inline math
 --- @cost O(n) stashes in pool | per stash: 1 medium (xobject.get_se -> alife_object xr_map find) + 1 trivial (distance_to_sqr); level filter cached (0 luabind)
 --- @src anomaly/treasure_manager.script(33), anomaly/_g.script(2062), anomaly/item_backpack.script(27)
 --- @param pos vector Origin position
---- @param opts table { max_distance, min_distance, max_count, level_id, filled, source }
----   source: optional { [stash_id] = anything } iterable. When present, replaces treasure_manager.caches
----   as the iteration set; only keys are consumed. Use AlifePlus ap_core_cache.stashes_on_level(level_id)
----   to fetch a per-level bucket. When the cache is in its build warmup window, that helper returns nil;
----   the caller should gate on nil and skip the call rather than fall through to the global walk.
+--- @param opts table { max_distance, min_distance, max_count, level_id, filled, source (a { [stash_id] = any } id set replacing treasure_manager.caches) }
 --- @return table Array of stash {id, position, filled}
 function find_stashes(pos, opts)
     if not xmath.check_pos(pos) or not opts or not opts.max_distance then return {} end
@@ -65,7 +58,7 @@ function find_stashes(pos, opts)
     return candidates
 end
 
---- Check if stash was looted. Checks treasure_manager.caches[id] == true (boolean true means looted).
+--- Check if a stash was looted (treasure_manager.caches[id] == true, boolean true means looted).
 --- @safety SAFE - pure Lua table read, nil-guarded
 --- @cost O(1) | 0 luabind (pure Lua hash read + equality check)
 --- @src anomaly/treasure_manager.script(33)
@@ -77,7 +70,7 @@ function is_stash_looted(stash_id)
     return treasure_manager.caches[stash_id] == true
 end
 
---- Return stash contents as parsed item list without modifying state. Reads comma-separated contents string from treasure_manager.caches and splits it.
+--- Return the stash contents as a parsed item list without modifying state (splits the comma-separated string from treasure_manager.caches).
 --- @safety SAFE - pure Lua table read + str_explode is anomaly Lua, nil-guarded
 --- @cost O(n) items | 0 luabind (str_explode is pure Lua string.gmatch)
 --- @src anomaly/treasure_manager.script(33), anomaly/_g.script str_explode
@@ -91,7 +84,7 @@ function get_stash_items(stash_id)
     return str_explode(contents, ",")
 end
 
---- Loot stash contents (marks as looted, returns item list). Reads comma-separated contents string, marks as looted, removes map spot.
+--- Loot a stash's contents: split the contents string, mark it looted, and remove the map spot.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) items (str_explode) | 1 luabind medium (map_remove_object_spot)
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(459,535)
@@ -112,7 +105,7 @@ function collect_stash_items(stash_id)
     return items
 end
 
---- Fill stash with items (always safe to call). Appends to existing contents string or creates new; optionally adds "treasure" map spot.
+--- Fill a stash with items (always safe to call): append to the existing contents string or create it, optionally adding a "treasure" map spot.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) items (table_concat) | 0-1 luabind heavy (map_add_object_spot if add_marker: CMapLocation construction + insert)
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(434,535)

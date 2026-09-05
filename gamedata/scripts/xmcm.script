@@ -2,10 +2,9 @@
 
 local pairs = pairs
 
--- Config getter closure: reads ui_mcm.get(path) with fallback to the defaults table
+-- Config getter closure: reads ui_mcm.get(path) with a fallback to the defaults table; snapshot into cfg for hot paths.
 -- @safety SAFE - ui_mcm.get returns nil for missing keys, defaults table is fallback
--- @cost O(1) per call | 0 luabind cached (axr_main.config ini_file_ex.cache hit + 2 string concats), ini luabind on first read per key
--- Not for hot paths: snapshot into a local/cfg and refresh on option change (mcm.md snapshot pattern)
+-- @cost O(1) per call | 0 luabind cached (axr_main.config cache hit + 2 string concats), ini luabind on first read per key
 local function create_getter(mod_id, defaults, path_builder)
     return function(key)
         if ui_mcm and not (ui_mcm.is_gathering and ui_mcm.is_gathering()) then

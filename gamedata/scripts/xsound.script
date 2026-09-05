@@ -7,8 +7,7 @@ local _registered = false
 local _last_tick = 0
 local TICK_MS = 100
 
--- Forward declaration: play_at/create_sound call _register, which is defined below _update. Without this
--- the name resolves to a nil global at the earlier call sites (LUA runtime error on first play).
+-- Forward declaration: play_at/create_sound call _register (defined below _update), so the name resolves at those earlier call sites.
 local _register
 
 local sound_object_t = sound_object
@@ -137,7 +136,7 @@ function length(snd_path)
     return snd:length() or 0
 end
 
--- Step current toward target by smoothing per second
+-- Step current toward target by smoothing per second.
 -- @cost O(1) | 0 luabind
 local function _compute_step(current, target, smoothing, dt_sec)
     local delta = smoothing * dt_sec
@@ -146,7 +145,7 @@ local function _compute_step(current, target, smoothing, dt_sec)
     return current - delta
 end
 
--- Per-frame volume lerp + auto-cleanup on releasing handles reaching 0
+-- Per-frame volume lerp plus auto-cleanup when a releasing handle reaches 0.
 -- @cost O(n_active) | 0 luabind (sound_object.volume is property assign)
 local function _update()
     local now = time_global()
@@ -276,8 +275,7 @@ function get_snapshot(handle)
     }
 end
 
--- Engine sound seams (trace + veto over the ambient soundscape): xlibs owns the raw _G seams and routes each to one registered handler.
--- The engine calls a named _G global at each sound-play site and applies { volume_mult } from the return; inert on a stock exe.
+-- Engine sound seams (trace + veto over the ambient soundscape): xlibs owns the raw _G seams and routes each to one registered handler, inert on a stock exe.
 
 -- global name (e.g. "COnAmbientBed") -> registered handler function
 local _sound_handlers = {}
@@ -300,7 +298,7 @@ local function _set_sound_handler(global_name, handler)
     end
 end
 
---- Register (or clear, with nil) the System A background-bed handler. handler: function(section, file, pos) -> nil | { volume_mult = number }
+--- Register (or clear, with nil) the System A background-bed handler: fn(section, file, pos) -> nil | { volume_mult = number }.
 --- @safety SAFE  @cost O(1) | 0 luabind
 --- @src xray/xrGame/GamePersistent.cpp (WeathersUpdate bed play site; fires _G.COnAmbientBed)
 --- @param handler function|nil

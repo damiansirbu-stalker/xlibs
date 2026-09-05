@@ -19,8 +19,7 @@ OBJECT_TYPE = {
     OBJECT = "object",
 }
 
--- Get object type using game's type check functions (internal: userdata() dispatch)
--- Dispatches through IsStalker/IsMonster/IsWeapon/etc. global type checkers with clsid
+-- Get an object's type by dispatching through the IsStalker/IsMonster/IsWeapon global type checkers with clsid.
 -- @safety SAFE - returns nil for nil obj, type checkers are nil-safe
 -- @cost O(1) | 1 luabind trivial when cls is nil (clsid: enum return), 0 luabind otherwise; Is* dispatch is pure Lua clsid equality / hash lookup
 -- @src anomaly/_g.script(2820) IsStalker, (2827) IsMonster, (3175) IsItem
@@ -150,9 +149,8 @@ format_value = function(v, depth, ctx)
     return _format_table(v, depth, ctx)
 end
 
---- Format table with cycle detection and depth limiting
---- Returns tostring(t) for non-table input; otherwise delegates to the recursive format_value walker
---- (SIMPLE_TYPES dispatch for primitives, userdata delegated to format_userdata(); cycle detection via ctx.seen)
+--- Format a table with cycle detection and depth limiting; returns tostring(t) for non-table input.
+--- Otherwise delegates to the recursive format_value walker (primitives by SIMPLE_TYPES, userdata to format_userdata, cycles via ctx.seen).
 --- @safety SAFE - same path as inspect()
 --- @cost O(n) total values walked | 0 luabind (pure Lua; userdata only entered via inspect path)
 --- @param t table Table to format

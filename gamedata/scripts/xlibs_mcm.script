@@ -2,8 +2,7 @@
 
 local type, tostring, math_floor = type, tostring, math.floor
 
--- The demonized build this release is built and tested against - set to the LATEST demonized at
--- every release (stalker-compatibility.md "The target build").
+-- The demonized build this release is built and tested against, set to the LATEST demonized at every release.
 local TARGET_DEMONIZED = 20260706
 
 -- xray-monolith build (YYYYMMDD) as the themrdemonized tag style, no zero padding (20260706 -> "2026.7.6").
@@ -11,12 +10,10 @@ local function _build_tag(build)
     return math_floor(build / 10000) .. "." .. (math_floor(build / 100) % 100) .. "." .. (build % 100)
 end
 
--- AOEngine v0.55 is cut from the 2025-09-08 xray-monolith fork state (stalker-compatibility.md), so
--- AOE is judged as an engine frozen at this build: any newer target reads partially compatible on AOE.
+-- AOEngine v0.55 is cut from the 2025-09-08 xray-monolith fork state, so AOE is judged as an engine frozen at this build.
 local AOE_BASELINE_BUILD = 20250908
 
--- Platform status line + verdict for the xlibs info-page footer. Self-contained: xmcm no longer carries
--- this, since it was the one place a consumer had to depend on a version-sensitive xlibs symbol.
+-- Platform status line + verdict for the xlibs info-page footer.
 local function _platform_status()
     local line = "xlibs " .. xlibs.get_version()
     local has_build = type(get_modded_exes_version) == "function"

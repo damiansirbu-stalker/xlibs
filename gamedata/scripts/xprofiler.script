@@ -44,8 +44,8 @@ function new()
     return setmetatable({ _timer = profile_timer() }, Profiler)
 end
 
---- Create profiler if condition true, else return null singleton (zero overhead)
---- Null singleton has matching API (:start/:stop/:get_ms all no-op); zero luabind when disabled
+--- Create a profiler when condition is true, else return the null singleton (zero overhead).
+--- The null singleton has a matching API (:start / :stop / :get_ms all no-op), zero luabind when disabled.
 --- @safety SAFE - null singleton is pure Lua table
 --- @cost O(1) | 0 luabind if false, 1 luabind medium if true (profile_timer ctor)
 --- @src xray/xrServerEntities/script_engine_script.cpp(127,253)

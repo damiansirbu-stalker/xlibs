@@ -12,8 +12,7 @@ ENTITY = {
     MUTANT = "mutant",
 }
 
---- Stalker rank tier names, low to high, as returned by ranks.get_obj_rank_name - the single owner for the rank-name set.
---- Iterate it to build per-rank config keys and curve tables.
+--- Stalker rank tier names low to high (ranks.get_obj_rank_name), the single owner for the rank-name set.
 RANK_TIERS = { "novice", "trainee", "experienced", "professional", "veteran", "expert", "master", "legend" }
 
 --- Get the class ID from an entity (ID, game_object, or server object), resolved via xobject.get_se + :clsid().
@@ -110,8 +109,7 @@ function is_monster_faction(faction)
     return faction ~= nil and _is_monster_faction[faction] == true
 end
 
--- Ambiguous clsids: modded creatures that reuse a vanilla clsid when their own _s clsid is not registered.
--- Empty when the modded exe registers proper clsids; only these trigger the section_name fallback.
+-- Ambiguous clsids: modded creatures reusing a vanilla clsid when their _s clsid is unregistered; only these trigger the section_name fallback.
 local _ambiguous_clsids = {}
 local _ambiguous_prefixes = {}
 if not clsid.lurker_s then
@@ -131,7 +129,7 @@ end
 -- Per-NPC weak-key cache: clsid (and so species) is invariant for a server entity's lifetime; false sentinel for a nil result.
 local _species_cache = setmetatable({}, { __mode = "k" })
 
--- Inner resolver: clsid -> species, with prefix fallback for ambiguous clsids
+-- Inner resolver: clsid -> species, with a prefix fallback for ambiguous clsids.
 -- @cost O(1) | 1-2 luabind (clsid + section_name for ambiguous)
 local function _resolve_clsid_species(se_npc)
     local cls = se_npc:clsid()
@@ -645,5 +643,4 @@ function start_particle(obj, name, bone)
     return true
 end
 
--- There is deliberately NO detach_particle: stop_particles trips the engine bone assert whenever the bone is not renderable, which
--- flips constantly, so no guard prevents it (proven live 2026-08-14). Attach once and let the particle die with the game object.
+-- No detach_particle exists: stop_particles trips the bone assert whenever the bone is not renderable (constant); attach once, let it die with the object.

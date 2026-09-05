@@ -1,13 +1,4 @@
---- xslice: Time-sliced array iteration across frames
----
---- Spreads array processing across game frames. Each frame processes `step`
---- items. Items where func returns true are drained. Remaining items are
---- revisited in the next pass (circular). Queue finishes when all items
---- drained, func returns false (early stop), or cancelled.
----
---- Pattern: time slicing -- amortize O(n) work across n/step frames.
---- Uses AddUniqueCall. Single callback drives all active queues.
---- Internals: deferred compaction (survivors list per pass, no table.remove).
+--- xslice: time-sliced array iteration - amortize O(n) work across n/step frames, one AddUniqueCall driving all queues (deferred compaction)
 
 local pairs, next, ipairs = pairs, next, ipairs
 local AddUniqueCall = AddUniqueCall
@@ -15,7 +6,7 @@ local AddUniqueCall = AddUniqueCall
 local _queues = {}
 local _running = false
 
--- Drain step items from queue; returns true if queue finished this frame
+-- Drain step items from a queue; returns true if the queue finished this frame.
 -- @cost O(step) per call | 0 luabind (pure Lua loop + survivor array append)
 local function _run_queue_step(queue)
     local items = queue.items
@@ -45,7 +36,7 @@ local function _run_queue_step(queue)
     return false
 end
 
--- Drive all active queues; defer on_done to after iteration for pairs() safety
+-- Drive all active queues, deferring on_done to after iteration for pairs() safety.
 -- @cost O(step * queues) per frame | 0 luabind (pure Lua dispatch)
 local function _update()
     local done = {}
@@ -67,8 +58,8 @@ local function _update()
     end
 end
 
---- Start a time-sliced queue. Processes step items per frame from an array.
---- Deferred compaction: survivors collected per pass, swapped as next input. No table.remove.
+--- Start a time-sliced queue, processing step items per frame from an array.
+--- Deferred compaction: survivors are collected per pass and swapped as the next input, no table.remove.
 --- @safety SAFE - pure Lua table iteration + AddUniqueCall registration
 --- @cost O(1) setup, O(step) per frame via _update | 0 luabind (AddUniqueCall is anomaly Lua _g.script registration)
 --- @param name string Unique queue name (rejected if already active)
@@ -102,8 +93,8 @@ function start(name, items, opts)
     return true
 end
 
---- Cancel a running queue. Fires on_done unless silent.
---- Nils the queue entry; pending _update iteration skips removed keys safely
+--- Cancel a running queue, firing on_done unless silent.
+--- Nils the queue entry; a pending _update iteration skips removed keys safely.
 --- @safety SAFE - pure Lua table nil assignment
 --- @cost O(1) | 0 luabind (pure Lua hash assign)
 --- @param name string Queue name
@@ -116,7 +107,7 @@ function stop_queue(name, silent)
     if queue.on_done then queue.on_done() end
 end
 
---- Check if a queue is running. Hash lookup on _queues table; safe to call from any context including on_done.
+--- Check if a queue is running (a _queues hash lookup, safe to call from any context including on_done).
 --- @safety SAFE - pure Lua table read
 --- @cost O(1) | 0 luabind
 --- @param name string Queue name

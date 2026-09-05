@@ -2,11 +2,9 @@
 
 local _start_time = nil
 
---- Get game-seconds since epoch (level start time)
---- Caches level.get_start_time() (constant per save). Cache reset on on_game_start.
---- @safety pcall: level.get_start_time AVs before on_game_load, see doc/library/xray/internals/callbacks.md
----   Safe from on_game_load onward. Never call game_sec in load_state or on_game_start.
---- @cost O(1) | 2 luabind (get_game_time medium: xrTime ctor; diffSec trivial: (a-b)/sec2ms), first call adds 1 luabind medium (get_start_time: xrTime ctor)
+--- Get game-seconds since epoch (level start time), caching level.get_start_time() per save (reset on on_game_start).
+--- @safety SAFE - level.present()-guarded; level.get_start_time AVs before on_game_load, so never call this in load_state or on_game_start
+--- @cost O(1) | 2 luabind (get_game_time medium: xrTime ctor; diffSec trivial), first call adds 1 luabind medium (get_start_time)
 --- @src xray/xrGame/level_script.cpp(2079) get_start_time, xray/xrGame/xr_time.cpp(76) diffSec, level_script.cpp(2733) get_game_time
 --- @return number Game-seconds since epoch (0 when no level)
 function get_game_sec()
@@ -17,9 +15,8 @@ function get_game_sec()
     return game.get_game_time():diffSec(_start_time)
 end
 
---- Get the engine CTime for the current in-game moment, or nil when no level is present.
---- Wrapper over game.get_game_time. Engine CTime exposes only :get(Y,M,D,h,m,s,ms),
---- :diffSec, :add, :sub, :set*, :dateToString, :timeToString -- there is no :hour() / :min().
+--- Get the engine CTime for the current in-game moment, or nil when no level is present (wrapper over game.get_game_time).
+--- Engine CTime exposes only :get / :diffSec / :add / :sub / :set* / :dateToString / :timeToString - there is no :hour() or :min().
 --- @safety SAFE - returns nil when no level
 --- @cost O(1) | 1 luabind medium (get_game_time: xrTime ctor wrapping current u64 timestamp)
 --- @src xray/xrGame/level_script.cpp(2733) get_game_time binding, xray/xrGame/xr_time.cpp xrTime
