@@ -28,7 +28,7 @@ function is_surge()
     return xr_conditions.surge_started() == true
 end
 
---- Get level_id from a server entity; the vertex-to-level mapping is immutable (baked in game.graph), cached after the first lookup per gvid.
+--- Get the level_id from a server entity; the vertex-to-level mapping is immutable, cached after the first lookup per gvid.
 --- @safety SAFE - nil guard on se_obj + game_graph (pcall cached in module-level gg)
 --- @cost O(1) | 0 luabind cached, 3 luabind trivial on miss (m_game_vertex_id field read on userdata, vertex(): ptr+offset, level_id(): field read)
 --- @src xray/xrGame/game_graph_inline.h, xray/xrGame/game_graph_script.cpp
@@ -47,7 +47,7 @@ function get_level_id(se_obj)
     return level
 end
 
---- Get actor's current level_id. Resolves the actor via alife():actor() then chains game_graph for level_id.
+--- Get the actor's current level_id, resolving the actor via alife():actor() then chaining game_graph for the level_id.
 --- @safety SAFE - nil guards on sim, actor, gvid, game_graph (NULL singleton via get_game_graph pcall)
 --- @cost O(1) | 4 luabind trivial (alife: ptr return, actor: ptr return, vertex: ptr+offset, level_id: field read)
 --- @src xray/xrGame/alife_simulator_script.cpp(35) alife, xray/xrGame/game_graph_inline.h
@@ -64,11 +64,8 @@ function get_actor_level_id()
     return graph:vertex(gvid):level_id()
 end
 
---- Build a density-cell key partitioning a level into square cells of cell_size meters.
---- The shared spatial convention for offline density work: one grid, keyed "level:x:z",
---- so independent consumers (density culls, crowd gates) agree on what "the same area"
---- means and their thresholds compare like for like. Pass cell_size =
---- alife():switch_distance() for the standard grid.
+--- Build a density-cell key partitioning a level into square cells of cell_size meters, keyed "level:x:z".
+--- The shared spatial convention for offline density work; pass cell_size = alife():switch_distance() for the standard grid.
 --- @safety SAFE - returns nil when position is missing or cell_size is not positive
 --- @cost O(1) | 2 luabind trivial (vector .x/.z field reads); pure arithmetic + concat
 --- @param level_id number Level ID (xlevel.get_level_id)
@@ -83,7 +80,7 @@ end
 
 local _level_names = nil
 
--- Session-lifetime set of level names (raw + translated); populated lazily on first call
+-- Session-lifetime set of level names (raw + translated), populated lazily on first call.
 -- @cost O(n) levels first call | 0 luabind cached, ~100 luabind medium on miss (51 level_name medium + 51 translate_string medium)
 local function _get_level_names()
     if _level_names then return _level_names end
@@ -103,7 +100,7 @@ local function _get_level_names()
     return _level_names
 end
 
---- Get translated level display name from a level_id. Resolves via alife():level_name(id) then game.translate_string for localized display.
+--- Get the translated level display name from a level_id, via alife():level_name(id) then game.translate_string.
 --- @safety SAFE - nil guards on alife and resolved name
 --- @cost O(log n) | 2 luabind medium (alife:level_name: std::map find on game_graph LEVEL_MAP, translate_string: std::map find on STRING_TABLE_MAP)
 --- @src xray/xrGame/alife_simulator_script.cpp(313) level_name, xray/xrGame/string_table.cpp(226) translate
@@ -119,7 +116,7 @@ function get_level_name(level_id)
     return (translated and translated ~= lname) and translated or lname
 end
 
--- Resolve smart's level to a translated display name, nil if unresolvable
+-- Resolve a smart's level to a translated display name, nil if unresolvable.
 -- @cost O(log n) | 3 luabind: vertex + level_id trivial, level_name + translate_string medium (LEVEL_MAP / STRING_TABLE find)
 local function _resolve_smart_level_name(smart)
     if not smart.m_game_vertex_id then return nil end
@@ -135,8 +132,7 @@ local function _resolve_smart_level_name(smart)
     return nil
 end
 
---- Strip "Level. " prefix from any smart display string
---- Anomaly authors smart names as "Zaton. Claw Anomaly Camp" in st_smart_names.xml; warfare keys same pattern
+-- Strip a "Level. " prefix from a smart display string (Anomaly authors smart names as "Zaton. Claw Anomaly Camp").
 -- @cost O(1) | 0 luabind pure Lua regex
 local function _get_stripped_name(text)
     if not text then return nil end
@@ -146,10 +142,8 @@ local function _get_stripped_name(text)
     return text
 end
 
---- Get translated smart terrain display name
---- Cascades: Anomaly smart_names.ltx (named smarts) -> Warfare "st_<name>_name" key -> level display name -> cleaned raw.
---- Every return path passes through _get_stripped_name so "Zaton. Claw Anomaly Camp" -> "Claw Anomaly Camp" regardless of source.
---- Returns nil on invalid input; callers decide the fallback (xlibs stays pure, no baked-in English defaults).
+--- Get the translated smart terrain display name, cascading smart_names -> Warfare st_<name>_name -> level name -> cleaned raw.
+--- Every return path passes through _get_stripped_name; returns nil on invalid input and the caller decides the fallback.
 --- @safety SAFE - nil-guarded on smart/name, returns nil on bad input
 --- @cost O(1) | 0 luabind on cache hit, 2-5 luabind on miss (cascading: smart_names, st_<name>_name key, level fallback)
 --- @src anomaly/smart_terrain.script(1766-1787)
@@ -175,7 +169,7 @@ function get_smart_display_name(smart)
     return (raw:gsub("_", " "))
 end
 
---- Check if server object has valid level vertex ID. Offline or transitioning entities may have 0xFFFFFFFF (invalid) as their level vertex.
+--- Check if a server object has a valid level vertex ID (offline or transitioning entities may carry 0xFFFFFFFF).
 --- @safety SAFE - nil-guarded; 1 luabind for the level vertex id userdata field read, otherwise pure Lua
 --- @cost O(1) | 1 luabind trivial (level vertex id field read on userdata)
 --- @src doc/library/modding/alife-safety.md(38), anomaly/sim_squad_scripted.script(276)
@@ -187,12 +181,8 @@ function is_valid_lvid(se_obj)
     return se_obj.m_level_vertex_id < INVALID_LEVEL_VERTEX_ID
 end
 
---- Get level_id by raw level name (e.g. "l05_bar" -> 5)
---- Lazy-built name->id map from SIMBOARD.smarts_by_names; covers every level with at least one smart.
---- Cache is a module-local. The engine recreates the Lua VM on every level transition and on save/load
---- (CALifeSimulator ctor -> restart_all -> script_engine().init() -> CScriptStorage::reinit), so it
---- rebuilds fresh each VM life and cannot go stale; within one VM life the SIMBOARD -> game.graph
---- name->id mapping is immutable, so the map stays correct.
+--- Get the level_id by raw level name (e.g. "l05_bar" -> 5) via a lazy name->id map from SIMBOARD.smarts_by_names.
+--- The map rebuilds fresh each VM life (recreated on transition and save/load) and stays correct within one life (immutable mapping).
 --- @safety SAFE - nil guards on alife/SIMBOARD/graph; returns nil if level lookup is unavailable
 --- @cost O(n_smarts) first call (~300-500 smarts in GAMMA, each: vertex trivial + level_id trivial + level_name medium), O(1) cached
 --- @src anomaly/sim_board.script, xray/xrGame/game_graph_inline.h, xray/xrGame/alife_simulator_script.cpp(313)
@@ -218,15 +208,7 @@ function get_level_id_by_name(name)
     return map[name]
 end
 
---- Danger tier per level, 0 (rookie) to 5 (endgame), keyed by raw engine level name.
---- Curated from three agreeing sources: the GAMMA progression guide + community consensus
---- (Rostok/Agroprom are early-mid hubs, not rookie or endgame), the per-level rank weights in
---- the NPC Rank Based Travelling reference mod (target_prior.script), and vanilla per-smart
---- spawn_all_* sections where those are meaningful (they encode respawn balance, not danger --
---- Zaton/Jupiter respawn weak filler -- so they corroborate only the south and CNPP).
---- Placement judgment calls: y04_pole beside the swamps; labs tied to their surface region.
---- Absent levels (map packs) return nil from get_danger_tier; consumers fall back to
---- DANGER_TIER_DEFAULT so an unknown map reads as mid, never rookie or endgame.
+--- Danger tier per level, 0 (rookie) to 5 (endgame), keyed by raw engine level name; absent levels return nil (consumers use DANGER_TIER_DEFAULT).
 DANGER_TIER = {
     -- 0 rookie
     ["l01_escape"] = 0, ["k00_marsh"] = 0,
@@ -248,14 +230,11 @@ DANGER_TIER = {
     ["l12u_control_monolith"] = 5, ["l13_generators"] = 5, ["l13u_warlab"] = 5,
 }
 
---- Default tier for levels absent from DANGER_TIER (new-map addons): mid. One shared decision
---- so every consumer treats an unknown map the same way.
+--- Default tier for levels absent from DANGER_TIER (new-map addons): mid, so every consumer treats an unknown map the same way.
 DANGER_TIER_DEFAULT = 2
 
---- Danger tier of a level: 0 (rookie) to 5 (endgame), nil for unknown levels (map packs).
---- Resolves a numeric level id to its raw engine name via sim:level_name, then reads the curated
---- DANGER_TIER table; consumers scale spawns / rewards / pacing off the tier and treat nil as
---- "no data" -- fall back to DANGER_TIER_DEFAULT unless the consumer has a better idea.
+--- Danger tier of a level: 0 (rookie) to 5 (endgame), nil for unknown levels.
+--- Resolves a numeric id to its raw engine name via sim:level_name, then reads the curated DANGER_TIER table.
 --- @safety SAFE - nil-guarded; number input needs a live alife() for the name lookup
 --- @cost O(1) | 1 luabind medium (sim:level_name) on number input, 0 on string input
 --- @src xray/xrGame/alife_simulator_script.cpp(313) level_name binding
@@ -271,7 +250,7 @@ end
 
 local _neighbors_cache = {}
 
--- Walk one BFS frontier hop, marking newly-reached levels in visited
+-- Walk one BFS frontier hop, marking newly-reached levels in visited.
 -- @cost O(k) k=neighbors of lvl | 0 luabind (pure Lua pairs over level_links sub-table)
 local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
     local links = level_targets and level_targets.level_links and level_targets.level_links[lvl]
@@ -284,7 +263,7 @@ local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
     end
 end
 
--- Expand frontier by one hop; returns the freshly-discovered ids only
+-- Expand the frontier by one hop, returning the freshly-discovered ids only.
 -- @cost O(f * k) f=frontier size, k=avg neighbors | 0 luabind (pure Lua pairs)
 local function _get_next_frontier(frontier, visited)
     local next_frontier = {}
@@ -294,24 +273,15 @@ local function _get_next_frontier(frontier, visited)
     return next_frontier
 end
 
---- Get level_ids reachable within `hops` BFS hops from source_id (excludes source itself)
---- BFS over anomaly/level_targets.level_links - the A-Life cross-level adjacency graph. The graph
---- is directed (uses outgoing edges only) and parse-time static. Reflects whatever level_targets.script
---- the MO2 VFS resolves to; GAMMA scan (2026-05) confirms no mod ships a replacement and player-facing
---- level_changer mods (Extra level transitions, Fast Travel) do NOT extend this graph - they only
---- spawn portals/PDA shortcuts for the actor. A-Life routing therefore uses vanilla adjacency unless
---- a mod explicitly replaces or runtime-patches level_targets.level_links.
---- Cache is keyed (source_id*100 + hops); stays valid for the session because level_targets is
---- parse-time immutable. ~32 levels x ~3 reasonable hop values -> ~96 entries upper bound, each a
---- small set; growth is bounded by construction, no eviction needed.
+--- Get level_ids reachable within `hops` BFS hops from source_id (excluding source itself).
+--- BFS over the directed, parse-time-static level_targets.level_links adjacency graph; cached per (source, hops) for the session.
 --- @scope global - level_targets is parse-time data, available from on_game_start onward
 --- @safety SAFE - nil-guarded on level_targets / source_id / hops; returns empty set on invalid input
 --- @cost O(hops * sum(degree)) on miss, O(1) on hit | 0 luabind (pure Lua table ops)
 --- @src anomaly/level_targets.script(39-74) level_links graph; anomaly/sim_squad_warfare.script(731-733) precedent consumer
 --- @param source_id number Engine level_id of the source level
 --- @param hops number BFS depth (1 = direct neighbors only, 2 = direct + neighbors-of-neighbors, etc.)
---- @return table Set { [level_id]=true, ... } excluding source_id; empty when source unreachable or invalid.
----   Returned BY REFERENCE from the per-(source, hops) cache: treat as read-only, never mutate
+--- @return table Set { [level_id]=true } excluding source_id (empty when unreachable/invalid); returned BY REFERENCE, treat as read-only
 function get_neighbor_levels(source_id, hops)
     if not source_id or not hops or hops < 1 then return {} end
     local key = source_id * 100 + hops
