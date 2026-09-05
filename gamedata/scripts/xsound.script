@@ -17,9 +17,8 @@ local pairs, next = pairs, next
 local math_abs = math.abs
 local assert, type = assert, type
 
---- Verified-safe sound paths. Sourced from vanilla scripts and configs/misc/sound/*.ltx.
---- Usage: xsound.create_sound(xsound.SND.PSY_ANTENNA_L, { volume = 0.7 })
---- Missing paths log a Lua "File not found" error and fall back to $no_sound (no crash, script_sound.cpp:25), but waste a handle slot.
+--- Verified-safe sound paths, sourced from vanilla scripts and configs/misc/sound/*.ltx.
+--- A missing path logs a Lua "File not found" and falls back to $no_sound (no crash), but wastes a handle slot.
 --- @src anomaly/sr_psy_antenna.script(42): PSY_ANTENNA_L, PSY_ANTENNA_R
 --- @src anomaly/psi_storm_manager.script(384): PSI_STORM
 --- @src anomaly/bind_anomaly_field.script(283-284): EMI_BLOWOUT, EMI_BLOWOUT_FAR
@@ -45,9 +44,7 @@ SND = {
     LIGHT_HUMMING     = "ambient\\special\\light_humming",
 }
 
---- Play a one-shot sound (fire-and-forget: no handle, no lerp).
---- Uses play_no_feedback so the emitter is engine-owned and is NOT cut when the Lua object is
---- garbage-collected -- play()/play_at_pos() set a feedback handle that ~CScriptSound stops on GC.
+--- Play a one-shot sound (fire-and-forget: no handle, no lerp) via play_no_feedback, so the GC never cuts the engine-owned emitter.
 --- For short cues that never need stopping; use play_at for a STOPPABLE one-shot, create_sound/release for loops.
 --- @safety SAFE - nil-guarded on db.actor and sound_object_t constructor
 --- @cost O(1) | 1 luabind heavy (sound_object ctor + play_no_feedback)
@@ -68,9 +65,8 @@ function play(snd_path, opts)
     return true
 end
 
---- Play a one-shot with a RETAINED handle - the vanilla ambient call shape (sound_object -> play_at_pos ->
---- volume property), so the sound CAN be stopped, unlike play(). The object is held in the module until it
---- finishes (swept on the shared tick), so the GC never cuts it mid-play.
+--- Play a one-shot with a RETAINED handle (the vanilla ambient call shape) so the sound CAN be stopped, unlike play().
+--- The object is held in the module until it finishes (swept on the shared tick), so the GC never cuts it mid-play.
 --- @safety SAFE - nil-guarded on db.actor and the sound_object constructor
 --- @cost O(1) | 3-4 luabind heavy (ctor + play_at_pos + volume, s2d flag optional)
 --- @src anomaly/sound_ambient.script:144-165 (the vanilla call shape); xray/xrGame/script_sound.cpp:30-37 (GC cuts an unheld playing sound)
@@ -128,9 +124,8 @@ function stop_shots()
     end
 end
 
---- Duration of a sound file in milliseconds, WITHOUT playing it. Constructs the sound_object (loads the
---- source and its handle length), reads length(), then lets it GC -- no play means no feedback, so the
---- collect is safe (~CScriptSound has nothing to cut). For spacing one-shots by their own length.
+--- Duration of a sound file in milliseconds, WITHOUT playing it - for spacing one-shots by their own length.
+--- Constructs the sound_object, reads length(), then lets it GC; no play means no feedback, so the collect is safe.
 --- @safety SAFE - no play, no retained handle, no db.actor needed
 --- @cost O(1) | 1 luabind heavy (sound_object ctor) + 1 length read
 --- @src xray/xrGame/script_sound_inline.h:11-15 (Length = iFloor(get_length_sec*1000)); xray/xrGame/script_sound.cpp:30-37 (GC-safe with no feedback)
@@ -191,8 +186,8 @@ _register = function()
     _registered = true
 end
 
---- Create a sound handle for a looping sound. Plays the sound immediately at volume 0 so the handle is live.
---- Caller ramps the audible volume via set_volume(handle, target); release(handle) lerps back to 0 and frees the slot.
+--- Create a handle for a looping sound, played immediately at volume 0 so the handle is live.
+--- The caller ramps volume via set_volume(handle, target); release(handle) lerps back to 0 and frees the slot.
 --- @safety SAFE - guards db.actor, returns nil if sound_object constructor fails
 --- @cost O(1) | 1 luabind heavy (sound_object ctor + play_at_pos)
 --- @src xray/xrGame/script_sound_script.cpp sound_object bindings
@@ -281,24 +276,14 @@ function get_snapshot(handle)
     }
 end
 
--- engine sound seams (trace + veto over the ambient soundscape)
--- The demonized "ambient sound hooks" PR calls a named _G global at each engine sound-play site if
--- the global is set, and applies { volume_mult } from the return (0 vetoes/silences, <1 attenuates,
--- nil = vanilla). These are the PRIMITIVES only: xlibs owns the raw _G seams (mods never touch _G.*),
--- and routes each call to one consumer-registered handler. All behavior - what to trace, whether to
--- veto - lives in the handler, i.e. in the mod. Inert on a stock exe (the engine never calls the
--- global) and while no handler is registered. The ambient sound sources reachable this way:
---   COnAmbientBed  System A per-weather background bed  (GamePersistent WeathersUpdate)
---   COnLevelMusic  level music track  (SMusicTrack::Play)
+-- Engine sound seams (trace + veto over the ambient soundscape): xlibs owns the raw _G seams and routes each to one registered handler.
+-- The engine calls a named _G global at each sound-play site and applies { volume_mult } from the return; inert on a stock exe.
 
 -- global name (e.g. "COnAmbientBed") -> registered handler function
 local _sound_handlers = {}
 
--- Install or remove one engine sound seam. The _G function re-reads _sound_handlers on each call so
--- a later detach (nil) or swap takes effect immediately. NOT cleared on_game_start: axr_main calls
--- module on_game_start() in filesystem order (axr_main.script:317-334), so a consumer registering in
--- its own on_game_start (as_* sorts before xsound) would be silently wiped; handler and seam survive
--- the reload together, consumers re-register idempotently.
+-- Install or remove one engine sound seam; the _G function re-reads _sound_handlers each call so a later detach or swap is immediate.
+-- NOT cleared on_game_start: filesystem-order on_game_start() would wipe a consumer that registered before xsound.
 -- @cost O(1) | 0 luabind
 local function _set_sound_handler(global_name, handler)
     assert(handler == nil or type(handler) == "function",
@@ -331,8 +316,8 @@ function set_level_music_handler(handler)
     _set_sound_handler("COnLevelMusic", handler)
 end
 
---- Reset all state on save load. Stops any playing sounds we still hold. Sound-seam handlers are
---- intentionally NOT cleared here (see _set_sound_handler: on_game_start ordering would wipe them).
+--- Reset all state on save load, stopping any playing sounds still held.
+--- Sound-seam handlers are intentionally NOT cleared here (on_game_start ordering would wipe them).
 function on_game_start()
     for _, entry in pairs(_active) do
         if entry.sound and entry.sound:playing() then
