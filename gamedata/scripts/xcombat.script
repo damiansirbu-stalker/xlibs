@@ -14,18 +14,14 @@ xcombat = xcombat or {}
 local INVALID_LVID = 4294967295
 xcombat.INVALID_LVID = INVALID_LVID
 
--- Combat-state options - the three orthogonal knobs set_combat resolves into one engine state. Exposed as
--- constants so consumers name the intent and never carry a raw state name or the colliding "standing"/"stand".
--- fire = weapon field of the chosen state: FIRE shoots, SNIPE precision-shoots, READY holds fire with the
--- weapon up, STOW puts it away. posture = stand/crouch. movement = stationary/walk/run.
+-- Combat-state options: the three orthogonal knobs set_combat resolves into one engine state.
 xcombat.FIRE,  xcombat.SNIPE,  xcombat.READY, xcombat.STOW = "FIRE", "SNIPE", "READY", "STOW"
 xcombat.STAND, xcombat.CROUCH = "STAND", "CROUCH"
 xcombat.STILL, xcombat.WALK,   xcombat.RUN  = "STILL", "WALK", "RUN"
 
 -- Weapon classification
 
--- The w_sniper palette classifier. Consumer: t92 LONG_RANGE_SNIPER_ENGAGEMENT
--- (todo-alifetactics-next.md) - the doctrine weapon palette keys on it.
+-- The w_sniper palette classifier a consumer's doctrine weapon palette keys on.
 xcombat.SNIPER_KINDS = {
     w_sniper = true,
 }
@@ -40,26 +36,20 @@ xcombat.WEAPON_RANGES = {
     w_explosive = { min = 10, max = 100 },
 }
 
--- Weapon kinds an NPC can hold and fight with. A thrown grenade reads kind w_explosive; it is excluded here so
--- a mid-throw NPC classifies by its slotted firearm (its real range band), not a 10m explosive band.
+-- Weapon kinds an NPC can hold and fight with; w_explosive is excluded so a mid-throw NPC classifies by its slotted firearm.
 local HELD_WEAPON_KINDS = {
     w_pistol = true, w_shotgun = true, w_smg = true, w_rifle = true, w_sniper = true, w_melee = true,
 }
 
 local WEAPON_TTL_MS = 2000
 
--- Drop expired entries on an interval so an id-keyed TTL cache does not grow for
--- every npc a session ever sees. Interval, not a size check: the guard has to come
--- first, and counting the table to decide would be the logic before the guard
--- (stalker-code.md hot path rule 5, periodic cleanup over inline expiry).
+-- Sweep expired entries on an interval so an id-keyed TTL cache never grows unbounded (stalker-code.md hot path rule 5).
 local CACHE_SWEEP_INTERVAL_MS = 60000
 local _next_sweep = setmetatable({}, { __mode = "k" })
 local _sweep_keys = {}
 
 --- Delete every expired entry from an id-keyed TTL cache, at most once a minute.
---- Collects the keys first and deletes in a second pass, since deleting during
---- pairs is undefined. _sweep_keys is module-level and reused, so it allocates
---- nothing; _next_sweep is weak-keyed and holds no cache alive.
+--- Keys are collected first and deleted in a second pass; _sweep_keys is reused (zero allocation) and _next_sweep is weak-keyed.
 --- @safety SAFE - pure Lua table work
 --- @cost O(1) between sweeps, O(n) entries on one | 0 luabind
 --- @param cache table id-keyed cache of { expires = <ms> }
@@ -81,11 +71,8 @@ local function _clear_expired(cache, tg)
 end
 local _weapon_kind_cache = {}
 
---- Kind string for the weapon an NPC is fighting with (w_rifle / w_pistol / w_sniper / ...), TTL-cached per id.
---- Reads the ACTIVE (in-hand) item's kind first, accepting only a held-and-fightable kind; a thrown grenade reads
---- w_explosive and is excluded, so a thrower classifies by its slotted firearm rather than a 10m explosive band.
---- Falls back to the slot-priority scan (rifle, then pistol, then knife) when the active item is not a fightable
---- weapon or is briefly nil across an animation transition. Caches 2s so the kind holds stable through those.
+--- Kind string for the weapon an NPC is fighting with (w_rifle / w_pistol / ...), TTL-cached 2s per id so it holds stable through transitions.
+--- Reads the active item's kind, accepting only held-and-fightable kinds; falls back to the slot-priority scan (rifle, pistol, knife).
 --- @safety SAFE - nil-guarded section reads, returns nil when no weapon resolves
 --- @cost O(1) | 0 luabind cached; on miss 1 luabind active_item + r_string_ex, else the slot-scan getters + r_string_ex
 --- @src anomaly/configs/items/weapons/w_*.ltx (kind field), xray/script_ini_file.cpp, xray/script_game_object.cpp (active_item)
@@ -125,10 +112,8 @@ function xcombat.get_weapon_range(kind)
     return xcombat.WEAPON_RANGES[kind] or xcombat.WEAPON_RANGES.w_rifle
 end
 
---- The range band a distance falls in against a weapon kind's WEAPON_RANGES band: "too_close"
---- (under the minimum - the kite concept), "in" (effective - "inside his weapon's reach", the
---- pressure concept), "out" (past the maximum - the standoff concept). The one range primitive;
---- band compares read it instead of raw min/max compares (t214).
+--- The range band a distance falls in against a weapon kind: "too_close" (under the minimum), "in" (effective), "out" (past the maximum).
+--- The one range primitive; band compares read it instead of raw min/max compares.
 --- @safety SAFE - unknown kinds read the rifle band via get_weapon_range
 --- @cost O(1) | 0 luabind (table lookup + two compares)
 --- @param dist number metres to the target
@@ -141,14 +126,7 @@ function xcombat.get_range_band(dist, kind)
     return "out"
 end
 
--- Engine fire-queue bands per weapon kind: the [fire_queue_params] shape the combat planner
--- fires with, per distance band. Static by design - deterministic mid-combat, immune to
--- malformed installs; a consumer layering install-specific tuning applies its own overrides
--- on top. Data only: which band, when, and for whom stays with the consumer.
--- kind -> band -> { min_size, max_size, min_interval_ms, max_interval_ms }
--- src: anomaly/configs/creatures/m_stalker.ltx:826-909 (pstl/shtg/snp/auto/mchg); the engine
--- maps ef_weapon_type 5 -> pstl, 9 -> shtg, 11/12 -> snp, 6/7/8/10 -> mchg, default -> auto
--- (stalker_combat_action_base.cpp:94-220).
+-- Engine fire-queue bands per weapon kind, static by design (anomaly/m_stalker.ltx:826-909; kind mapping stalker_combat_action_base.cpp:94-220).
 xcombat.FIRE_QUEUE = {
     w_pistol  = { far = { 1, 2, 500, 750 },   medium = { 1, 4, 400, 500 },   close = { 1, 8, 350, 400 } },
     w_shotgun = { far = { 1, 1, 1000, 2000 }, medium = { 1, 4, 600, 750 },   close = { 1, 6, 600, 750 } },
@@ -157,9 +135,8 @@ xcombat.FIRE_QUEUE = {
     w_smg     = { far = { 1, 6, 300, 600 },   medium = { 2, 12, 300, 500 },  close = { 2, 15, 200, 400 } },
 }
 
---- Fire-queue band bounds for a weapon kind: burst size and inter-burst interval, the envelope
---- the engine planner itself fires with at that range. Unknown kinds fall back to the rifle
---- bands, an unknown band to medium, so every armed NPC gets usable bounds.
+--- Fire-queue band bounds for a weapon kind: burst size and inter-burst interval, the envelope the engine planner itself fires with at that range.
+--- Unknown kinds fall back to the rifle bands, an unknown band to medium, so every armed NPC gets usable bounds.
 --- @safety SAFE - pure table lookup
 --- @cost O(1) | 0 luabind
 --- @src anomaly/configs/creatures/m_stalker.ltx:826-909 [fire_queue_params]
@@ -172,19 +149,11 @@ function xcombat.get_fire_queue(kind, band)
     return bounds[1], bounds[2], bounds[3], bounds[4]
 end
 
--- Enemy memory - the engine tracks each NPC's per-enemy perception (visual + sound + hit) with a last-seen
--- timestamp and a last-known position. The takeover reads these instead of re-deriving them with its own
--- raycast clock: memory_time is the signal vanilla uses to disengage (xr_combat_ignore.script:111),
--- memory_position is what the reference graft mod pursues when the enemy is not currently visible
--- (rx_combat.script:298). can_see() is the tactical "can I shoot right now" check over the same memory.
+-- Enemy memory: the engine's per-enemy perception reads (see / memory_time / memory_position), read instead of re-derived.
 
---- True when the NPC sees the object RIGHT NOW - the engine's accumulated visible_now state, the exact
---- test vanilla kill_enemy fires on (stalker_combat_actions.cpp:483-494). A visual-memory read, not a
---- fresh raycast: visibility accumulates on the engine's own vision path and this reads the result.
---- The tactical "can I shoot right now" check; for sighting staleness use get_unseen_ms, for the
---- combat planner's cover bookkeeping use get_cover_state.
---- @safety SAFE - nil-guarded both sides and dead-subject guarded (false, no engine log); a dead npc would
----   otherwise make the SAFE_WRAPped bind log "cannot check visibility of dead object!" (still no Lua error)
+--- True when the NPC sees the object RIGHT NOW - the engine's accumulated visible_now state, the test vanilla kill_enemy fires on.
+--- A visual-memory read, not a fresh raycast; for sighting staleness use get_unseen_ms, for cover bookkeeping use get_cover_state.
+--- @safety SAFE - nil-guarded and dead-SUBJECT guarded (a dead npc makes the SAFE_WRAPped bind log "cannot check visibility of dead object!")
 --- @cost O(1) | 1 luabind (CheckObjectVisibility - visual memory read)
 --- @src xray/script_game_object_script2.cpp:138 (see = CheckObjectVisibility, SAFE_WRAP)
 --- @param npc game_object the perceiving NPC
@@ -192,17 +161,12 @@ end
 --- @return boolean true when visible now
 function xcombat.can_see(npc, obj)
     if not (npc and obj) then return false end
-    -- A dead SUBJECT (npc) faults CheckObjectVisibility: it logs "cannot check visibility of dead
-    -- object!" (script_game_object.cpp:314) and returns false. SAFE_WRAP stops the Lua error but not
-    -- the log, so bail first. Guard the subject ONLY - a dead obj (a corpse) is a valid sight target.
     if not npc:alive() then return false end
     return npc:see(obj)
 end
 
---- True when npc is within radius (metres) of obj AND currently sees it. The squared-distance test runs
---- first and bails before the visibility read, so a far object costs only the distance. Range-limits the
---- otherwise combat-distance :see for close-range checks (chatter lines, interaction prompts) where a
---- full-vision hit across the level is wrong. Occlusion and facing come from :see (visual-memory read).
+--- True when npc is within radius metres of obj AND currently sees it; the squared-distance test bails before the visibility read.
+--- Range-limits :see for close-range checks where a full-vision hit across the level is wrong; occlusion and facing come from :see.
 --- @safety SAFE - nil-guarded; distance and :see are both engine-SAFE_WRAPped
 --- @cost O(1) | 2 position + 1 distance_to_sqr on the far bail; + 1 see (visual-memory read) when in range
 --- @src xray/script_game_object_script2.cpp:138 (see = CheckObjectVisibility, SAFE_WRAP)
@@ -216,13 +180,11 @@ function xcombat.can_see_within(npc, obj, radius)
     return xcombat.can_see(npc, obj)
 end
 
---- Milliseconds since the NPC last perceived the enemy by ANY sense (sight, sound, or hit).
---- memory_time aggregates the most-recent last-perceived time across visual/sound/hit memory, stamped from
---- time_global (memory_manager.cpp:255-274, visual_memory_manager.cpp:526). Large value = unsensed (the engine
---- still remembers the enemy, nothing fresh); a negative result (only possible across a load) reads as fresh.
---- This is the disengagement read vanilla uses at xr_combat_ignore.script:111.
+--- Milliseconds since the NPC last perceived the enemy by ANY sense (sight, sound, or hit) - the disengagement read vanilla uses.
+--- A negative result (only possible across a load) reads as fresh.
 --- @safety SAFE - npc is a stalker/monster at every combat call site; enemy is a remembered object
 --- @cost O(1) | 1 luabind (memory list lookup, no raycast)
+--- @src xray/memory_manager.cpp:255-274 (memory_time aggregation), anomaly/xr_combat_ignore.script:111 (the vanilla disengagement read)
 --- @param npc game_object the perceiving NPC
 --- @param enemy game_object the remembered enemy
 --- @param tg number time_global() snapshot
@@ -231,10 +193,8 @@ function xcombat.get_unseen_ms(npc, enemy, tg)
     return tg - npc:memory_time(enemy)
 end
 
---- Resolve a remembered enemy id to its live game_object - the maneuver target-commitment read
---- (a staged maneuver keeps fighting the enemy it was staged against instead of re-reading
---- best_enemy every tick). nil when the id is gone, offline, or dead, so the caller ends the
---- maneuver instead of aiming at a corpse.
+--- Resolve a remembered enemy id to its live game_object - the maneuver target-commitment read.
+--- nil when the id is gone, offline, or dead, so the caller ends the maneuver instead of aiming at a corpse.
 --- @safety SAFE - nil id / offline / dead all return nil
 --- @cost O(1) | 1-2 luabind trivial (object_by_id, alive)
 --- @param id number|nil enemy id
@@ -246,13 +206,11 @@ function xcombat.resolve_enemy(id)
     return nil
 end
 
---- The engine's selected enemy for this combatant, or nil - the alive-guarded best_enemy read. The raw
---- bind reaches into the memory manager of a possibly-dead object (the can_see dead-subject class), so the
---- guard bails first; a caller's nil branch keeps meaning "not fighting" and covers the dead case for free.
+--- The engine's selected enemy for this combatant, or nil - the alive-guarded best_enemy read.
+--- The raw bind reaches into the memory manager of a possibly-dead object, so the guard bails first.
 --- @safety SAFE - nil- and dead-guarded (the can_see dead-subject precedent)
 --- @cost O(1) | 2 luabind trivial (alive + best_enemy)
---- @src xray/script_game_object_script2.cpp:206 (bind), script_game_object2.cpp:200-209 (GetBestEnemy:
----   CCustomMonster cast, memory().enemy().selected() - no alive guard of its own)
+--- @src xray/script_game_object_script2.cpp:206 (bind), script_game_object2.cpp:200-209 (GetBestEnemy - no alive guard of its own)
 --- @param npc game_object stalker
 --- @return game_object|nil the selected enemy, nil when none or the npc is dead or nil
 function xcombat.get_best_enemy(npc)
@@ -260,13 +218,11 @@ function xcombat.get_best_enemy(npc)
     return npc:best_enemy()
 end
 
---- Position to track the enemy for movement: the live position when currently seen, else the last-known
---- position from memory (memory_position, memory_manager.cpp:279). Mirrors the reference graft mod rx_combat
---- (live on see, memory_position when not - rx_combat.script:230,298). Pursuing the last-known spot lets a
---- chase end where the enemy was lost instead of trailing the live, fleeing target.
---- Consumer: t136 suppress at the remembered position (todo-combat-takeover-v2.md).
+--- Position to track the enemy for movement: the live position when currently seen, else the last-known position from memory.
+--- Pursuing the last-known spot lets a chase end where the enemy was lost instead of trailing the live, fleeing target.
 --- @safety SAFE - enemy is a remembered object (guaranteed when it is the NPC's best_enemy)
 --- @cost O(1) | 1 luabind
+--- @src xray/memory_manager.cpp:279 (memory_position), rx_combat.script:230,298 (the live-on-see precedent)
 --- @param npc game_object the perceiving NPC
 --- @param enemy game_object the remembered enemy
 --- @param sees boolean whether the NPC currently sees the enemy (slot.sees)
@@ -279,21 +235,9 @@ end
 -- make_enemy_visible probe result, cached on first disclose (nil = not probed yet)
 local _has_make_visible = nil
 
---- Disclose an enemy to an NPC: inject it into the NPC's memory and register the NPC in combat.
---- Relation-clean -- no goodwill / community write. The enemy_manager selects the injected object
---- as an enemy only when is_relation_enemy already holds; for a stalker that resolves via the summed
---- attitude dominated by the faction term (CAI_Stalker::tfGetRelationType -> RELATION_REGISTRY
---- GetRelationType), so a known faction-hostile object is engaged without mutating any relation. The
---- writer counterpart to get_unseen_ms / get_track_pos. Both calls require a CAI_Stalker receiver.
---- On exes with the make_enemy_visible bind (probe-cached module-local, never a version compare) the
---- disclosed enemy is ALSO passed to CMemoryManager::make_object_visible_somewhen. CORRECTED CLAIM:
---- that call is a squad knowledge-SHARE, not a sighting-creator - it saves and RESTORES the prior
---- visible bit (memory_manager.cpp:355,361), so for a shooter the NPC does not currently see the
---- "seen" promotion is a no-op and selection still scores him ~1000 behind any seen enemy. It
---- registers a first sighting only for an object with no prior memory entry. A reliable victim-turn
---- needs the selection lever instead (set_hit_redirect, PR #636).
---- @safety SAFE - nil-guarded npc/enemy; the combat registration routes through the alive-guarded
---- xcombat.register_in_combat wrapper (agent member state is torn down on death)
+--- Disclose an enemy to an NPC: inject it into memory and register the NPC in combat, relation-clean (no goodwill or community write).
+--- On exes with the make_enemy_visible bind the enemy is also squad-shared; a reliable victim-turn still needs set_hit_redirect.
+--- @safety SAFE - nil-guarded npc/enemy; the combat registration routes through the alive-guarded register_in_combat wrapper
 --- @cost O(1) | 3-4 luabind (enable_memory_object visual-memory inject; make_enemy_visible add_visible_object; alive + register_in_combat via agent_manager)
 --- @src xray/script_game_object3.cpp:65 (enable_memory_object), xray/script_game_object_inventory_owner.cpp:1945 (register_in_combat)
 --- @src xray/enemy_manager.cpp:69 (is_relation_enemy gate), xray/ai/stalker/ai_stalker_misc.cpp (CAI_Stalker::tfGetRelationType)
@@ -311,17 +255,11 @@ function xcombat.show_enemy(npc, enemy, opts)
     return true
 end
 
--- Danger types that mean "a shooter is engaging me": I was hit (attacked), a bullet landed near
--- (bullet_ricochet), or I heard the shot (attack_sound). Built lazily - danger_object is an engine
--- global absent at file body in the validator stub.
+-- Danger types that mean "a shooter is engaging me"; built lazily (danger_object is absent at file body in the validator stub).
 local _under_fire_types = nil
 
---- True when the NPC's own danger memory says `enemy` shot at it within the last `window_ms`.
---- Reads best_danger(): an attacked / bullet_ricochet / attack_sound danger whose source resolves to the
---- enemy (dependent_object first, else object - the vanilla xr_danger source rule), stamped inside the
---- window. The engine perceives these during combat (the same read a grenade trigger makes), so this is the
---- lightweight "is he shooting at me" - no callback, no state, any shooter (NPC or actor). A landed hit the
---- NPC did not perceive as danger is NOT covered; pair with the consumer's own hit stamp for that.
+--- True when the NPC's own danger memory says enemy shot at it within the last window_ms - no callback, no state, any shooter.
+--- A landed hit the NPC did not perceive as danger is NOT covered; pair with the consumer's own hit stamp for that.
 --- @safety SAFE - nil-guarded; false when no danger, a stale one, or a different source
 --- @cost O(1) | 2-5 luabind trivial (best_danger, type, time, dependent_object/object, id - field reads)
 --- @src xray/memory_space_script.cpp:130-147 (danger type enum), anomaly/xr_danger.script:59-70 (source = dependent_object else object)
@@ -346,51 +284,24 @@ function xcombat.is_under_fire(npc, enemy, tg, window_ms)
     return source ~= nil and source:id() == enemy:id()
 end
 
--- GOAP takeover - the planner block list and the squad combat-mask lifecycle. The takeover grafts one
--- evaluator + one action per stalker (the AT policy half) and adds world_property(TAKEOVER_ID, false) as a
--- precondition to every planner in get_blocked_planners(), so while the flag holds the vanilla
--- combat/danger/state/alife chain is gated off and the grafted action is the only producer of the
--- TAKEOVER_ID=false the brain now requires. register/unregister replicate the squad memory-sharing bookkeeping
--- the blocked CStalkerCombatPlanner no longer performs (its initialize register / finalize unregister).
+-- GOAP takeover: the planner block list and the squad combat-mask lifecycle the blocked CStalkerCombatPlanner no longer performs.
 
--- The blocked-planner id list, built once and cached. Resolved at call time (install), not at file body, so
--- the base library never auto-loads the GOAP id modules at load and xr_danger.actid is defined before the read.
+-- The blocked-planner id list, resolved at call time so the library never auto-loads the GOAP id modules at load.
 local _blocked_planners = nil
 
--- Append one id, only when it resolves to a number. A modpack that removes a scheme leaves its module
--- global nil; one that renumbers leaves a non-number. Either is skipped rather than faulting the install.
+-- Append one id, only when it resolves to a number; a removed or renumbered scheme is skipped rather than faulting the install.
 local function _add_planner_id(list, id)
     if type(id) == "number" then list[#list + 1] = id end
 end
 
--- An action id off a scheme module, or nil when that scheme is not installed. Auto-load returns nil for a
--- missing .script, so the module reference itself must be checked before indexing it.
+-- An action id off a scheme module, or nil when that scheme is not installed (auto-load returns nil for a missing .script).
 local function _get_scheme_id(module_ref, field)
     if not module_ref then return nil end
     return module_ref[field]
 end
 
 --- GOAP action ids the takeover precondition-blocks while a transaction is open (built once, cached).
---- The graft is the sole producer of TAKEOVER_ID=false; each id here gains a TAKEOVER_ID==false
---- precondition, so while the gate is up it is unreachable and only the graft can satisfy the brain's
---- goal. An action NOT listed here is unaffected and satisfies the goal directly, bypassing the takeover
---- entirely - which is why this list is the whole of the mechanism and why it is enumerated rather than
---- sampled. This is also the vanilla idiom: the axr_*/rx_*/xrs_* schemes exclude each other the same way,
---- through their own npc_add_precondition (anomaly/axr_fight_from_cover.script:341-350).
----
---- Enumerated 2026-07-26 against the engine's six top-level operators (xray/stalker_planner.cpp:146-189)
---- and every manager:add_action site in the vanilla scripts. Deliberately NOT listed, with the reason:
----   eWorldOperatorDeathPlanner  - a dead NPC must reach it.
----   eWorldOperatorAnomalyPlanner- the only top-level action with no enemy gate; an NPC standing in an
----                                 anomaly has to deal with it, and vanilla agrees (the combat planner
----                                 itself requires Anomaly==false).
----   eWorldOperatorGatherItems   - requires Enemy==false, so it cannot compete in a fight.
----   xr_wounded (sidor_act_wounded_base) - a wounded NPC belongs to the wounded scheme; the graft's own
----                                 precondition already excludes him, so the consumer ends its maneuver
----                                 instead of blocking his owner.
----   axr_npc_vs_heli, axr_npc_vs_box, xr_abuse, xr_help_wounded - situational, and a helicopter is a
----                                 bigger problem than any maneuver.
---- axr_stalker_panic is not listed because it is not loaded at all (anomaly/modules.script:24).
+--- An action NOT listed satisfies the brain's goal directly and bypasses the takeover, so the list is enumerated, never sampled.
 --- @safety SAFE - every entry is type-checked; a scheme absent from the install is skipped
 --- @cost O(1) | 0 luabind (module field reads, cached after first build)
 --- @src anomaly/xr_actions_id.script (the id arithmetic), anomaly/modules.script:17-34 (what is loaded)
@@ -401,45 +312,27 @@ end
 function xcombat.get_blocked_planners()
     if _blocked_planners then return _blocked_planners end
     local list = {}
-    -- Engine planners: combat and danger own the fight, alife owns everything outside it.
     _add_planner_id(list, stalker_ids.action_combat_planner)
     _add_planner_id(list, stalker_ids.action_danger_planner)
     _add_planner_id(list, xr_actions_id.alife)
-    -- The danger scheme's scripted action (the one AT itself patches).
     _add_planner_id(list, _get_scheme_id(xr_danger, "actid"))
-    -- state_mgr's two idle actions. +2 (idle alife) was always here; +1 (idle combat) was the omission:
-    -- its action re-sends the NPC to his own vertex, clears animations and forces state "idle"
-    -- (anomaly/state_mgr.script:194-210), which deletes whatever combat state the consumer applied.
     _add_planner_id(list, xr_actions_id.state_mgr + 1)
     _add_planner_id(list, xr_actions_id.state_mgr + 2)
-    -- The three script-combat schemes. Each registers its actions into the TOP-LEVEL manager, so an NPC
-    -- with a script_combat_type carries a complete second combat brain beside the takeover. Monolith
-    -- ships four (fight_close/fight_far/look_around/go_to_pos), the other two ship two each.
     for i = 0, 3 do _add_planner_id(list, xr_actions_id.combat_monolith_base + i) end
     for i = 0, 1 do _add_planner_id(list, xr_actions_id.combat_zombied_base + i) end
     for i = 0, 1 do _add_planner_id(list, xr_actions_id.combat_camper_base + i) end
-    -- Rival combat behaviours: fight-from-cover is a combat scheme by its own header, and the combat
-    -- smartcover action would seat an NPC in a cover the seize gate already refuses to seize him in.
     _add_planner_id(list, _get_scheme_id(axr_fight_from_cover, "actid"))
     _add_planner_id(list, xr_actions_id.smartcover_action + 2)
-    -- Close-range behaviours that fight the same rows the maneuvers run at: the punch/sneak-up pair and
-    -- the wounded finisher.
     _add_planner_id(list, _get_scheme_id(xrs_facer, "actid_facer"))
     _add_planner_id(list, _get_scheme_id(xrs_facer, "actid_steal_up_facer"))
     _add_planner_id(list, _get_scheme_id(xrs_kill_wounded, "actid"))
-    -- The friendly-fire brake. Blocked because it holds an NPC out of a maneuver for as long as a
-    -- squadmate stands in his line (993 ticks measured in one session); the damage it exists to prevent
-    -- is already filtered downstream by the consumer's own friendly-fire gate, so what is lost is the
-    -- hold, not the protection.
     _add_planner_id(list, _get_scheme_id(rx_ff, "actid"))
     _blocked_planners = list
     return _blocked_planners
 end
 
 --- Set the NPC's squad combat-mask bit - join the squad memory-sharing group.
---- The grafted action's initialize calls this because the blocked CStalkerCombatPlanner::initialize (its
---- last act) no longer runs; without it an AT NPC stays out of agent memory propagation. Idempotent (the engine
---- ORs the bit); alive-gated because the bound call reaches agent_manager().member(), valid only on a live stalker.
+--- Called because the blocked CStalkerCombatPlanner::initialize no longer runs; idempotent (the engine ORs the bit), alive-gated.
 --- @safety SAFE - nil/alive-guarded; register_in_combat is SAFE_WRAPped and a no-op on a non-stalker
 --- @cost O(1) | 1 luabind medium (register_in_combat: agent_manager().member() mask OR)
 --- @src xray/script_game_object_script2.cpp:381 (binding), xray/stalker_combat_planner.cpp:182 (the removed call)
@@ -450,10 +343,7 @@ function xcombat.register_in_combat(npc)
 end
 
 --- Clear the NPC's squad combat-mask bit - leave the squad memory-sharing group.
---- The grafted action's finalize calls this because the blocked CStalkerCombatPlanner::finalize (its
---- guarded unregister) no longer runs. Idempotent (clears an already-clear bit harmlessly); alive-gated because
---- finalize also fires on death, where the agent member state is torn down and the bound call faults on the
---- stale object (the engine smart_cast guards type, not liveness).
+--- Alive-gated: finalize also fires on death, where the bound call faults on the stale object (the engine smart_cast guards type, not liveness).
 --- @safety SAFE - nil/alive-guarded (skips the dead-object fault the engine smart_cast does not catch)
 --- @cost O(1) | 1 luabind medium (unregister_in_combat: agent_manager().member() mask clear)
 --- @src xray/script_game_object_script2.cpp:382 (binding), xray/stalker_combat_planner.cpp:193-194 (the removed call)
@@ -463,71 +353,39 @@ function xcombat.unregister_in_combat(npc)
     npc:unregister_in_combat()
 end
 
--- GOAP takeover graft - the evaluator + action grafted per stalker and the install/release wiring. xcombat owns
--- this MECHANISM; the consumer owns POLICY through a spec { gate(npc)->bool, on_begin(npc) }. While the consumer
--- raises the gate the evaluator returns true; the brain needs TAKEOVER_ID=false to reach
--- eWorldPropertyPuzzleSolved and finds every blocked vanilla planner precondition-gated on TAKEOVER_ID=false, so
--- the grafted action (the sole producer of TAKEOVER_ID=false) is the only path and runs. Lower the gate and
--- vanilla resumes. The graft is permanent for the NPC's life; a transaction is just the gate going up then down.
--- One spec drives every NPC - the per-NPC gate flag and maneuver state live in the consumer, keyed by npc:id().
+-- GOAP takeover graft: xcombat owns the mechanism, the consumer owns policy via spec { gate, on_begin }; the graft is permanent for the NPC's life.
 
--- GOAP id shared by the grafted evaluator and action (the evaluator and action id-spaces are separate, so one
--- value serves both, matching the proven v1 graft). It must dodge the vanilla scheme cluster (188111-188125,
--- xr_danger.actid is 188113) AND third-party scheme ids: 188200 was NOT free - it collided with an external
--- companion surge-shelter scheme's evaluator on the shared action manager, so a grafted-but-dormant NPC (a
--- companion, never seized) starved that scheme's action and its shelter never fired. 188347 was verified
--- unused across the installed mod set. RESERVED: no other GOAP scheme on the stalker manager may reuse it.
+-- Shared evaluator+action GOAP id; 188200 collided with an external companion surge-shelter scheme, 188347 verified unused and RESERVED.
 local TAKEOVER_ID = 188347
 
---- The grafted action's GOAP id, exported because a consumer has to declare it to vanilla's state_mgr:
---- its idle evaluator forces its own combat flag false whenever the current action is absent from
---- state_mgr.combat_action_ids, which leaves state_mgr_to_idle_combat applicable for the whole takeover.
+--- The grafted action's GOAP id, exported so a consumer can declare it in vanilla's state_mgr.combat_action_ids.
 --- Read-only by convention; writing it does not move the graft, which reads the local.
 --- @src anomaly/state_mgr.script:10-18 (the table and vanilla's own note on who belongs in it)
 xcombat.TAKEOVER_ID = TAKEOVER_ID
 
 local _takeover_spec = nil
 local _takeover_installed = {}
--- npc id -> { [action_id] = true }: which blocked-list ids have received the TAKEOVER_ID==false
--- precondition on THIS NPC's manager. The block list is applied at install AND topped up at each
--- consumer seize (apply_takeover_block), because a scheme can bind to an NPC after install (a gulag
--- job change re-runs configure_schemes, xr_logic.script:279-295) and would otherwise stay unblocked
--- for the NPC's life. The set is what makes the top-up idempotent: add_condition THROWs on a
--- duplicate condition id in debug and silently skips in release (condition_state_inline.h:44-53),
--- so an id is never re-added. Cleared with the install guard on release/unregister.
+-- npc id -> set of blocked ids already preconditioned on this NPC's manager; makes the seize-time top-up idempotent (duplicate add_condition throws).
 local _takeover_blocked = {}
 
--- The gate evaluator: true exactly while the consumer's gate is raised for this NPC. The brain polls it every
--- plan solve, so it is a flag read - the consumer decides off the hot path and the gate is a cached lookup.
+-- The gate evaluator: true exactly while the consumer's gate is raised for this NPC; polled every plan solve, so it is a flag read.
 class "xcombat_takeover_evaluator" (property_evaluator)
 function xcombat_takeover_evaluator:__init(name) super(nil, name) end
 function xcombat_takeover_evaluator:evaluate()
     return _takeover_spec ~= nil and _takeover_spec.gate(self.object) == true
 end
 
--- The grafted action: while the gate holds it is the only producer of TAKEOVER_ID=false, so the brain runs it.
--- initialize (the engine calls it ONCE, when the action activates) joins the squad combat group and issues the
--- maneuver via spec.on_begin - the single place AT touches the engine, set once. execute (the engine calls it
--- every frame) does NOTHING: the engine's own state machine carries the maneuver, AT runs no per-frame logic.
--- finalize leaves the group.
+-- The grafted action: initialize issues the maneuver via spec.on_begin, execute does nothing (the engine carries it), finalize leaves the group.
 class "xcombat_takeover_action" (action_base)
 function xcombat_takeover_action:__init(name) super(nil, name) end
 function xcombat_takeover_action:initialize()
     action_base.initialize(self)
     local npc = self.object
-    -- Clear any leftover script animation overlay (at_healing's limp, an idle pose) before AT drives the NPC: a
-    -- stationary overlay left playing pins the body while the maneuver's movement slides it (the mid-air-slide bug
-    -- seen when a hurt NPC flees mid-limp). demonized's panic clears the same way on takeover
-    -- (demonized_stalker_aoe_panic.script:345).
     npc:clear_animations()
     npc:set_desired_position()
     npc:set_desired_direction()
     npc:set_path_type(game_object.level_path)
     npc:set_mental_state(anim.danger)
-    -- Squad combat-mask bit: the blocked CStalkerCombatPlanner::initialize no longer sets it, so the graft
-    -- does, through the module's guarded wrapper. The disclosure leaf (AT at_disclosure -> show_enemy)
-    -- writes the same bit for a different reason (make a shooter an enemy); two leaves, one engine bit,
-    -- neither redundant.
     xcombat.register_in_combat(npc)
     if _takeover_spec and _takeover_spec.on_begin then _takeover_spec.on_begin(npc) end
 end
@@ -538,26 +396,16 @@ function xcombat_takeover_action:finalize()
     action_base.finalize(self)
     local npc = self.object
     xcombat.unregister_in_combat(npc)
-    -- The engine deselected the grafted action. The consumer is told so it can record WHEN it lost the
-    -- NPC; pairing that with the next on_begin gives the exact interval another action held him, which
-    -- no other seam exposes. Optional, so a consumer that does not care omits it.
     if _takeover_spec and _takeover_spec.on_release then _takeover_spec.on_release(npc) end
 end
 
---- Graft the takeover onto a stalker: add the gate evaluator + the consumer action and precondition-block the
---- vanilla combat chain on the gate. Idempotent per NPC; the graft is permanent for the NPC's life, so a
---- transaction is the gate raising then lowering. The spec is the consumer policy, shared across NPCs - the
---- per-NPC gate flag and maneuver state live in the consumer, read by npc:id() inside the gate/body callbacks.
---- SINGLE-CONSUMER: one spec drives every grafted NPC, so a second consumer installing a differing spec would
---- silently replace the first consumer's gate/on_begin for EVERY NPC - that call asserts instead. A keyed
---- multi-consumer registry is deliberate future work for the first Behaviors graft, not an overwrite.
---- @safety SAFE for the single consumer - nil/manager guarded, returns false (no-op, no spec written) without
---- a motivation_action_manager; ASSERTS on a second differing spec (a consumer conflict is a setup error)
+--- Graft the takeover onto a stalker: add the gate evaluator + action and precondition-block the vanilla combat chain on the gate.
+--- Idempotent per NPC and SINGLE-CONSUMER: a second differing spec asserts instead of silently replacing the first for every NPC.
+--- @safety SAFE for the single consumer - nil/manager guarded, false without a manager; ASSERTS on a second differing spec
 --- @cost O(b) blocked planners | add_evaluator + add_action + b*(action lookup + add_precondition), one-time at install
 --- @src anomaly/xr_actions_id.script, anomaly/xr_evaluators_id.script:17 (sidor_wounded_base); xray/stalker_planner.cpp:68-69,128,149-163 (goal chain)
 --- @param npc game_object stalker
---- @param spec table { gate = function(npc) -> boolean, on_begin = function(npc) issued when the engine
----   grants control, on_release = function(npc)|nil called when the engine takes it away again }
+--- @param spec table { gate = fn(npc) -> boolean, on_begin = fn(npc) on control granted, on_release = fn(npc)|nil on control taken away }
 --- @return boolean true when grafted or already grafted, false when the NPC has no action manager
 function xcombat.register_takeover(npc, spec)
     if not npc or not spec then return false end
@@ -584,13 +432,8 @@ function xcombat.register_takeover(npc, spec)
     return true
 end
 
---- Apply the TAKEOVER_ID==false precondition to every blocked-list action present on this NPC's
---- manager that has not received it yet - the late-bind closure (t148). register_takeover runs it
---- once at graft time; the consumer re-runs it at each seize, the only moment the hole matters, so a
---- scheme whose action bound AFTER the graft (a later configure_schemes from a gulag job change,
---- xr_logic.script:279-295) is blocked before the gate goes up. Idempotent per NPC via the
---- per-NPC blocked set (a duplicate add_condition THROWs in debug builds, so the set is load-bearing,
---- not an optimization). No-op for an NPC that was never grafted.
+--- Apply the TAKEOVER_ID==false precondition to every blocked-list action on this NPC's manager that has not received it yet.
+--- Run once at graft time and re-run by the consumer at each seize, so a scheme whose action bound after the graft is blocked in time.
 --- @safety SAFE - nil/ungrafted/manager guarded; every id type-checked by get_blocked_planners
 --- @cost O(b) blocked ids | one manager:action lookup per id still missing (ids already blocked cost a table read)
 --- @src anomaly/xr_logic.script:279-295 (the once-per-NPC bind guard and the late-registration hole)
@@ -613,10 +456,8 @@ function xcombat.apply_takeover_block(npc)
     end
 end
 
---- True while the grafted takeover action is the manager's CURRENT top-level action - the live
---- "does AT actually hold this NPC right now" read, the boolean form of get_operator == "takeover"
---- without the label table. Consumers pair it with an open gate to detect a denylist escape (an
---- unblocked action holding the slot under an open maneuver).
+--- True while the grafted takeover action is the manager's CURRENT top-level action - the boolean form of get_operator == "takeover".
+--- Consumers pair it with an open gate to detect a denylist escape (an unblocked action holding the slot under an open maneuver).
 --- @safety SAFE - nil-guarded manager + initialized check, false when unreadable
 --- @cost O(1) | 3 luabind trivial (motivation_action_manager, initialized, current_action_id)
 --- @param npc game_object stalker
@@ -629,9 +470,7 @@ function xcombat.is_takeover_current(npc)
 end
 
 --- Drop the install-tracking for an NPC so a respawned id re-grafts; call on net_destroy.
---- The graft and block preconditions cannot be unwired from a live manager and persist for the game_object's
---- life; a respawn builds a fresh manager, so clearing the guard lets the next install re-graft. Per-transaction
---- release is the consumer lowering its gate (the evaluator then returns false), not this.
+--- The graft cannot be unwired from a live manager; a respawn builds a fresh one, so clearing the guard lets the next install re-graft.
 --- @safety SAFE - nil guarded
 --- @cost O(1) | 1 luabind trivial (id) + table clear
 --- @param npc game_object
@@ -643,9 +482,7 @@ function xcombat.release_takeover(npc)
 end
 
 --- Id-keyed sibling of release_takeover for callers holding no game_object (server-side unregister).
---- Same contract: drops the install-tracking so a recycled id re-grafts on its next install. An id
---- unregistered WITHOUT a prior net_destroy would otherwise keep a stale guard and silently skip the
---- next re-graft; calling this from the unregister handler makes id recycling provably safe.
+--- Calling this from the unregister handler keeps a recycled id from silently skipping its next re-graft.
 --- @safety SAFE - nil guarded
 --- @cost O(1) | 0 luabind (table clear)
 --- @param id number NPC id
@@ -656,18 +493,8 @@ function xcombat.release_takeover_id(id)
 end
 
 --- The combat planner's stored cover bookkeeping for a stalker: (in_cover, looked_out, position_held).
---- These are the engine's BELIEFS, not geometry - in_cover means "the take_cover action completed at the
---- cover point the engine's evaluator picked, and the pick has not changed since" (set as take_cover's
---- effect, stalker_combat_planner.cpp:369; all three cleared on every best-cover re-pick :57-63 and on
---- planner setup :65-80). The engine never ray-tests concealment for any of them, so a flagged NPC can
---- stand visibly exposed beside his point (the peek that would use it is disabled engine-side); pair with
---- has_obstacle_to_target for the geometric line. Only STORAGE-BACKED flags are read here - SeeEnemy and
---- the other live evaluators do not live in the storage (a storage read of those returns an unset default);
---- for "does he see the enemy" use npc:see(enemy). Under a combat-planner block (the takeover) the flags
---- can only decay - the blocked planner cannot run the actions that set them, the re-pick clear still
---- fires - so read them BEFORE a seize, not during one.
---- @safety SAFE - nil-guarded chain end to end; returns nil (not false) when there is no planner to ask
---- (nil/offline object, non-stalker, uninitialized manager), so "not in cover" and "unknowable" stay distinct
+--- These are the engine's BELIEFS, not geometry, and under a planner block they can only decay - read them BEFORE a seize, not during one.
+--- @safety SAFE - nil-guarded end to end; nil (not false) when there is no planner to ask, so "not in cover" and "unknowable" stay distinct
 --- @cost O(1) | 7 luabind trivial (manager, initialized, action, cast_planner, 3 stored property reads)
 --- @src xray/action_planner_script.cpp:26-63 (cast_planner + the read-only storage bind), xray/property_storage_script.cpp:22 (property)
 --- @src xray/stalker_combat_planner.cpp:369 (set), :57-63 (cleared on cover change), :253-262 (storage-backed evaluator set), :344 (kill_enemy needs in_cover)
@@ -684,12 +511,8 @@ function xcombat.get_cover_state(npc)
     return storage:property(stalker_ids.property_in_cover), storage:property(stalker_ids.property_looked_out), storage:property(stalker_ids.property_position_holded)
 end
 
---- The sight manager's CURRENT sight target and mode - the pair the state machinery's direction
---- evaluator gates fire on for a look_object order (object identity + mode, never the body angle:
---- eva_state_mgr_direction returns true when sight_params().m_object matches the ordered id and the
---- stamped mode matches the state's, state_mgr_direction.script). A read of "whom is the sight
---- manager actually serving": during a zero-shot hold this is the field that shows whether the
---- ordered look_object was ever accepted.
+--- The sight manager's CURRENT sight target and mode - the pair the state machinery's direction evaluator gates fire on for a look_object order.
+--- During a zero-shot hold this is the field that shows whether the ordered look_object was ever accepted.
 --- @safety SAFE - nil-guarded npc and params
 --- @cost O(1) | 2-3 luabind trivial (sight_params + field reads)
 --- @src xray/script_game_object_script3.cpp:443 (sight_params bind), anomaly/state_mgr_direction.script (the identity+mode fire gate)
@@ -715,12 +538,8 @@ local function _set_variants(ops, name, aid)
     end
 end
 
---- Short name of the engine combat operator the NPC's brain is running now (combat / danger / alife /
---- any xr_actions_id name). Reads the motivation action manager's current action id and maps it: the three
---- engine planners by stalker_ids, every vanilla scheme action by a reverse walk of the xr_actions_id
---- table (exact ids first, then name+1..3 for the multi-slot entries like state_mgr), and xr_danger's
---- scripted action as "danger_s" - so the HUD/trace never shows a raw number for a known action. A still
---- unknown id shows as its number, an absent/uninitialized manager as "-". A read of who drives.
+--- Short name of the engine combat operator the NPC's brain is running now (combat / danger / alife / any xr_actions_id name) - who drives.
+--- A still unknown id shows as its number, an absent or uninitialized manager as "-".
 --- @safety SAFE - nil-guarded manager + initialized() check, never constructs
 --- @cost O(1) | 3 luabind trivial (motivation_action_manager, initialized, current_action_id - field reads)
 --- @src xray/script_game_object_script2.cpp (motivation_action_manager), anomaly/xr_actions_id.script
@@ -740,8 +559,6 @@ function xcombat.get_operator(npc)
             _set_variants(_operators, name, aid)
         end
         if xr_danger.actid and _operators[xr_danger.actid] == nil then _operators[xr_danger.actid] = "danger_s" end
-        -- The grafted takeover action itself: without this the label reads as a bare 188347 exactly when a
-        -- trace is asking who holds the slot.
         _operators[TAKEOVER_ID] = "takeover"
     end
     local mgr = npc:motivation_action_manager()
@@ -765,7 +582,6 @@ end
 
 --- Degrees the NPC's body facing is off the straight line to target_pos (0 = dead on, 180 = opposite).
 --- A combat NPC normally faces near its enemy, so a large offset is the body pointed away (the weird-aim cue).
---- Flat XZ angle from the dot product of the unit facing and the unit direction to the target.
 --- @safety SAFE - returns 0 when the target sits on the NPC (degenerate direction)
 --- @cost O(1) | 2 luabind trivial (direction, position field reads) + pure math
 --- @src xray/script_game_object_script2.cpp:98 (direction)
@@ -783,9 +599,8 @@ function xcombat.get_facing_offset(npc, target_pos)
     return math_deg(math_acos(cos))
 end
 
---- True when the combatant is facing target_pos within cone_deg - "he is looking at / aiming toward
---- that spot". The predicate view of get_facing_offset (get_facing = vector, get_facing_offset = angle);
---- negate it for the back-turned read. Cone stays caller policy.
+--- True when the combatant is facing target_pos within cone_deg - the predicate view of get_facing_offset.
+--- Negate it for the back-turned read; the cone stays caller policy.
 --- @safety SAFE - see get_facing_offset (degenerate target position reads as facing, offset 0)
 --- @cost O(1) | get_facing_offset's 2 luabind trivial + pure math
 --- @param obj game_object combatant (stalker or actor)
@@ -796,19 +611,9 @@ function xcombat.is_facing(obj, target_pos, cone_deg)
     return xcombat.get_facing_offset(obj, target_pos) <= cone_deg
 end
 
--- NPC control - the takeover writes the NPC through set_combat, so the consumer issues no raw engine calls.
--- set_combat owns weapon mode + posture + movement, resolves the fire DISCIPLINE internally (a FIRE/SNIPE
--- intent degrades to READY when no shot makes sense), and hands the fire state its look_object, so the
--- engine object-track aims and fires at the enemy autonomously every frame (the turret model); set_destination
--- owns destination.
+-- NPC control: set_combat owns weapon mode + posture + movement + fire discipline; set_destination owns destination.
 
--- The combat-state matrix: [fire][posture][movement] -> the one state_lib state that bundles exactly that
--- weapon mode, posture, and movement. This IS the safety mechanism: resolving the state from the requested
--- knobs guarantees the state's own bodystate/movement agree with what set_combat then sets explicitly, so
--- the two never contradict (the engine flicker the npc-combat-control doc warns about). Verified against
--- state_lib.script. A missing cell = the engine ships no such state (crouch+run in any fire mode, any moving
--- snipe); set_combat returns false for those instead of forcing a wrong one. READY mirrors FIRE's moving
--- cells (raid/assault/sneak = the weapon-up, no-trigger counterparts of raid_fire/assault_fire/sneak_fire).
+-- The combat-state matrix [fire][posture][movement] -> the one state_lib state bundling exactly those knobs; a missing cell = no such engine state.
 local COMBAT_STATES = {
     FIRE = {
         STAND  = { STILL = "threat_fire", WALK = "raid_fire", RUN = "assault_fire" },
@@ -827,8 +632,7 @@ local COMBAT_STATES = {
     },
 }
 
--- Posture/movement keys into the engine `move` enum, looked up at call time (not module load) so the
--- module loads even where `move` is absent (the validator stub). `move` is cached at file top.
+-- Posture/movement keys into the engine move enum, looked up at call time so the module loads where move is absent (the validator stub).
 local BODY_KEY = { STAND = "standing", CROUCH = "crouch" }
 local MOVE_KEY = { STILL = "stand", WALK = "walk", RUN = "run" }
 
@@ -840,45 +644,10 @@ local function _get_combat_state(fire, posture, movement)
     return by_post and by_post[movement]
 end
 
--- The engine's fire discipline, composed from its own two behaviors: an enemy SEEN right now is fired
--- on with no further gate (the Alundaio kill-if-visible order, stalker_combat_actions.cpp:483-496 - no
--- distance term, point-blank fires); only the BLIND case consults fire_make_sense (the gate the
--- engine's own detour/sweep actions use, stalker_combat_actions.cpp:906-914 - its occlusion pick stops
--- shooting the wall the enemy ducked behind, its 10s automatic-weapon window sustains suppression at
--- last-known); otherwise READY, weapon up, until sight returns.
--- A can_kill_enemy gate on the seen branch was tried 2026-07-11 and REVERTED 2026-07-12 on measured
--- + source evidence: the ENGINE never gates fire on can_kill_enemy (its sole consumer is sight
--- aim-point selection, sight_action.cpp:408; the fire holds are visible_now and can_kill_member);
--- while WALKING the ray direction is the head's CURRENT sight angles (ai_stalker_fire.cpp:216),
--- which lag a strafing target past the 2.8deg fan, and the sight machine deliberately re-aims at
--- the target's visible point for 1500ms when the check fails (sight_action.cpp:395-455) - so the
--- gate muted fire through the engine's normal lag-and-displace windows: 73% of reads blocked (1053
--- of 1443, many at body-angle 0-5deg), NPCs silent at close range where vanilla blazes. Never re-add.
--- A RELOADING weapon cannot shoot, and a fire goal issued onto it CANCELS the engine reload
--- (proven 2026-07-21: chained maneuver applications killed reloads at ~116ms held, over and over,
--- leaving the NPC racking an empty gun), so the discipline degrades to READY first: the engine
--- finishes the reload undisturbed and fire resumes on the caller's next periodic re-apply.
--- Returns (fire to apply, fire-gate verdict: "reloading" = mid-reload, READY so the reload
--- survives; "seen" = visible, fired as asked; "memory" = blind, firing at last-known (the 10s
--- auto-weapon window); "hold" = blind and no shot makes sense, READY).
--- @cost O(1) | 1-2 luabind (reload state) + 1 luabind (see) when seen; + the fire_make_sense reads when blind
--- Set the sight at the committed target - the missing half of taking an NPC (f015). The engine
--- sight manager is a single slot with NO expiry (CSightControlAction duration u32(-1),
--- sight_manager.cpp:242): when the takeover blocks the planners, the previous owner's sight
--- action - kill_enemy's fire-object stare at the OLD enemy - survives in the slot, and the state
--- machinery's own look order cannot replace it while any direction_turn precondition
--- (weapon/animation/movement, state_mgr_goap.script:468-481) hangs: the NPC stays sight-glued to
--- the old fight for the whole hold (the counterflank zero-shot freeze; 16 of 16 glued samples,
--- 2026-07-28). Every engine combat action's first act on initialize is sight().setup - this is
--- that write. Mirrors look_at_object (state_mgr_direction.script) exactly: the same
--- look_object_type branch picks the same sight class, so when turn() also runs the two writers
--- issue the identical action and CSightAction's operator== (sight_action_inline.h:87-111) makes
--- the repeat a no-op inside setup - agreement, not a fight. The point_obj_dir stamp (the value
--- turn() itself would write, guarded to OUR look order) lets the direction evaluator's mode term
--- pass once the identity matches, so the fire gate (state_mgr.script:318) releases when the body
--- converges even if direction_turn never ran. Equality ignores no_pitch, so the one 4-arg call
--- covers both branches.
+-- Set the sight at the committed target: the engine sight slot has NO expiry, so the previous owner's stare survives a planner block until this write.
+-- Mirrors look_at_object (state_mgr_direction.script); the point_obj_dir stamp lets the direction evaluator's mode term pass once identity matches.
 -- @cost O(1) | 2 luabind (id, set_sight; set_sight dedups engine-side when unchanged)
+-- @src xray/sight_manager.cpp:242 (u32(-1) sight duration), anomaly/state_mgr.script:318 (the fire gate), xray/sight_action_inline.h:87-111 (operator==)
 local function _set_committed_sight(npc, aim)
     local st = db.storage[npc:id()]
     local sm = st and st.state_mgr
@@ -890,6 +659,10 @@ local function _set_committed_sight(npc, aim)
     npc:set_sight(aim, torso_look, fire_object, no_pitch)
 end
 
+-- The engine's fire discipline: seen fires as asked (the vanilla kill_enemy order), blind consults fire_make_sense, else READY; reload degrades first.
+-- Never gate the seen branch on can_kill_enemy: the engine never does, and measured 2026-07-12 it muted 73% of reads through normal sight lag.
+-- @cost O(1) | 1-2 luabind (reload state) + 1 luabind (see) when seen; + the fire_make_sense reads when blind
+-- @src xray/stalker_combat_actions.cpp:483-496 (seen -> fire), :906-914 (blind fire_make_sense); a fire goal on a reloading weapon cancels the reload
 local function _resolve_fire(npc, requested, enemy)
     if xcombat.is_reloading(npc) then return xcombat.READY, "reloading" end
     if enemy and xcombat.can_see(npc, enemy) then return requested, "seen" end
@@ -898,15 +671,7 @@ local function _resolve_fire(npc, requested, enemy)
 end
 
 --- Drive the NPC's combat state - the one command for weapon mode, posture, movement, and fire discipline.
---- Replaces raw state_mgr / set_body_state / set_movement_type calls with three safe
---- orthogonal knobs plus the enemy: opts.fire is the caller's INTENT, and a FIRE/SNIPE intent resolves
---- through the engine's own discipline (_resolve_fire: seen -> as asked, blind -> fire_make_sense, else
---- READY weapon-up) before any state applies - the caller holds no fire logic. The look_object follows the
---- intent: a FIRE/SNIPE intent watches the enemy even while degraded to READY (eyes on last-known until
---- sight returns); READY/STOW intents look at nothing. Resolves the matching state from the matrix so
---- state and the explicit posture/movement always agree (no engine contention), and returns false without
---- touching the NPC when the engine ships no state for the resolved combo. opts.state names any state_lib
---- state directly for the rare case the knobs do not cover, keeping every engine state reachable.
+--- opts.fire is the caller's INTENT, resolved through _resolve_fire before any state applies; returns false untouched on an unsupported combo.
 --- @safety SAFE - returns false on an unsupported combo; the engine calls are SAFE_WRAPped
 --- @cost O(1) | 1 state_mgr dispatch + 2 luabind trivial (set_body_state, set_movement_type); + the _resolve_fire reads on a FIRE/SNIPE intent
 --- @src anomaly/state_lib.script (bundles), anomaly/state_mgr.script:503 (set_state), :319-321 (sniper_fire states = single shots, randomized 500-1500ms aim)
@@ -932,67 +697,34 @@ function xcombat.set_combat(npc, opts)
         local mvt = MOVE_KEY[opts.movement]
         if mvt then npc:set_movement_type(move[mvt]) end
     end
-    -- A stowed rout faces its RUN PATH, explicitly. The sprint state defines no direction and the
-    -- direction fallback proved unreliable under the takeover block: a fleeing NPC inherited the
-    -- previous state's stare (backpedalling in the enemy's face, observed 2026-07-09). The vanilla
-    -- reach-task call shape (xr_reach_task.script:124) sets the sight every apply, so the 200ms
-    -- re-assert keeps the head down the path.
     if fire == "STOW" then
         npc:set_sight(look.path_dir, nil, 0)
     end
-    -- A firing state looks at its COMMITTED TARGET, explicitly - the fire-side twin of the STOW
-    -- branch above, closing the stale-sight glue (f015; the full mechanism on _set_committed_sight).
     if aim then
         _set_committed_sight(npc, aim)
     end
-    -- SNIPE deliberately does NOT touch npc:sniper_fire_mode. That engine flag is story-scene stagecraft:
-    -- its 3 read sites (g_fireParams, ai_stalker_fire.cpp:193,225,239) replace the fired direction with the
-    -- sight's TARGET angles and discard the recoil effector, so a non-converged shooter hits a target his
-    -- model does not face. Vanilla combat never sets it (the camper scheme uses the sniper states alone,
-    -- xr_camper.script:191-193); SNIPE means the sniper STATES - aimed pose + the state_mgr sniper cadence
-    -- (single shots, randomized 500-1500ms aim, state_mgr.script:319-321) - with direction and dispersion
-    -- as normal fire.
     return fire, gate
 end
 
 -- Geometric queries
 
--- Ray heights above npc:position() (the feet), grounded in probe_npc_heights_20260804 (n=15+ clean
--- crouches, n=45 stands). Every combat ray takes its height from HERE, never a literal - a SHOT line
--- starts at an EYE height (the engine fires from eye_matrix.c: ai_stalker_fire.cpp:171,208,232), a
--- MOVEMENT lane uses the low body probe, a shot TARGETs the chest. Named by role; the engine's own
--- stance enum is eBodyStateStand / eBodyStateCrouch.
+-- Ray heights above npc:position() (the feet), probe-grounded (2026-08-04); every combat ray takes its height from HERE, never a literal.
 xcombat.BODY_Y = {
-    -- crouched eye = crouched shot origin (probe n=15 clean)
     CROUCH_EYE = 0.93,
-    -- movement-lane obstacle probe: low, to catch ~1m crates a higher shot ray clears
     LANE       = 1.20,
-    -- spine2 = body center / the shot TARGET point (probe n=45)
     CHEST      = 1.51,
-    -- standing eye = standing shot origin (probe; ai_stalker_fire.cpp:208)
     STAND_EYE  = 1.59,
 }
 local BODY_Y = xcombat.BODY_Y
--- Every combat ray is object-aware: rqtBoth (xrCDB/xr_collide_defs.h:72-76) = the baked level-geometry CDB
--- (walls, floors, terrain) PLUS game objects (crates, barrels, doors, NPCs). In STALKER a crate or barrel is a
--- permanent rqtObject that stops a bullet exactly like a wall - nothing here is "transient" except a moving NPC,
--- and a flag cannot separate an NPC from a prop, so a static-only ray (which passes straight through cover a
--- bullet cannot) is never the right combat test. The caster's own body is skipped by SELF_CLEARANCE_M; a shot
--- target's body by ENEMY_BODY_CLEARANCE_M - the two genuinely-unwanted hits (self, target), excluded by range.
+-- rqtBoth (xr_collide_defs.h:72-76): baked geometry PLUS game objects; a static-only ray passes through cover a bullet cannot.
 local RQ_BOTH = 3
--- rqtStatic (xrCDB/xr_collide_defs.h:72-76): baked level geometry ONLY (walls, floors, terrain), NOT game
--- objects/NPCs/props. The pure "is a WALL between two points" test - used where a body, crate or NPC in the
--- line must NOT count as a blocker (a corpse pile between two points would false-block a rqtBoth ray).
+-- rqtStatic (xr_collide_defs.h:72-76): baked level geometry ONLY - the pure wall test, where a body or crate must not count as a blocker.
 local RQ_STATIC = 2
 local SELF_CLEARANCE_M       = 1.0
 local ENEMY_BODY_CLEARANCE_M = 0.75
 
---- The ONE object-aware (rqtBoth) clearance ray: true when a wall or game object blocks the straight line
---- from `a` to `b`, cast at CHOSEN heights - the height is DATA (BODY_Y), never a literal. A SHOT line starts
---- at an eye height (the engine fires from eye_matrix.c); a MOVEMENT lane uses the low LANE probe. opts.from_y
---- lifts the start above the feet and opts.to_y the end; opts.self_clear skips the caster's own body and
---- opts.target_clear stops the ray short of the target body (both metres, zero-default). from_y and to_y are
---- required - the caller names the height, there is no hidden chest guess.
+--- The ONE object-aware (rqtBoth) clearance ray: true when a wall or game object blocks the straight line from a to b.
+--- Heights are DATA (BODY_Y), never literals: opts.from_y / opts.to_y are required, opts.self_clear / opts.target_clear trim the ends.
 --- @safety SAFE - get_distance returns 0 when nothing is hit
 --- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
 --- @src xray/level_script.cpp:2633 (CRayPick), xray/xrCDB/xr_collide_defs.h:72-76 (rqtBoth = rqtObject | rqtStatic)
@@ -1021,9 +753,8 @@ function xcombat.is_line_blocked(a, b, opts)
     return hit > 0 and hit < range - 1.0
 end
 
---- True if a wall or game object blocks a MOVEMENT lane between two points - the run-lane test, cast at the
---- low LANE height so a ~1m crate or barrel the navmesh routes through is caught (a shot-height ray would
---- clear it). For a SHOT at an enemy use has_obstacle_to_target instead.
+--- True if a wall or game object blocks a MOVEMENT lane between two points - the run-lane test at the low LANE height.
+--- A ~1m crate the navmesh routes through is caught; for a SHOT at an enemy use has_obstacle_to_target instead.
 --- @safety SAFE - see is_line_blocked
 --- @cost O(1) | 6 luabind (one is_line_blocked ray)
 --- @param start_pos vector start (feet)
@@ -1033,10 +764,8 @@ function xcombat.has_obstacle_between(start_pos, end_pos)
     return xcombat.is_line_blocked(start_pos, end_pos, { from_y = BODY_Y.LANE, to_y = BODY_Y.LANE, self_clear = SELF_CLEARANCE_M })
 end
 
---- True when a static WALL (baked level geometry only) blocks the straight line from `a` to `b`, cast
---- chest-to-chest. Unlike has_obstacle_between (rqtBoth), a body, crate or NPC in the line does NOT
---- count - only walls/floors/terrain - so a corpse pile between the two points never false-blocks. The
---- "can they see that spot if they looked, walls aside" test; facing-independent (no vision cone).
+--- True when a static WALL (baked level geometry only) blocks the straight line from a to b, cast chest-to-chest.
+--- Unlike has_obstacle_between a body, crate or NPC never counts, so a corpse pile never false-blocks; facing-independent (no vision cone).
 --- @cost O(1) | one is_line_blocked ray (rqtStatic)
 --- @param a vector start position (feet); lifted to chest
 --- @param b vector end position (feet); lifted to chest
@@ -1045,11 +774,8 @@ function xcombat.has_wall_between(a, b)
     return xcombat.is_line_blocked(a, b, { from_y = BODY_Y.CHEST, to_y = BODY_Y.CHEST, flags = RQ_STATIC, self_clear = SELF_CLEARANCE_M })
 end
 
---- True if a wall or game object blocks the SHOT line from a firing position (at eye height `eye_y`) to the
---- target's CHEST, capped ENEMY_BODY_CLEARANCE_M short so the target's own body and the cover it hugs are never
---- the blocker. `eye_y` is a BODY_Y height - STAND_EYE for a standing shooter, CROUCH_EYE for a crouched one -
---- so ONE check serves a stand shot AND a "could I shoot from a crouch" posture test. A crate or barrel BETWEEN
---- shooter and target DOES block it. Use to pick a firing vertex, or to decide a firing posture, with a clear shot.
+--- True if a wall or game object blocks the SHOT line from a firing position at eye height eye_y to the target's CHEST.
+--- The ray stops ENEMY_BODY_CLEARANCE_M short so the target's own body and the cover it hugs are never the blocker; eye_y names the posture.
 --- @safety SAFE - see is_line_blocked
 --- @cost O(1) | 6 luabind (one is_line_blocked ray)
 --- @param start_pos vector firing position (feet); the ray starts at eye_y over it
@@ -1060,13 +786,8 @@ function xcombat.has_obstacle_to_target(start_pos, target_pos, eye_y)
     return xcombat.is_line_blocked(start_pos, target_pos, { from_y = eye_y, to_y = BODY_Y.CHEST, self_clear = SELF_CLEARANCE_M, target_clear = ENEMY_BODY_CLEARANCE_M })
 end
 
---- DEFENSIVE hide read: from `lvid`, is a static wall in the way at CROUCH height toward `dir`.
---- NOT a line of fire - it never traces to the enemy and does NOT say whether you can shoot from here; for a
---- shot, raycast (has_obstacle_to_target / can_kill_enemy). Returns 0..1: 0 = walled (hidden crouched),
---- 1 = open (exposed), higher = more exposed. Baked 4 quadrant bytes per vertex interpolated by YAW only
---- (pitch discarded), static geometry only - blind to bodies, props, slope. Pair with get_stand_openness for a
---- waist-high wall (crouch walled + stand open). Sign tested in game 2026-08-02 (open ~0.60, wall ~0.08-0.19),
---- see doc/library/modding/cover-and-los-queries.md.
+--- DEFENSIVE hide read: from lvid, is a static wall in the way at CROUCH height toward dir (0 = walled/hidden, 1 = open/exposed).
+--- NOT a line of fire - it never traces to the enemy; confirm any shot with a raycast. Sign tested in game 2026-08-02.
 --- @safety SAFE - the engine returns 0 for an invalid vertex; nil-guarded to 0
 --- @cost O(1) | 1 luabind trivial (baked quadtree lookup + yaw interpolation, ~40ns)
 --- @src xray/level_script.cpp:363 (bind), :371 (yaw-only getHP), xray/level_graph_vertex_inline.h:649-660 (interp NORMALIZE_NODE_COVER_LOW quadrant bytes)
@@ -1077,12 +798,8 @@ function xcombat.get_crouch_openness(lvid, dir)
     return level.low_cover_in_direction(lvid, dir) or 0
 end
 
---- DEFENSIVE hide read: from `lvid`, is a static wall in the way at STANDING height toward `dir`. The standing
---- twin of get_crouch_openness - same baked, yaw-only, static read, same 0..1 meaning (0 = walled/hidden
---- standing, 1 = open/exposed), same limit: NOT a line of fire, does NOT say whether you can shoot from here.
---- Read both to classify the spot: crouch walled + stand open = a waist-high wall (hide crouched, stand to
---- shoot over); both walled = a tall wall (can't shoot from either stance); both open = no cover. Confirm any
---- shot with a raycast (has_obstacle_to_target / can_kill_enemy).
+--- The standing twin of get_crouch_openness: same baked, yaw-only, static read, same 0..1 meaning, same limit (NOT a line of fire).
+--- Read both to classify the spot: crouch walled + stand open = a waist-high wall; both walled = tall wall; both open = no cover.
 --- @safety SAFE - the engine returns 0 for an invalid vertex; nil-guarded to 0
 --- @cost O(1) | 1 luabind trivial (baked quadtree lookup + yaw interpolation, ~40ns)
 --- @src xray/level_script.cpp:351 (bind), :359 (yaw-only getHP), xray/level_graph_vertex_inline.h:636-647 (interp NORMALIZE_NODE_COVER_HIGH quadrant bytes)
@@ -1093,11 +810,8 @@ function xcombat.get_stand_openness(lvid, dir)
     return level.high_cover_in_direction(lvid, dir) or 0
 end
 
---- True when viewer has npc in his sight: viewer's facing within cone_deg of the NPC and the shot
---- line between them clear. The one sight primitive - facing plus clear line, entity and cone are
---- parameters; what the viewer holds never discriminates in combat (the in-hands weapon term was
---- removed by ruling, t214). Call it on event edges or feasibility checks, never per frame (it
---- pays a raycast).
+--- True when viewer has npc in his sight: facing within cone_deg of the NPC and the shot line between them clear.
+--- The one sight primitive; call it on event edges or feasibility checks, never per frame (it pays a raycast).
 --- @safety SAFE - false when viewer is nil
 --- @cost O(1) | 2 luabind (facing + positions) + 1 raycast
 --- @param viewer game_object the entity whose sight is asked (db.actor for the player)
@@ -1124,7 +838,7 @@ local function _is_on_line(member_pos, axis)
     return perp_x*perp_x + perp_z*perp_z < axis.thresh_sqr
 end
 
--- One member check; lifted out so the loop body has no nested if-chain
+-- One member check; lifted out so the loop body has no nested if-chain.
 -- @cost O(1) | 2 luabind (level.object_by_id + alive) on hit; vector field access
 local function _is_member_on_line(member_id, my_id, axis)
     if member_id == my_id then return false end
@@ -1161,17 +875,12 @@ function xcombat.has_friendly_in_line(npc, npc_pos, ene_pos, lateral_thresh_m)
     return false
 end
 
--- Squared NPC-to-actor distance, TTL-cached per id (the _weapon_kind_cache shape). 5s is the balance
--- point: worst-case closure is ~14 m/s (both sprinting), so the verdict error band on a radius compare
--- is +-70m - acceptable for a perceivability gate; 10s would double it and deny a visible fight too long.
+-- Squared NPC-to-actor distance TTL cache; 5s bounds the radius-compare error to +-70m at worst-case closure, acceptable for a perceivability gate.
 local ACTOR_DIST_TTL_MS = 5000
 local _actor_dist_cache = {}
 
---- Squared distance from an NPC to the actor, TTL-cached per id (5s). Radius-agnostic by design: it
---- returns the one number and every caller compares against its own squared radius, so one shared cache
---- serves all consumers. On a cache hit the call is one table read - zero luabind, zero allocation; on a
---- miss (once per TTL per NPC) two position() reads and a distance_to_sqr. Returns math.huge when there
---- is no actor (menu, teardown), so a radius compare reads "far" instead of erroring.
+--- Squared distance from an NPC to the actor, TTL-cached per id (5s); radius-agnostic, so one shared cache serves all consumers.
+--- Returns math.huge when there is no actor (menu, teardown), so a radius compare reads "far" instead of erroring.
 --- @safety SAFE - nil-actor guarded (math.huge), npc is the caller's live object
 --- @cost O(1) | 0 luabind cached; 3 luabind trivial on miss (2 position reads + distance)
 --- @src xray/script_game_object_script2.cpp (position), the _weapon_kind_cache TTL precedent above
@@ -1190,15 +899,9 @@ function xcombat.get_actor_dist_sqr(npc)
     return dist_sqr
 end
 
--- Engine fire gates - wrappers over the per-NPC combat-AI engine binds (themrdemonized/xray-monolith
--- PRs #594 aim+vision, #595 switch veto, #596 fire gates). Each wrapper probes its bind once
--- (type(npc.<bind>) == "function", cached module-local - the capability probe, never a version compare,
--- per stalker-compatibility.md) and carries a defined floor fallback, so a consumer calls the wrapper
--- unconditionally and the engine's posture-aware geometry switches on by itself when the player's exe
--- has the merged PRs. No consumer touches a raw bind.
+-- Engine fire-gate wrappers: each probes its bind once (a capability probe, never a version compare) and carries a defined floor fallback.
 
--- Bind availability by name, probed on the first wrapper call and cached for the session (the bind set
--- is a property of the exe, immutable at runtime).
+-- Bind availability by name, probed once and cached for the session (the bind set is a property of the exe, immutable at runtime).
 local _bind_ready = {}
 
 -- True when the engine bind `name` exists on this exe's game_object.
@@ -1212,13 +915,8 @@ local function _has_bind(npc, name)
     return ready
 end
 
---- Per-NPC aim tuning: sight swing speed, fine-tracking cap, and target lead
---- (npc:set_aim_params(max_angle, min_angle, min_speed, predict_time), PR #594). Read per frame in C++
---- by CSightManager (swing speed, firing cone) and predict_object_position (lead); unset or negative
---- components follow the live ai_aim_* cvars, so a negative value reverts that component to the global.
---- Floor fallback: NO-OP - vanilla aim IS the fallback, the caller's tuning degrades to nothing.
---- Not serialized: the game object is reconstructed on re-online, re-set on npc_on_net_spawn.
---- Consumer: t123 Reaction page, aim half (todo-alifetactics-next.md).
+--- Per-NPC aim tuning: sight swing speed, fine-tracking cap, and target lead (set_aim_params, PR #594).
+--- Negative components revert to the global ai_aim_* cvars; not serialized, re-set on npc_on_net_spawn. Floor: no-op, vanilla aim is the fallback.
 --- @safety SAFE - nil-guarded, no-op below the bind
 --- @cost O(1) | 1 luabind trivial (4 field writes) on the engine path, 0 on the floor
 --- @src PR themrdemonized/xray-monolith#594; xray/ai_stalker.h:817-845 (sentinel fields), xray/sight_manager.cpp:80-101 (select_speed consumption)
@@ -1230,24 +928,14 @@ end
 --- @return boolean true when the engine path applied, false on a floor exe (no-op)
 function xcombat.set_aim_params(npc, max_angle, min_angle, min_speed, predict_time)
     if not npc or not _has_bind(npc, "set_aim_params") then return false end
-    -- max_angle/min_angle are radians; the largest possible sight gap is PI, so a positive angle past
-    -- PI is meaningless - it collapses the deceleration band to always-on and silently does nothing
-    -- (the game's hardcore-aim option abuses exactly this with 17). Crash loudly rather than let a bad
-    -- config pass unseen; negative (the -1 global-cvar sentinel) is exempt.
     assert(not (max_angle > 3.14159265), "xcombat.set_aim_params: max_angle > PI (radians, bounded by PI; use <=0.785 or -1 for the global)")
     assert(not (min_angle > 3.14159265), "xcombat.set_aim_params: min_angle > PI (radians, bounded by PI; use <=0.785 or -1 for the global)")
     npc:set_aim_params(max_angle, min_angle, min_speed, predict_time)
     return true
 end
 
---- Per-NPC vision acquisition factor (npc:set_vision_speed(factor), PR #594). Multiplies into
---- get_visible_value beside g_ai_vision_speed_boost (the cvar stays live and composes): 1.0 = vanilla,
---- higher = seen faster, negative clamps to 0. Shapes mid/long-range acquisition only - inside
---- always_visible_distance the engine skips the formula. Floor fallback: NO-OP BY DESIGN - the only
---- script substitute is a visual_memory_manager functor wrap that would run our Lua every frame, banned
---- by stalker-code.md "No Per-Frame Work"; vanilla acquisition is the fallback.
---- Not serialized: the manager is reconstructed on re-online, re-set on npc_on_net_spawn.
---- Consumer: t123 Reaction page, perception half (todo-alifetactics-next.md).
+--- Per-NPC vision acquisition factor (set_vision_speed, PR #594): 1.0 = vanilla, higher = seen faster, negative clamps to 0.
+--- Shapes mid/long-range acquisition only; floor: no-op BY DESIGN (the only script substitute is a per-frame functor wrap, banned).
 --- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-CCustomMonster (the actor)
 --- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
 --- @src PR themrdemonized/xray-monolith#594; xray/visual_memory_manager.cpp:355-379 (composition), :360-361 (close-range skip)
@@ -1260,13 +948,8 @@ function xcombat.set_vision_speed(npc, factor)
     return true
 end
 
---- Per-NPC view-DISTANCE factor (npc:set_view_distance_factor(factor)) - the RANGE twin of
---- set_vision_speed. Vision speed shortens time-to-detect for a target already in line of sight; it
---- cannot extend the distance at which detection begins. This multiplies object_visible_distance's
---- return, so 1.0 = vanilla, higher = the NPC begins seeing a target from farther out, negative
---- clamps to 0. Composes with the per-state max_view_distance LTX multiplier. This is what a
---- binocular optic actually wants (range, not speed); NVG and a per-rank range curve ride it too.
---- Not serialized: the memory manager is reconstructed on re-online, re-set on npc_on_net_spawn.
+--- Per-NPC view-DISTANCE factor - the RANGE twin of set_vision_speed: multiplies object_visible_distance's return.
+--- 1.0 = vanilla, higher = detection begins farther out; composes with the per-state max_view_distance LTX multiplier. Floor: no-op.
 --- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-CCustomMonster (the actor)
 --- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
 --- @src n038 BIND_NPC_VIEW_DISTANCE (todo-demonized-exes.md); mirrors set_vision_speed
@@ -1279,16 +962,8 @@ function xcombat.set_view_distance_factor(npc, factor)
     return true
 end
 
---- Per-NPC fire-queue scaling (npc:set_fire_queue_scale(size_k, interval_k), PR #603). Scales the combat
---- planner's selected burst band: size_k multiplies burst size (the engine clamps >= 1, so < 1 degrades
---- to single shots, never silence), interval_k multiplies the inter-burst pause. Applied in
---- select_queue_params AFTER the weapon-type + distance band pick, so any [fire_queue_params] retune is
---- respected; a negative component follows the vanilla queue. Per-NPC field, read every planner tick; set
---- once, persists (not serialized, not reset on weapon change), re-set on npc_on_net_spawn.
---- SCOPE: only vanilla-combat-planner fire. An NPC firing through a state_mgr fire state (a scheme/maneuver
---- override) reaches the object handler with explicit queue params and bypasses select_queue_params, so
---- this scale does not touch it.
---- Floor fallback: NO-OP - vanilla queues ARE the fallback.
+--- Per-NPC fire-queue scaling (PR #603): size_k multiplies burst size (the engine clamps >= 1), interval_k the inter-burst pause.
+--- Vanilla-combat-planner fire only (state_mgr fire states bypass select_queue_params); negative = vanilla, re-set on net_spawn. Floor: no-op.
 --- @safety SAFE - nil-guarded, no-op below the bind
 --- @cost O(1) | 1 luabind trivial (2 field writes) on the engine path, 0 on the floor
 --- @src PR themrdemonized/xray-monolith#603; xray/stalker_combat_action_base.cpp:246-254 (apply), xray/ai/stalker/ai_stalker_inline.h:178-193 (fields/getters)
@@ -1302,18 +977,11 @@ function xcombat.set_fire_queue_scale(npc, size_k, interval_k)
     return true
 end
 
---- Per-NPC passive health-restore boost (npc:set_health_restore_boost(boost)) - the passive-regen twin
---- of the medkit action. Passive HP restore is the engine condition velocity m_fV_HealthRestore, applied
---- every UpdateHealth while alive from health_restore_v (m_stalker.ltx = 0.00003 for stalkers); this ADDS
---- boost to that velocity per NPC, so 0 = vanilla, higher = faster idle regeneration, mirroring the
---- vanilla belt-artefact restore an NPC otherwise never gets. Distinct lever from the xr_eat_medkit heal
---- action (that is an item consume; this is the standing velocity). Not serialized: the condition is
---- reconstructed on re-online, re-set on npc_on_net_spawn.
---- Floor fallback: NO-OP - vanilla restore IS the fallback.
+--- Per-NPC additive passive health-restore velocity: 0 = vanilla, higher = faster idle regeneration.
+--- Distinct lever from the medkit heal action (an item consume; this is the standing velocity); re-set on npc_on_net_spawn. Floor: no-op.
 --- @safety SAFE - nil-guarded, no-op below the bind
 --- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
---- @src n039 BIND_NPC_HEALTH_RESTORE_BOOST (todo-demonized-exes.md); xray/xrGame/EntityCondition.cpp:642
----   (UpdateHealth applies m_fV_HealthRestore), :279 (alive gate); base health_restore_v anomaly/m_stalker.ltx:249
+--- @src xray/EntityCondition.cpp:642 (UpdateHealth applies m_fV_HealthRestore), :279 (alive gate); base health_restore_v anomaly/m_stalker.ltx:249
 --- @param npc game_object stalker
 --- @param boost number additive on the restore velocity (0 = vanilla)
 --- @return boolean true when the engine path applied, false on a floor exe (no-op)
@@ -1323,14 +991,8 @@ function xcombat.set_health_restore_boost(npc, boost)
     return true
 end
 
---- Per-NPC hit-redirect selection lever (npc:set_hit_redirect(max, falloff), PR #636). Scales the
---- "this object hit me" term in CEnemyManager::evaluate by distance: the last attacker within
---- falloff metres gets up to max subtracted from its cost (decaying to 0 at falloff), so a hit
---- victim flips SELECTION onto a close attacker on the real hit signal - no forged sighting, and
---- fire still requires real line of sight (fire_make_sense untouched). max < 0 = the vanilla
---- -5/-100 step. Keys on memory().hit().last_hit_object_id(), the single most recent attacker.
---- Not serialized: the enemy manager is reconstructed on re-online, re-set on npc_on_net_spawn.
---- Floor fallback: NO-OP - the vanilla hit step IS the fallback.
+--- Per-NPC hit-redirect selection lever (PR #636): the last attacker within falloff metres gets up to max subtracted from its selection cost.
+--- A hit victim turns on the real hit signal - no forged sighting, fire still needs line of sight; max < 0 = the vanilla step. Floor: no-op.
 --- @safety SAFE - nil-guarded, no-op below the bind
 --- @cost O(1) | 1 luabind trivial (2 field writes) on the engine path, 0 on the floor
 --- @src PR themrdemonized/xray-monolith#636 (merge 168a08654); xray/enemy_manager.cpp:149-167 (the hit term)
@@ -1344,12 +1006,8 @@ function xcombat.set_hit_redirect(npc, max, falloff)
     return true
 end
 
---- Per-NPC visible-enemy bias lever (npc:set_visible_enemy_bias(actor_bias, npc_bias), PR #637).
---- Replaces the hardcoded "prefers whoever sees me" terms in CEnemyManager::evaluate: vanilla
---- subtracts 900 when the ACTOR sees the NPC but only 300 for another NPC - a ~3x baked player
---- magnet. Each argument is independent; a negative one keeps that side vanilla (900 / 300), 0
---- removes that pull entirely. Not serialized, re-set on npc_on_net_spawn.
---- Floor fallback: NO-OP - the vanilla 900/300 bias IS the fallback.
+--- Per-NPC override of the baked "prefers whoever sees me" selection pull (PR #637): vanilla subtracts 900 for the actor vs 300 for an NPC.
+--- Each argument is independent; negative keeps that side vanilla, 0 removes the pull. Floor: no-op, the vanilla bias is the fallback.
 --- @safety SAFE - nil-guarded, no-op below the bind
 --- @cost O(1) | 1 luabind trivial (2 field writes) on the engine path, 0 on the floor
 --- @src PR themrdemonized/xray-monolith#637 (merge 748833d63); xray/enemy_manager.cpp:175-184 (the sees-us terms)
@@ -1363,15 +1021,8 @@ function xcombat.set_visible_enemy_bias(npc, actor_bias, npc_bias)
     return true
 end
 
---- Per-NPC movement hold (npc:set_movement_hold(hold)) - the glide-stop lever. While true,
---- parse_velocity_mask routes into its Stand branch every frame: speed 0, movement type Stand, path
---- and destination preserved, so the engine mover cannot start a standing NPC running mid-hit-reaction
---- (the footless glide); movement resumes on the surviving path when cleared. The engine computes no
---- condition - when to hold is entirely the caller's decision. THE CALLER OWNS CLEARING IT: the flag
---- persists on the engine object while online, so a stale true holds the NPC planted indefinitely
---- (clear on death/offline/feature-off, not only on the happy path).
---- Not serialized: the object is reconstructed on re-online, so a hold never survives offline.
---- Floor fallback: NO-OP - vanilla movement (the glide) IS the fallback.
+--- Per-NPC movement hold - the glide-stop lever: while true the mover routes into its Stand branch every frame, path and destination preserved.
+--- THE CALLER OWNS CLEARING IT: a stale true holds the NPC planted indefinitely (clear on death/offline/feature-off). Floor: no-op.
 --- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-stalker
 --- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
 --- @src n040 BIND_NPC_MOVEMENT_HOLD (todo-demonized-exes.md); xray/stalker_movement_manager_base.cpp:432 (the Stand-branch gate)
@@ -1385,15 +1036,11 @@ function xcombat.set_movement_hold(npc, hold)
 end
 
 
---- Scale a pending hit's damage inside a before-hit callback: shit.power = shit.power * factor. The one
---- primitive a caller's damage effect writes through, so no consumer touches the engine hit struct
---- directly. factor > 1 amplifies (a shooter's damage edge), < 1 mitigates (a victim's resistance); the
---- caller resolves highest-wins and hands the final multiplier here. Composes across subscribers on the
---- same seam - each multiplies the shared field. nil hit or nil factor is a no-op (leave vanilla damage).
+--- Scale a pending hit's damage inside a before-hit callback: shit.power = shit.power * factor.
+--- factor > 1 amplifies, < 1 mitigates; subscribers compose by multiplying the shared field, and nil hit or factor is a no-op.
 --- @safety SAFE - nil-guarded on both args; a pure Lua field write, no engine bind, works on every exe
 --- @cost O(1) | 0 luabind of its own (a field read+write on the callback-delivered CScriptHit userdata)
---- @src xray/script_hit_script.cpp:35 (.def_readwrite("power", &CScriptHit::m_fPower)); dispatched from
----   anomaly/scripts/_g.script:1245 (npc_on_before_hit) and :1237 (actor_on_before_hit)
+--- @src xray/script_hit_script.cpp:35 (power def_readwrite); dispatched from anomaly/_g.script:1245 (npc_on_before_hit), :1237 (actor)
 --- @param shit CScriptHit the hit object passed to the before-hit callback
 --- @param factor number|nil the damage multiplier (nil = no change)
 --- @return boolean true when a factor was applied, false when skipped
@@ -1403,15 +1050,11 @@ function xcombat.apply_hit_power(shit, factor)
     return true
 end
 
---- Scale the per-shot dispersion cone inside an npc_shot_dispersion callback: temp_disp.dispersion is
---- multiplied by factor. The one primitive a caller's dispersion effect writes through. factor < 1
---- tightens the cone (skill, a steadying optic), > 1 loosens it; multiple subscribers compose because
---- each multiplies the shared field, and the engine returns the final temp_disp.dispersion to its
---- accuracy calc. nil table, nil factor, or an unset dispersion is a no-op (leave the engine cone).
+--- Scale the per-shot dispersion cone inside an npc_shot_dispersion callback: temp_disp.dispersion is multiplied by factor.
+--- factor < 1 tightens the cone, > 1 loosens it; subscribers compose, and the engine returns the final value to its accuracy calc.
 --- @safety SAFE - nil-guarded; a pure Lua field write, no engine bind, works on every exe
 --- @cost O(1) | 0 luabind of its own (a plain table field read+write)
---- @src anomaly/scripts/_g.script:1213-1217 (CAI_Stalker__GetWeaponAccuracy seeds temp_disp.dispersion,
----   fires npc_shot_dispersion, returns the mutated value); base cone xray/ai/stalker/ai_stalker_fire.cpp:72-133
+--- @src anomaly/_g.script:1213-1217 (GetWeaponAccuracy seeds temp_disp.dispersion, fires the callback); base cone xray/ai_stalker_fire.cpp:72-133
 --- @param temp_disp table the shared { dispersion = number } table passed to the callback
 --- @param factor number|nil the cone multiplier (nil = no change)
 --- @return boolean true when a factor was applied, false when skipped
@@ -1424,15 +1067,11 @@ end
 local FIRE_BONE = "bip01_r_finger02"
 -- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
 local INVALID_BONE_ID = 65535
--- ENEMY_BODY_CLEARANCE_M (the fire-clearance short-stop, shared with has_obstacle_to_target) is defined with the
--- geometry rays above.
--- Lateral half-width of the friendly firing lane for the can_kill_member fallback (the proven v1
--- doctrine value, combat_takeover at_combat_doctrine.script:91).
+-- Lateral half-width of the friendly firing lane for the can_kill_member fallback (the proven takeover doctrine value).
 local FRIENDLY_LANE_THRESH_M = 1.5
 
--- Fire origin: the weapon-hand bone position (Useful Idiots rx_ff.check_in_los precedent; the bone-id
--- guard mirrors utils_obj.safe_bone_pos), STAND_EYE height over npc:position() when the skeleton lacks the
--- bone (the engine fires from eye_matrix.c, ai_stalker_fire.cpp:208).
+-- Fire origin: the weapon-hand bone position, STAND_EYE over the feet when the skeleton lacks the bone.
+-- @src xray/ai_stalker_fire.cpp:208 (the engine fires from eye_matrix.c); rx_ff.check_in_los + utils_obj.safe_bone_pos precedents
 -- @cost O(1) | 2-3 luabind trivial (get_bone_id + bone_position, or position)
 local function _get_fire_origin(npc)
     if npc:get_bone_id(FIRE_BONE) ~= INVALID_BONE_ID then
@@ -1442,11 +1081,8 @@ local function _get_fire_origin(npc)
     return vector():set(pos.x, pos.y + BODY_Y.STAND_EYE, pos.z)
 end
 
--- Capped fire-clearance ray from `origin` toward the enemy chest: rqtBoth (walls AND objects), starts
--- SELF_CLEARANCE_M forward to skip the caster's own body, capped ENEMY_BODY_CLEARANCE_M short of the
--- enemy. Documented gap vs the engine ray: no transparency accumulation (feel_vision_mtl_transp,
--- ai_stalker_fire.cpp:700-712), so glass/bushes read as blockers the engine's own gate shoots through.
--- Returns (blocker distance from origin or nil when the capped lane is clear, distance to the enemy chest).
+-- Capped fire-clearance ray from origin toward the enemy chest; returns (blocker distance or nil when clear, distance to the chest).
+-- Gap vs the engine ray: no transparency accumulation, so glass and bushes read as blockers the engine's own gate shoots through.
 -- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query + get_distance)
 local function _get_fire_lane_hit(origin, enemy_pos)
     local dx = enemy_pos.x - origin.x
@@ -1467,23 +1103,8 @@ local function _get_fire_lane_hit(origin, enemy_pos)
     return nil, dist
 end
 
---- True when the NPC's fire lane reaches the enemy - the engine's posture-aware shot clearance
---- (npc:can_kill_enemy(), PR #596) when the exe has the bind, else a capped clearance ray. Engine path:
---- the 5-ray safety fan over the ACTUAL fire direction from the weapon (g_fireParams), frame-cached and
---- shared with the engine's own friendly-fire gate. Floor fallback: one rqtBoth ray from the weapon-hand
---- bone toward the enemy chest, capped short of the enemy body - posture-coarse, transparency-blind
---- (glass/bushes block it), and aimed at `enemy` rather than the live fire direction.
---- WHEN/WHERE/WHY: NEVER a fire gate - the engine itself never gates fire on this read (sole engine
---- consumer: sight AIM-POINT selection, sight_action.cpp:408; the fire holds are visible_now and
---- can_kill_member). Measured 2026-07-12: used as a takeover fire gate it blocked 73% of reads, many
---- at body-angle 0 - while walking the ray follows the head's CURRENT sight angles
---- (ai_stalker_fire.cpp:216), lagging a strafing target, and the sight machine re-aims at the
---- target's visible point for 1500ms whenever the check fails (sight_action.cpp:395-455). Use it as
---- the engine does: a position/aim-quality question on an NPC whose vanilla planner is aiming - which
---- is exactly Commitment's veto moment (un-seized, kill_enemy active).
---- It reads the NPC's CURRENT position (can_kill_at(vertex) is intentionally unbound), so it cannot score a
---- resolver's candidate destination.
---- Consumer: at_commitment's advantage test (t151, todo-alifetactics-next.md).
+--- True when the NPC's fire lane reaches the enemy: the engine's posture-aware shot clearance (PR #596) or a capped clearance-ray floor.
+--- NEVER a fire gate - the engine never gates fire on this read (measured 2026-07-12: 73% blocked); a position/aim-quality question only.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) | engine: 1 luabind (frame-cached recompute) | fallback: ~9 luabind (bone origin + ray)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:744-777 (safety fan), :802-823 (update_can_kill_info)
@@ -1497,18 +1118,8 @@ function xcombat.can_kill_enemy(npc, enemy)
     return hit_m == nil
 end
 
---- True when a NON-ENEMY sits in the NPC's fire lane - a REPOSITIONING HINT, never a hold-fire gate:
---- the engine's own friendly-fire hold lives in CObjectActionFire (the weapon-handler planner) and keeps
---- running under a combat-planner block, so gating fire on this read duplicates a protection that never
---- went away. Engine path (npc:can_kill_member(), PR #596): ANY non-enemy CEntityAlive on the safety
---- fan. Floor fallback: living SQUADMATES only (has_friendly_in_line from the weapon-hand bone) - the
---- squad-only scope means non-squad neutrals on the lane are not seen below the bind.
---- WHEN/WHERE/WHY: consult at maneuver SELECTION, not per shot. It reports a friendly in the NPC->enemy fire
---- lane (true while kiting or any forward-firing maneuver when a squadmate stands between the NPC and its
---- enemy) so a caller can decide to REPOSITION for a clear line. It is NOT a trigger hold: the engine's own
---- friendly-fire hold (CObjectActionFire) survives a combat-planner block and already stops the shot, so
---- reading this to gate fire duplicates that. Positional use only.
---- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - the blocked-lane read for a reposition decision.
+--- True when a NON-ENEMY sits in the NPC's fire lane - a REPOSITIONING HINT, never a hold-fire gate.
+--- The engine's own friendly-fire hold (CObjectActionFire) survives a planner block and already stops the shot; the floor sees squadmates only.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) engine (frame-cached) | O(m) members fallback (has_friendly_in_line)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:728-731 (non-enemy member); xray/object_actions.cpp:244-265 (engine hold)
@@ -1521,19 +1132,12 @@ function xcombat.can_kill_member(npc, enemy_pos)
     return xcombat.has_friendly_in_line(npc, _get_fire_origin(npc), enemy_pos, FRIENDLY_LANE_THRESH_M)
 end
 
--- Vanilla fire-gate values (the engine defaults, ai_stalker_fire.cpp:65-68). Post-floor exes expose them
--- as the ai_fire_* cvars (upstream 2d37af073, 2026-06-03 - after the floor build); _get_fire_gate_values
--- probes once via get_console():get_string (nil = the command does not exist with no error path,
--- XR_IOConsole_get.cpp:76-85 - the only getter that signals absence without a value ambiguity or a
--- warning log line, so no pcall) and reads live values when present, keeping a tuned post-floor exe
--- consistent with the engine's own gate.
+-- Vanilla fire-gate values (ai_stalker_fire.cpp:65-68); post-floor exes expose them as the ai_fire_* cvars, probed once and read live when present.
 local FIRE_EXT_M      = 2.5
 local FIRE_HEIGHT_M   = 2.0
 local FIRE_MIN_DIST_M = 2.5
 local FIRE_UNSEEN_MS  = 10000
--- The ef_weapon_type classes the engine's unseen suppression window accepts (its automatic-weapon
--- switch, ai_stalker_fire.cpp:920-930). Read from ini_sys per the xrs_debug_tools section-string
--- precedent (xrs_debug_tools.script:1986), never an engine bind.
+-- The ef_weapon_type classes the engine's unseen suppression window accepts (ai_stalker_fire.cpp:920-930); read from ini_sys, never a bind.
 local AUTO_EF_WEAPON_TYPES = { [6] = true, [7] = true, [8] = true, [10] = true }
 
 -- nil = unprobed; false = cvars absent (floor exe); true = cvars present (read live per call)
@@ -1556,20 +1160,8 @@ local function _get_fire_gate_values()
     return ext_m, height_m, min_dist_m, unseen_ms
 end
 
---- The engine fire-discipline gate: should this NPC pull the trigger on this enemy right now
---- (npc:fire_make_sense(), PR #596) when the exe has the bind. Floor fallback reproduces the engine
---- gate order from floor primitives (ai_stalker_fire.cpp:894-930): height gap, capped clearance ray
---- (blocker inside min dist = point-blank false, blocked well before the enemy = false), visible right
---- now = true, else the unseen suppression window with an automatic weapon. Two documented gaps vs the
---- engine: the ray has no transparency accumulation (glass/bushes block), and the window uses
---- memory_time - ANY sense (sight, sound, hit) - where the engine counts sight only, so the fallback
---- suppresses more permissively.
---- WHEN/WHERE/WHY: the BLIND-fire gate for a planner-blocking takeover. Consult it only when the enemy is NOT
---- seen right now - check see() first and fire unconditionally on seen, the vanilla kill_enemy order
---- (stalker_combat_actions.cpp:483-494). Its 2.5m point-blank bail (ai_stalker_fire.cpp:907) is a smart-cover
---- loophole rule (its only vanilla consumer), wrong for open combat, so never let it gate a seen enemy. On the
---- blind path it owns occlusion at last-known and the 10s auto-weapon suppression window; consult it at maneuver
---- start or on a throttled tick, never per frame, and never stack can_kill_enemy on the same case.
+--- The engine fire-discipline gate: should this NPC pull the trigger on this enemy right now (PR #596, floor reproduces the engine gate order).
+--- The BLIND-fire gate only: check see() first and fire unconditionally on seen (the vanilla kill_enemy order); never per frame.
 --- @safety SAFE - nil-guarded; enemy must be a remembered object (a best_enemy is), per get_unseen_ms
 --- @cost O(1) | engine: 1 luabind (internal frame cache) | fallback: ~15 luabind on the full path (positions + bone origin + ray + see + memory + weapon ini)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:894-930 (gate order), :65-68 (vanilla values)
@@ -1594,15 +1186,8 @@ function xcombat.fire_make_sense(npc, enemy)
     return AUTO_EF_WEAPON_TYPES[tonumber(ini_sys:r_string_ex(wpn:section(), "ef_weapon_type") or "")] == true
 end
 
---- Register `fn` on the combat action-switch veto (npc_on_combat_action_switch, PR #595):
---- fn(npc, from_op, to_op, flags), set flags.allow = false to keep the current action executing. The
---- denied proposal re-fires each brain update until released, so fn must be cheap. Registers ONLY when
---- the seam exists on this exe and returns whether it did - enhancement-only, no floor imitation
---- possible (the veto is a hook inside CPlanner::update(); nothing script-side sits at that seam). The
---- probe touches callbacks_gameobject (auto-load) then reads the forwarder functor that exe's script
---- installs beside its AddScriptCallback, so functor-present proves the callback name is registered
---- and the registration cannot fail (callback_set on a known name is a table write, axr_main.script:249-261).
---- xcombat registers nothing on its own behalf: fn is the caller's, registered at the caller's call.
+--- Register fn on the combat action-switch veto (npc_on_combat_action_switch, PR #595); set flags.allow = false to keep the current action.
+--- Registers ONLY when the seam exists and returns whether it did; the denied proposal re-fires each brain update, so fn must be cheap.
 --- @safety SAFE - registers only behind the functor probe, false on any floor/absent path
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
 --- @src PR themrdemonized/xray-monolith#595; xray/action_planner_inline.h:111 (gated swap), xray gamedata callbacks_gameobject.script:423-427 (forwarder)
@@ -1616,19 +1201,8 @@ function xcombat.on_action_switch(fn)
     return true
 end
 
---- Register `fn` on the best-cover re-pick veto (npc_on_find_best_cover_repick): fn(npc, flags), set
---- flags.allow = false to keep the NPC's current cover instead of moving to a newly-found one (suppress
---- the in-combat cover shuffle). Asked once per invalidation for the event drivers (enemy re-select,
---- danger add/remove, the held cover's value degrading - a deny refreshes the stored value, so that one
---- stabilizes), but two invalidators are STANDING STATE, not events: an enemy inside 3m of the held cover
---- and a smart cover whose loophole is gone re-invalidate on every combat-action execute, so a subscriber
---- denying through one is re-asked per brain update - keep the body cheap and cap any continuous deny.
---- Same enhancement-only shape as on_action_switch: registers ONLY
---- when the seam exists and returns whether it did - the veto is a hook inside best_cover(), nothing
---- script-side can imitate it, so on an older demonized exe this returns false and the caller degrades
---- (the mod runs unchanged, cover behaviour stays vanilla). The probe touches callbacks_gameobject
---- (auto-load) then reads the forwarder functor that exe installs beside its AddScriptCallback.
---- xcombat registers nothing on its own behalf: fn is the caller's, registered at the caller's call.
+--- Register fn on the best-cover re-pick veto (npc_on_find_best_cover_repick); set flags.allow = false to keep the NPC's current cover.
+--- Two invalidators are STANDING STATE (enemy inside 3m, gone loophole) and re-ask per brain update - keep fn cheap, cap any continuous deny.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path (no crash on old exes)
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
 --- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick) + update_find_best_cover_actuality; xray gamedata callbacks_gameobject.script
@@ -1642,9 +1216,8 @@ function xcombat.on_cover_repick(fn)
     return true
 end
 
--- Registers fn on one engine-forwarder callback behind the functor probe (the shared body of the
--- combat-distance and reload-edge registrars). Registers ONLY when the forwarder exists on this exe
--- and returns whether it did, so the caller self-gates on older builds.
+-- Registers fn on one engine-forwarder callback behind the functor probe (the shared body of the registrars).
+-- Registers ONLY when the forwarder exists on this exe and returns whether it did, so the caller self-gates on older builds.
 -- @cost O(1) | one-time registration, 2 table reads per repeat call
 local function _register_forwarded(fn, forwarder, callback_name)
     if type(fn) ~= "function" then return false end
@@ -1654,11 +1227,8 @@ local function _register_forwarded(fn, forwarder, callback_name)
     return true
 end
 
---- Register `fn` on the cover-band minimum ask (npc_on_get_min_combat_dist): fn(npc, base_min, flags),
---- fired inside compute_enemy_distances every time find_find_best_cover re-searches (invalidation cadence,
---- never per frame; the cached best_cover() read runs zero Lua). base_min is the engine's own value
---- (MIN_SUITABLE_ENEMY_DISTANCE or the sniper cvar); the handler SCALES it into flags.ret_value -
---- an invalid or negative return is ignored engine-side with an error log, and min > max is swapped.
+--- Register fn on the cover-band minimum ask (npc_on_get_min_combat_dist): fn(npc, base_min, flags) writing flags.ret_value.
+--- Fired on cover re-searches, never per frame; an invalid return is ignored engine-side and min > max is swapped.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path
 --- @cost O(1) | one-time registration; the handler pays only on cover re-searches
 --- @src xray/ai/stalker/ai_stalker_cover.cpp:91-150 (compute_enemy_distances), :282-298; xray gamedata callbacks_gameobject.script:496-505 (forwarder)
@@ -1668,9 +1238,8 @@ function xcombat.on_get_min_combat_dist(fn)
     return _register_forwarded(fn, "CAI_Stalker__GetMinCombatDist", "npc_on_get_min_combat_dist")
 end
 
---- Register `fn` on the cover-band maximum ask (npc_on_get_max_combat_dist): fn(npc, base_max, flags).
---- Same seam, cadence, and flags contract as on_get_min_combat_dist; base_max carries the engine's
---- weapon-typed value (pistol/shotgun cvars, 170 fallback, default cvar for the rest).
+--- Register fn on the cover-band maximum ask (npc_on_get_max_combat_dist): fn(npc, base_max, flags).
+--- Same seam, cadence, and flags contract as on_get_min_combat_dist; base_max carries the engine's weapon-typed value.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path
 --- @cost O(1) | one-time registration; the handler pays only on cover re-searches
 --- @src xray/ai/stalker/ai_stalker_cover.cpp:91-150 (compute_enemy_distances); xray gamedata callbacks_gameobject.script:507-515 (forwarder)
@@ -1680,12 +1249,8 @@ function xcombat.on_get_max_combat_dist(fn)
     return _register_forwarded(fn, "CAI_Stalker__GetMaxCombatDist", "npc_on_get_max_combat_dist")
 end
 
---- Register `fn` on the NPC reload-start edge (npc_on_weapon_reload_start): fn(npc, wpn), fired when a
---- stalker's weapon enters the reload state, on every reload path (planner reload, scripted state,
---- tri-state shotgun, misfire clear). The actor never fires it (actor_on_weapon_reload covers him).
---- Replaces per-NPC get_state polling with the exact edge. Same enhancement-only shape as
---- on_action_switch: registers ONLY when the seam exists (the forwarder functor probe) and returns
---- whether it did - on an older exe the caller degrades and the event never fires (self-gating).
+--- Register fn on the NPC reload-start edge (npc_on_weapon_reload_start): fn(npc, wpn), fired on every reload path.
+--- Replaces per-NPC get_state polling with the exact edge; the actor never fires it (actor_on_weapon_reload covers him).
 --- @safety SAFE - registers only behind the functor probe, false on any absent path
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
 --- @src xray/Weapon.cpp CWeapon::OnStateSwitch (reload-edge functors); xray gamedata callbacks_gameobject.script (forwarder)
@@ -1695,11 +1260,8 @@ function xcombat.on_reload_start(fn)
     return _register_forwarded(fn, "CAI_Stalker__OnWeaponReloadStart", "npc_on_weapon_reload_start")
 end
 
---- Register `fn` on the NPC reload-stop edge (npc_on_weapon_reload_stop): fn(npc, wpn), fired when the
---- weapon leaves the reload state for any reason (finished, interrupted). BEST-EFFORT: a weapon detached
---- mid-reload (owner died, weapon dropped) has no stalker parent at the switch and fires nothing, so a
---- consumer tracking reload state from the edges must bound it with a staleness window or confirm with
---- is_reloading (the authoritative read). Probe/floor semantics identical to on_reload_start.
+--- Register fn on the NPC reload-stop edge (npc_on_weapon_reload_stop): fn(npc, wpn), fired when the weapon leaves the reload state.
+--- BEST-EFFORT: a weapon detached mid-reload fires nothing, so bound edge-tracked state with a staleness window or confirm with is_reloading.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
 --- @src xray/Weapon.cpp CWeapon::OnStateSwitch (reload-edge functors); xray gamedata callbacks_gameobject.script (forwarder)
@@ -1709,15 +1271,9 @@ function xcombat.on_reload_stop(fn)
     return _register_forwarded(fn, "CAI_Stalker__OnWeaponReloadStop", "npc_on_weapon_reload_stop")
 end
 
--- Movement targeting. _find_toward is the geometry primitive (decreasing-step search along a direction).
--- The maneuver-facing finders all return a level vertex or nil, no side effects, uniform find_<noun> naming:
---   find_cover - a cover vertex, by opts.selection (nearest|best) and opts.firing (shoot-from|hide-in)
---   find_flee_lane - a clear run lane away from a threat (fanned headings, obstacle-rayed)
+-- Movement targeting: the finders return a level vertex or nil, no side effects; _find_toward is the geometry primitive.
 
--- best_cover collects every cover point in the caller's opts.radius and runs a navmesh accessible() check
--- on each (cover_manager_inline.h), so its cost grows with the area scanned (~r^2) and is worst when it
--- finds nothing (checks all of them). At radius 10 a dense-cover no-cover result measured up to 2.7ms; 7
--- roughly halves the points scanned, and cover within ~7m behind is a sound retreat distance anyway.
+-- best_cover cost grows ~r^2 with the radius scanned and is worst on a no-cover result (radius 10 measured up to 2.7ms in dense cover).
 local COVER_MIN_ENEMY_DIST = 1
 local COVER_MAX_ENEMY_DIST = 30
 local CONCEAL_THRESH       = 0.3
@@ -1741,8 +1297,8 @@ local function _is_free(npc, vid)
     return owner == nil or owner == npc:id()
 end
 
--- _find_toward: nearest free accessible vertex toward `dir`, decreasing the step until one validates
--- (the vanilla try_to_strafe pattern). Engine returns the origin on no-progress, so origin == nil result.
+-- Nearest free accessible vertex toward dir, decreasing the step until one validates (the vanilla try_to_strafe pattern).
+-- vertex_in_direction returns the origin on no-progress, which is rejected like nil.
 -- @cost O(s/2) steps | up to step/2 luabind (vertex_in_direction trivial + accessible medium) each
 local function _find_toward(npc, from_lvid, dir, step)
     local step_m = step
@@ -1754,9 +1310,8 @@ local function _find_toward(npc, from_lvid, dir, step)
     return nil
 end
 
--- One probe: a free reachable vertex `step` from `from_lvid` along `dir` with a clear SHOT line to the enemy -
--- object-aware, so a crate or barrel between the vertex and the enemy disqualifies it (it would stop the shot),
--- while the enemy's own body/cover does not (the ray stops short of it). Returns the vertex or nil.
+-- One probe: a free reachable vertex step metres from from_lvid along dir with a clear SHOT line to the enemy, or nil.
+-- Object-aware: a crate between the vertex and the enemy disqualifies it, while the enemy's own body does not (the ray stops short).
 -- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
 local function _find_firing_vid(npc, from_lvid, dir, step, enemy_pos)
     local vid = level.vertex_in_direction(from_lvid, dir, step)
@@ -1797,8 +1352,7 @@ local function _is_concealed(vid, dir)
     return (hi < lo and hi or lo) < CONCEAL_THRESH
 end
 
--- True when reaching `cover_pos` means moving toward `enemy_pos` - the path runs within 30deg of the enemy
--- and he is not far past the cover (best_cover's threat_on_the_way, cover_evaluators.cpp:172).
+-- True when reaching cover_pos means moving toward enemy_pos (best_cover's threat_on_the_way, cover_evaluators.cpp:172).
 -- @cost O(1) | pure vector math
 local function _is_toward_enemy(npc_pos, cover_pos, enemy_pos)
     local cx, cy, cz = cover_pos.x - npc_pos.x, cover_pos.y - npc_pos.y, cover_pos.z - npc_pos.z
@@ -1811,8 +1365,8 @@ local function _is_toward_enemy(npc_pos, cover_pos, enemy_pos)
     return proj <= cover_mag * 1.5
 end
 
--- The fire/hide terminal check for a cover point that already passed the loop guards. Returns the vid to use -
--- a firing vertex beside it when shooting, the cover itself when hiding - or nil.
+-- The fire/hide terminal check for a cover point that already passed the loop guards.
+-- Returns a firing vertex beside it when shooting, the cover itself when hiding, or nil.
 -- @cost O(rings) shoot / O(1) hide | _find_shot_vid or _is_concealed
 local function _resolve_cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
     if firing then return _find_shot_vid(npc, vid, enemy_pos) end
@@ -1831,8 +1385,8 @@ local function _find_best_cover(npc, enemy_pos, radius, search_pos, firing)
     return vid
 end
 
--- Nearest reachable cover (get_nearby_covers walk), guarded to his floor and never toward the enemy. firing=true
--- keeps the nearest whose firing vertex is clear; firing=false keeps the nearest that hides him.
+-- Nearest reachable cover (get_nearby_covers walk), guarded to his floor and never toward the enemy.
+-- firing=true keeps the nearest whose firing vertex is clear; firing=false keeps the nearest that hides him.
 -- @cost O(covers-in-radius) walk | per nearer candidate: _cover_candidate
 local function _find_nearest_cover(npc, enemy_pos, radius, search_pos, firing)
     local covers = level.get_nearby_covers(search_pos, radius)
@@ -1850,14 +1404,8 @@ local function _find_nearest_cover(npc, enemy_pos, radius, search_pos, firing)
     return best_vid
 end
 
---- Find a cover vertex, four ways from two flags. `selection` picks the search: "nearest" walks the baked cover
---- points closest-first (get_nearby_covers), "best" takes the most-occluded reachable point anywhere in radius
---- (best_cover, distance-blind). `firing` picks the purpose: true returns a vertex you can SHOOT the enemy from
---- (a clear shot line, the ray sweep), false returns one that HIDES you (walled toward the enemy, the baked read).
---- The nearest walk guards to his floor and never picks cover reached by running toward the enemy; the best path
---- inherits those guards from best_cover itself.
---- Firing cannot use fire_make_sense or can_kill_enemy: those read the NPC's CURRENT position, not a candidate
---- vertex (can_kill_at is unbound), so the shot check is positional - has_obstacle_to_target from the vertex.
+--- Find a cover vertex, four ways from two flags: opts.selection picks the search ("nearest" walk / "best" best_cover), opts.firing the purpose.
+--- firing=true returns a vertex to SHOOT from (a positional ray check - the fire gates read only the current position), false one that HIDES.
 --- @safety SAFE - nil when nothing qualifies; asserts on a missing opt
 --- @cost see _find_best_cover / _find_nearest_cover | no raycasts on a hide search, ring-sweep raycasts on a shoot search
 --- @src xray/script_game_object3.cpp:68 (best_cover), xray/level_script.cpp:329 (get_nearby_covers)
@@ -1875,11 +1423,8 @@ function xcombat.find_cover(npc, enemy_pos, opts)
     return _find_nearest_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
 end
 
--- One flee-lane probe: a free reachable vertex the full `distance_m` along `dir` AND a clear straight line out
--- to it with no wall OR object (crate, barrel) in the run lane. Unlike _find_firing_vid the ray is the NPC's
--- own run lane, not a line to the enemy, it tests objects not just static geometry (a flee must not run into a
--- crate the navmesh routes through), and the vertex must reach the full distance (no decreasing step) - a flee
--- wants a long open lane, not the nearest reachable node.
+-- One flee-lane probe: a free reachable vertex the full distance_m along dir AND a clear straight run lane out to it.
+-- Unlike _find_firing_vid the ray is the NPC's own run lane, it tests objects too, and the vertex must reach the full distance.
 -- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
 local function _find_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
     local vid = level.vertex_in_direction(own_lvid, dir, distance_m)
@@ -1888,11 +1433,8 @@ local function _find_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
     return vid
 end
 
--- The validated stub fallback (f005): farthest reachable partial along `dir` whose run lane is ALSO
--- clear - _find_flee_lane (accessible + has_obstacle_between raycast) at decreasing lengths, where
--- the old _find_toward fallback checked accessibility only and could send a flee straight into a tree
--- trunk or crate the navmesh routes around (the Georg Bumper snag, 2026-07-26). nil when no clear
--- partial validates, so the caller declines instead of taking an unvalidated lane.
+-- The validated flee fallback: the farthest reachable partial along dir whose run lane is ALSO clear, at decreasing lengths.
+-- An accessibility-only fallback could send a flee straight into a tree trunk or crate the navmesh routes around.
 -- @cost O(s/2) steps | up to step/2 (vertex_in_direction + accessible + raycast) each
 local function _find_toward_clear(npc, own_lvid, npc_pos, dir, step)
     local step_m = step
@@ -1904,9 +1446,8 @@ local function _find_toward_clear(npc, own_lvid, npc_pos, dir, step)
     return nil
 end
 
--- Try one fan offset to both sides of away_dir (straight-away when offset is 0); the first side whose run lane
--- is clear for the full distance wins, else nil. The XZ rotation of away_dir by +-offset is the 2D rotation
--- matrix, no atan2.
+-- Try one fan offset to both sides of away_dir (straight-away when offset is 0); the first side with a clear full-distance lane wins.
+-- The XZ rotation of away_dir by +-offset is the 2D rotation matrix, no atan2.
 -- @cost O(1) | up to 2 (vertex_in_direction + accessible + raycast)
 local function _find_flee_lane_at(npc, own_lvid, npc_pos, away_dir, offset_deg, distance_m)
     local dir = vector()
@@ -1920,14 +1461,8 @@ local function _find_flee_lane_at(npc, own_lvid, npc_pos, away_dir, offset_deg, 
     return nil
 end
 
---- Flee destination: the heading nearest `away_dir` whose run lane is clear for the full `distance_m` (a
---- reachable vertex that far out with no wall or object on the straight line to it). Two-phase search:
---- fan candidate headings from away_dir in `arc_deg` steps to +-`max_spread_deg` at the FULL distance,
---- straight-away first, first clear lane wins; nothing clear at full length re-fans at HALF length (a
---- clear half-distance diagonal beats a short straight stub - the boxed-in case). Only then fall back
---- to the farthest reachable partial along away_dir whose run lane is CLEAR (raycast-validated like
---- the fan phases - f005; the old accessibility-only fallback could return a lane through a tree or
---- crate), so a fleeing NPC keeps moving unless it is genuinely walled (then nil, the caller declines).
+--- Flee destination: the heading nearest away_dir whose run lane is clear for the full distance_m.
+--- Fans headings at full length, re-fans at half length (the boxed-in case), then takes the farthest CLEAR partial; nil when fully walled.
 --- @safety SAFE - nil when no clear lane validates along away_dir at all
 --- @cost O(n) headings | up to 2*(2*max_spread/arc + 1) (vertex_in_direction + accessible + raycast)
 --- @src xray/level_script.cpp:410 (vertex_in_direction)
@@ -1961,12 +1496,11 @@ function xcombat.find_flee_lane(npc, away_dir, distance_m, arc_deg, max_spread_d
     return _find_toward_clear(npc, own, npc_pos, away_dir, distance_m)
 end
 
---- Move the NPC toward `vid`, routing to the nearest accessible node if vid itself is blocked.
---- Owns the vanilla send_to_nearest_accessible_vertex behaviour: always sets a reachable destination,
---- never fails, so a move maneuver never stalls on tight or indoor geometry.
+--- Move the NPC toward vid, routing to the nearest accessible node if vid itself is blocked.
+--- Always sets a reachable destination and never fails, so a move maneuver never stalls on tight or indoor geometry.
 --- @safety SAFE - always sets a valid dest (own node when vid invalid)
 --- @cost O(1) | 1-2 luabind (accessible medium, accessible_nearest medium on miss, set_dest trivial)
---- @src anomaly/utils_obj.script(514) (send_to_nearest_accessible_vertex), xray/script_game_object3.cpp (accessible_nearest)
+--- @src anomaly/utils_obj.script(514) (send_to_nearest_accessible_vertex); accessible_nearest returns u32(-1) on an already-accessible position too
 --- @param npc game_object
 --- @param vid number desired destination vertex id
 --- @return number the vertex the NPC was actually sent to
@@ -1978,9 +1512,6 @@ function xcombat.set_destination(npc, vid)
     end
     if not npc:accessible(vid) then
         local nvid = npc:accessible_nearest(level.vertex_position(vid), VEC_ZERO)
-        -- accessible_nearest returns u32(-1) when the receiver is not a CCustomMonster or when
-        -- the position is already accessible (vid-vs-position disagreement); set_dest silently
-        -- ignores an invalid id, so fall back to the own node instead of returning the sentinel.
         if not nvid or nvid >= INVALID_LVID then
             local own = npc:level_vertex_id()
             npc:set_dest_level_vertex_id(own)
@@ -1994,11 +1525,7 @@ function xcombat.set_destination(npc, vid)
 end
 
 --- True when the NPC has reached its movement destination - the committed-maneuver arrival check.
---- Wraps path_completed() = (m_path_state == ePathStatePathCompleted) && actual(); the actual() term self-guards
---- the new-destination race - set_dest_level_vertex_id drops path actuality, so this stays false until the new
---- path is built and walked, never a stale true on the first tick after a set_destination. The engine's stricter
---- actual_all() pairing is not script-bound, so this is the full arrival truth available. Meaningless for a hold
---- maneuver (dest == own node makes it trivially true); a hold ends on its time cap, not on arrival.
+--- The actual() term self-guards the new-destination race; meaningless for a hold maneuver (dest == own node reads trivially true).
 --- @safety SAFE - path_completed is SAFE_WRAPped, returns false on a torn-down object
 --- @cost O(1) | 1 luabind trivial (path_completed: m_path_state compare + actual flag read)
 --- @src xray/script_game_object_script3.cpp:63 (binding), xray/movement_manager_inline.h:32 (m_path_state==ePathStatePathCompleted && actual)
@@ -2009,8 +1536,7 @@ function xcombat.is_arrived(npc)
 end
 
 --- Health as a 0..1 fraction (1 = full, 0 = dead) - the combat need's hurt input.
---- A single game_object property, wrapped so the maneuver rows read health through xcombat like every other
---- combat input instead of touching the engine field raw; the "how low is hurt" threshold stays with the caller.
+--- Wrapped so maneuver rows read health through xcombat; the "how low is hurt" threshold stays with the caller.
 --- @safety SAFE - nil npc reads as full health (1), so a phantom object never trips a hurt-gated maneuver
 --- @cost O(1) | 1 luabind trivial (health property read)
 --- @src xray/script_game_object_script2.cpp:74 (.property("health", GetHealth/SetHealth) - 0..1 normalized condition health)
@@ -2021,12 +1547,9 @@ function xcombat.get_health_frac(npc)
     return npc.health
 end
 
---- Add a signed delta to an NPC's 0..1 health fraction and write it back, clamped to [0,1] - the
---- realized-damage correction seam a consumer uses to reapply a resist or boost to damage another
---- system already dealt (e.g. a hit-pipeline that self-applied and left nothing to scale). Wrapped so
---- the caller adjusts health through xcombat, not the raw engine write. No-op on a nil npc or zero delta.
---- @safety SAFE - nil/zero guarded; clamps so health never leaves [0,1]. Caller guards liveness (a
----   positive delta on a 0-health object would otherwise raise it above dead).
+--- Add a signed delta to an NPC's 0..1 health fraction, clamped to [0,1] - the realized-damage correction seam.
+--- A consumer reapplies a resist or boost to damage another system already dealt; no-op on a nil npc or zero delta.
+--- @safety SAFE - nil/zero guarded, clamps to [0,1]; caller guards liveness (a positive delta would raise a 0-health object above dead)
 --- @cost O(1) | 1 luabind trivial (set_health_ex)
 --- @src xray/script_game_object_script2.cpp:74 (.property("health", GetHealth/SetHealth); set_health_ex the mutable write)
 --- @param npc game_object
@@ -2038,12 +1561,8 @@ function xcombat.add_health_frac(npc, delta)
     npc:set_health_ex(frac)
 end
 
---- True while this combatant is losing blood - the deteriorating-target input (a press decision
---- favors a target whose state worsens on its own). The vanilla read convention is `bleeding > 0`
---- (dialogs.script:2275,2401; gamemode_agony.script:37), wrapped so consumers take it through
---- xcombat instead of the raw engine field. NOTE for NPC receivers: the vanilla self-heal ticks
---- park small residual rates on the field (xr_eat_medkit heal writes 0.01/0.07), so an NPC mid-heal
---- still reads true; the actor's field carries no such residue.
+--- True while this combatant is losing blood - the deteriorating-target input, the vanilla bleeding > 0 convention.
+--- NPC receivers mid-heal read true (the self-heal ticks park small residual rates); the actor's field carries no residue.
 --- @safety SAFE - nil reads as not bleeding
 --- @cost O(1) | 1 luabind trivial (bleeding property read)
 --- @src xray/script_game_object_script2.cpp (.property("bleeding") - normalized bleed rate); anomaly dialogs.script:2275 (the > 0 convention)
@@ -2054,9 +1573,8 @@ function xcombat.is_bleeding(obj)
     return obj.bleeding > 0
 end
 
---- True while an engine hit flinch (the additive PlayHitMotion blend) is playing on this NPC -
---- the n037 reader, probed per compatibility-standards; false on exes without the bind, so the
---- term simply drops out of is_body_busy on release engines.
+--- True while an engine hit flinch (the additive PlayHitMotion blend) is playing on this NPC.
+--- Probed per compatibility standards; false on exes without the bind, so the term drops out of is_body_busy on release engines.
 --- @safety SAFE - nil-guarded, no-op probe below the bind
 --- @cost O(1) | 1 luabind trivial (clock compare in the engine) after the first probe
 --- @src n037 HIT_ANIM_READ_VETO_AND_MOVE_HOLD (todo-demonized-exes.md); character_hit_animations stamp
@@ -2067,10 +1585,7 @@ function xcombat.is_flinching(npc)
     return npc:is_hit_anim_playing()
 end
 
---- True exactly while the critical-hit stagger animation plays on this NPC. The engine name is
---- misleading: critically_wounded() is NOT the wounded-down state (IsWounded) - it is set when a
---- heavy hit crosses the bone accumulator threshold and cleared by the stagger animation's END
---- callback (ai_stalker_fire.cpp:1291-1320), so it reads true for the ~1s hit reaction only.
+--- True exactly while the critical-hit stagger animation plays (critically_wounded is NOT the wounded-down state IsWounded).
 --- Consumers PAUSE on it (animation plays, action waits); only IsWounded justifies ending work.
 --- @safety SAFE - nil-guarded
 --- @cost O(1) | 1 luabind trivial
@@ -2082,19 +1597,13 @@ function xcombat.is_staggering(npc)
     return npc:critically_wounded()
 end
 
---- True while a transient animation OWNS this body - the "never act on an animating body" gate
---- (user design law, 2026-07-27). Three terms, cheapest first: the critical-hit stagger
---- (is_staggering above), a script
---- animation overlay (animation_count - a queued overlay suspends the engine's whole selection),
---- and the additive hit flinch (probed, engine-bind exes only). Consumers gate BODY WRITERS on it
---- (maneuver staging, state re-application); refusal-only systems (the Commitment vetoes) need no
---- gate - they never write the body, and the crit transition already passes their watched set.
+--- True while a transient animation OWNS this body - the "never act on an animating body" gate.
+--- Three terms, cheapest first: the stagger, a script animation overlay (animation_count), the probed hit flinch; gate BODY WRITERS on it.
 --- @safety SAFE - nil-guarded
 --- @cost O(1) | 2 luabind trivial + 1 probed read, worst case
 --- @param npc game_object stalker
 --- @return boolean true while the body is owned by a transient animation
---- @return string|nil which term tripped ("stagger"/"overlay"/"flinch"), nil when free - the
----   consumer's trace breakdown (the seize-deferral tuning question runs on these counts)
+--- @return string|nil which term tripped ("stagger"/"overlay"/"flinch"), nil when free - the consumer's trace breakdown
 function xcombat.is_body_busy(npc)
     if not npc then return false end
     if xcombat.is_staggering(npc) then return true, "stagger" end
@@ -2103,14 +1612,11 @@ function xcombat.is_body_busy(npc)
     return false
 end
 
--- CWeapon::eReload = 7: eLastBaseState = eBore = 4 (HudItem.h:50-55), then eFire=5, eFire2=6, eReload=7
--- (Weapon.h:183-185). NOT 5 - the vanilla actor_effects.script:1105 "== 5" compare is eFire (it gates
--- shoot_effect on an ammo-count change); the reload compare in production mods is 7 (ssfx_weapons_dof.script:282).
+-- CWeapon::eReload = 7 (Weapon.h:183-185); NOT 5 - the vanilla actor_effects.script "== 5" compare is eFire.
 local WPN_STATE_RELOAD = 7
 
 --- True while the NPC's active weapon is in the reload state - the authoritative reload read.
---- Polls the weapon state machine directly, so it works on every exe (the npc_on_weapon_reload_* edge
---- events are the cheap signal; this is the truth they are bounded by). False for no/non-weapon item.
+--- Polls the weapon state machine, so it works on every exe (the reload edge events are the cheap signal this truth bounds).
 --- @safety SAFE - nil-guarded active item, IsWeapon-typed before get_state
 --- @cost O(1) | 2-3 luabind trivial (active_item: inventory field read; get_state: state field read)
 --- @src xray/script_game_object_script3.cpp:511 (get_state bind), xray/Weapon.h:185 (eReload), xray/HudItem.h:50-55 (base states)
@@ -2121,9 +1627,8 @@ function xcombat.is_reloading(npc)
     return wpn ~= nil and IsWeapon(wpn) and wpn:get_state() == WPN_STATE_RELOAD
 end
 
---- True when the combatant has no usable firearm in hands - a strapped, absent, or non-weapon
---- active item cannot shoot. A held knife counts as armed (w_melee is a fightable kind); how much
---- a knife threatens at range stays a caller judgement over distance.
+--- True when the combatant has no usable firearm in hands - a strapped, absent, or non-weapon active item cannot shoot.
+--- A held knife counts as armed (w_melee is a fightable kind); how much a knife threatens at range stays a caller judgement.
 --- @safety SAFE - nil-guarded; false only when a real weapon is in hands
 --- @cost O(1) | 1-2 luabind trivial (active_item field read + IsWeapon class check)
 --- @src xray/script_game_object2.cpp (active_item all-class)
@@ -2135,8 +1640,7 @@ function xcombat.is_unarmed(obj)
     return not wpn or not IsWeapon(wpn)
 end
 
---- True while the active weapon's magazine is empty - no round to fire until a reload lands
---- (the ammo term of the engine's ready-to-kill triple; the misfire term has no script bind, n046).
+--- True while the active weapon's magazine is empty - no round to fire until a reload completes.
 --- False when unarmed: no weapon means no magazine to be empty, is_unarmed owns that case.
 --- @safety SAFE - nil/non-weapon guarded to false
 --- @cost O(1) | 2-3 luabind trivial (active_item, get_ammo_in_magazine)
@@ -2150,9 +1654,8 @@ function xcombat.is_magazine_empty(obj)
     return wpn:get_ammo_in_magazine() == 0
 end
 
---- True while the actor sprints - a weapon-down locomotion state, so he cannot fire until he drops
---- out of it. INSTANT-EXIT: cancelled the frame the player decides to fire (only the raise delay
---- remains), so no consumer may treat it as a multi-second window; bounded extensions only.
+--- True while the actor sprints - a weapon-down locomotion state, so he cannot fire until he drops out of it.
+--- INSTANT-EXIT: cancelled the frame the player decides to fire, so never treat it as a multi-second window.
 --- @safety SAFE - a pure engine state read, boolean by construction
 --- @cost O(1) | 1 luabind trivial (actor_moving_state field read) + pure Lua bit test
 --- @src xray/level_script.cpp:2617 (actor_moving_state), anomaly/_g.script actor_move_states (mcSprint)
@@ -2161,8 +1664,7 @@ function xcombat.is_actor_sprinting()
     return bit_and(level.actor_moving_state(), actor_move_states.mcSprint) ~= 0
 end
 
---- True while the actor climbs a ladder - the weapon is away for the whole climb, the one
---- locomotion state with no instant exit (he must leave the ladder first).
+--- True while the actor climbs a ladder - the weapon is away for the whole climb, and there is no instant exit.
 --- @safety SAFE - a pure engine state read, boolean by construction
 --- @cost O(1) | 1 luabind trivial (actor_moving_state field read) + pure Lua bit test
 --- @src xray/level_script.cpp:2617 (actor_moving_state), anomaly/_g.script actor_move_states (mcClimb)
@@ -2171,11 +1673,8 @@ function xcombat.is_actor_climbing()
     return bit_and(level.actor_moving_state(), actor_move_states.mcClimb) ~= 0
 end
 
---- The weapon-state reason this combatant cannot fire right now, or nil when the weapon is ready -
---- the ordered single-read form of the three weapon rules (is_unarmed, is_reloading,
---- is_magazine_empty), mirroring the engine's ready-to-kill triple minus the unreadable misfire
---- term (n046). One active_item read serves all three terms. Policy-free: which KINDS of
---- combatant get which extra terms (animation, locomotion) is the caller's business rule.
+--- The weapon-state reason this combatant cannot fire right now, or nil when the weapon is ready.
+--- The ordered single-read form of is_unarmed / is_reloading / is_magazine_empty; extra terms stay the caller's business rule.
 --- @safety SAFE - nil/non-weapon guarded; no error-log path on any receiver
 --- @cost O(1) | 2-3 luabind trivial (active_item once, then state/ammo field reads)
 --- @src xray/object_property_evaluators.cpp:112-119 (the ready triple), xray/script_game_object_script2.cpp:184 (get_ammo_in_magazine)
@@ -2204,27 +1703,19 @@ xcombat.INDOOR_LEVELS = {
     l13u_warlab           = true,
 }
 
--- Indoor raycast geometry. rqtStatic = the baked level mesh only (walls, roofs, terrain) - NOT objects
--- or NPCs, so a crate or a passing stalker never reads as a wall. Trees are baked into the static mesh
--- on many levels, so an up-ray alone false-flags a canopy as a roof; the horizontal wall confirmation
--- below is what tells a building (roof + walls) from a tree (roof, open sides). RQ_STATIC above is the mask.
--- cast from chest height (skip ground clutter, reach a normal ceiling)
+-- Indoor raycast geometry: rqtStatic only, so a crate or passing stalker never reads as a wall; cast from chest height.
 local INDOOR_PROBE_Y     = BODY_Y.CHEST
--- is_indoor thresholds: roof within 4m, a wall within 5m, at least 2 of 4 cardinals walled. MIN_WALLS was
--- 1, which false-flagged a spot under a tree branch (canopy baked into the static mesh hits the roof ray)
--- next to a single wall as indoor; a real interior or tunnel walls on >=2 sides.
+-- Roof within 4m and >=2 of 4 cardinals walled within 5m; MIN_WALLS 1 false-flagged a spot under a tree branch beside a single wall.
 local INDOOR_ROOF_M      = 4
 local INDOOR_WALL_M      = 5
 local INDOOR_MIN_WALLS   = 2
--- get_enclosure reach (crystallized from AlifeSpooks probe, 31 snapshots 2026-08-08): roof to 12m catches
--- a high hall ceiling (a 7m hangar), walls to 40m grade tight vs huge; open sky/ground reads no hit.
+-- get_enclosure reach, probe-crystallized (31 snapshots 2026-08-08): a high hall ceiling still hits, open sky/ground reads no hit.
 local ENC_ROOF_RANGE     = 18
 local ENC_WALL_RANGE     = 40
 -- a wall within this counts toward "building" (>=3) vs "tunnel" (2)
 local ENC_BUILD_M        = 8
 
--- Distance to the first static-mesh hit from `pos` along `dir` within `range`, or nil (rqtStatic = baked
--- level mesh only, so objects/NPCs never count as a wall).
+-- Distance to the first static-mesh hit from pos along dir within range, or nil.
 -- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
 local function _get_static_dist(pos, dir, range)
     local ray = ray_pick()
@@ -2237,11 +1728,8 @@ local function _get_static_dist(pos, dir, range)
     return (hit > 0 and hit <= range) and hit or nil
 end
 
---- Measure enclosure geometry at `pos`: a roof up-ray plus 4 cardinal wall-rays, returning hit DISTANCES.
---- roof / nearest_wall are nil when nothing is hit (open sky / open sides). The caller classifies from the
---- raw distances (roof <= ~10m = enclosed; nearest_wall < 2m = tight; walls all far = huge; wall_count >= 3
---- = building, 2 = tunnel; no roof + near walls = roofless ruin). EXPENSIVE relative to a table read - the
---- caller MUST cache it by a position cell and never call it per frame.
+--- Measure enclosure geometry at pos: a roof up-ray plus 4 cardinal wall-rays, returning hit DISTANCES (nil = open).
+--- The caller classifies from the raw distances and MUST cache by a position cell - never call it per frame.
 --- @safety SAFE - world positions only, nil on a bad position
 --- @cost O(1) | up to 5 ray_pick queries
 --- @src AlifeSpooks probe 2026-08-08 (31 snapshots) - the ranges and thresholds
@@ -2266,15 +1754,8 @@ function xcombat.get_enclosure(pos)
     return { roof = roof, walls = walls, nearest_wall = nearest, wall_count = count }
 end
 
---- True if `pos` is inside tight geometry: an underground/lab level, or a spot on an outdoor level with
---- a roof overhead AND enclosing walls. Underground levels short-circuit true (whole map is enclosed, no
---- ray). Otherwise a single up-ray checks for a roof - open sky returns false immediately (the common,
---- cheapest path). A roof alone is not enough (a tree canopy is baked into the static mesh and would hit),
---- so four cardinal side-rays confirm enclosure: INDOOR_MIN_WALLS of them must strike a wall within
---- INDOOR_WALL_M. A building interior passes (roof + walls); a lone tree, an awning, or a rock overhang
---- fails (roof, open sides) and reads outdoor. rqtStatic keeps objects and NPCs out of the test.
---- The engine's own per-position signal (get_luminocity_hemi) is rejected: it conflates a roof with
---- night / storm / deep shade, which is why the engine limits it to ambient particles.
+--- True if pos is inside tight geometry: an underground level, or a spot with a roof overhead AND enclosing walls.
+--- A roof alone is not enough (a tree canopy is baked into the static mesh); a lone tree, awning, or rock overhang reads outdoor.
 --- @safety SAFE - up to 5 ray_pick queries, no engine object required (world positions only)
 --- @cost O(1) | 1 luabind on open ground (up-ray misses), up to 5 under a roof; seize-path only, never per frame
 --- @src xray/xr_collide_defs.h:73 (rqtStatic = baked level mesh), xray/GamePersistent.cpp:285 (hemi rejected)
@@ -2292,11 +1773,8 @@ function xcombat.is_indoor(pos)
     return walls >= INDOOR_MIN_WALLS
 end
 
---- Enclosure state at a position: one of "outdoor" | "indoor" | "underground".
---- Resolves ONE state, underground first: an underground LEVEL (the engine's own flag, the 9 lab/bunker
---- levels) reads "underground"; else a roofed-and-walled spot on a surface level (is_indoor raycast)
---- reads "indoor"; else "outdoor". underground is a whole-LEVEL flag, so a below-ground spot on a surface
---- level reads "indoor", not "underground" (accepted - no per-spot depth signal exists).
+--- Enclosure state at a position: "underground" (the engine's whole-level flag), else "indoor" (is_indoor raycast), else "outdoor".
+--- A below-ground spot on a surface level reads "indoor", not "underground" - no per-spot depth signal exists.
 --- @safety SAFE - GetEvent nil-safe (returns nil when unset), is_indoor nil-safe on pos
 --- @cost O(1) | 1 luabind (GetEvent) on an underground level; + the is_indoor raycast (<=5 ray_pick) on surface
 --- @src anomaly/level_weathers.script(129) SetEvent("underground", level not in the atmosfear-weather set)
@@ -2342,10 +1820,8 @@ end
 
 -- Squad spread
 
---- 0-based position of an NPC within its squad's member iteration order.
---- Stable per combat session; gives each member a distinct spread bucket instead of the global-id
---- modulo, which clashed whenever two squadmates shared `id % bucket_count`.
---- Consumer: t132 squad coordination (todo-combat-takeover-v2.md) - role bias by squad ordinal.
+--- 0-based position of an NPC within its squad's member iteration order, stable per combat session.
+--- Gives each member a distinct spread bucket instead of the global-id modulo, which clashed on shared id % bucket_count.
 --- @safety SAFE - returns 0 for nil/absent squad or member not found
 --- @cost O(m) members | alife_object + iter per call (called once per NPC at state init)
 --- @src anomaly/sim_squad_scripted.script (squad_members)
@@ -2363,14 +1839,3 @@ function xcombat.get_squad_ordinal(squad_id, npc_id)
     end
     return 0
 end
-
--- No lifecycle subscriptions and no game state. xcombat registers no live-event callbacks on its own
--- behalf and holds no ownership tables; on_action_switch registers the CALLER's function at the caller's
--- explicit call - nothing load-time, nothing hidden. The cover reservation is the engine's
--- db.used_level_vertex_ids, written given an explicit lvid + owner; the module tables are transient
--- memoization caches (_weapon_kind_cache 2s TTL, _actor_dist_cache 5s TTL - raw tables keyed by npc
--- id, no eviction: memory is bounded by the id space, and a recycled id can inherit the dead NPC's
--- entry for at most one TTL window, accepted over an evicting collection's per-read cost on these
--- hot paths) plus the
--- session-stable probe caches (_bind_ready, _fire_cvars - properties of the exe, immutable at runtime).
--- The consumer keeps the lvid it claimed and releases it.
