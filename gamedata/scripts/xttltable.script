@@ -1,29 +1,9 @@
---- xttltable: TTL, counter, and budget primitives
----
---- TTL Table: key-value store with auto-expiry.
----   - :get() and :has() are pure table lookups (zero bridge calls)
----   - :get_remaining_ttl() calls os.clock for accurate expiry checks
----   - _cleanup() sweeps expired entries, piggybacked on :set() and :get_size()
----   - Error margin: expired entries visible for up to cleanup_interval (default 10s)
----
---- TTL Counter: sliding window occurrence counter.
---- Token Bucket: per-key rate limiter with burst capacity.
---- FIFO Cache: bounded key-value store with oldest-first eviction.
----
---- Timing: os.clock by default (Lua C API, zero bridge overhead). All durations in seconds.
---- Optional clock injection: pass opts.clock = fn to use game time or custom clock.
----
---- Hot-path cooldowns do NOT live here: the sanctioned shape is the caller-now split
---- check/mark pair (AlifePlus ap_core_limiter.create_cooldown) - the throttle itself makes
---- zero clock calls and the caller amortizes one time read across all checks
---- (doc/library/modding/bridge-calls.md, Anti-Pattern: Bridge Call in Throttle). It lives in
---- the consumer while the clock domain is the caller's tick; adopt it here only when a
---- second consumer needs it.
+--- xttltable: TTL table, sliding-window counter, token bucket, and FIFO cache primitives
 
 local pairs, type, setmetatable = pairs, type, setmetatable
 local clock, min = os.clock, math.min
 
--- Shared cleanup buffer (Demonized pattern: collect keys, then remove)
+-- Shared cleanup buffer (collect keys, then remove).
 local _remove_buf = {}
 
 local function _flush_buf(tbl, count)
@@ -50,7 +30,7 @@ local function _collect_event(agg, event)
     end
 end
 
---- TTL Table: key-value store with auto-expiry
+--- TTL Table: key-value store with auto-expiry.
 local _ttl_table_mt = {}
 _ttl_table_mt.__index = _ttl_table_mt
 
@@ -77,17 +57,17 @@ function _ttl_table_mt:set(key, value, ttl)
     return true
 end
 
---- Pure table lookup. No bridge calls. false round-trips (matches the fifo_cache negative-cache
---- convention); an expired-but-unswept entry still returns its value until cleanup runs.
+--- Pure table lookup, no bridge calls; false round-trips (the fifo_cache negative-cache convention).
+--- An expired-but-unswept entry still returns its value until cleanup runs.
 function _ttl_table_mt:get(key)
     local entry = self._entries[key]
     if entry then return entry.value end
 end
 
---- Pure table lookup. No bridge calls.
+--- Pure table lookup, no bridge calls.
 function _ttl_table_mt:has(key) return self._entries[key] ~= nil end
 
---- Calls clock function for accurate expiry check
+--- Calls the clock function for an accurate expiry check.
 --- @param key string
 --- @return number|nil Remaining seconds, or nil if expired/missing
 function _ttl_table_mt:get_remaining_ttl(key)
@@ -106,7 +86,7 @@ end
 function _ttl_table_mt:clear() self._entries = {}; self._total[1] = 0 end
 function _ttl_table_mt:get_size() self:_clear_expired(); return self._total[1] end
 
---- Return all entries as {key = value}
+--- Return all entries as {key = value}.
 function _ttl_table_mt:get_all()
     self:_clear_expired()
     local result = {}
@@ -116,7 +96,7 @@ function _ttl_table_mt:get_all()
     return result
 end
 
---- Export for save/load (values only, TTLs not preserved)
+--- Export for save/load (values only, TTLs not preserved).
 function _ttl_table_mt:get_snapshot()
     self:_clear_expired()
     local result = {}
@@ -126,7 +106,7 @@ function _ttl_table_mt:get_snapshot()
     return result
 end
 
---- Import from save data (entries with default_ttl get fresh TTL from load time)
+--- Import from save data (entries with default_ttl get a fresh TTL from load time).
 function _ttl_table_mt:load(data)
     if not data then return end
     self._entries, self._total[1] = {}, 0
@@ -154,7 +134,7 @@ function create_ttl_table(opts)
     }, _ttl_table_mt)
 end
 
---- TTL Counter: sliding window occurrence counter with metadata aggregation
+--- TTL Counter: sliding-window occurrence counter with metadata aggregation.
 local _ttl_counter_mt = {}
 _ttl_counter_mt.__index = _ttl_counter_mt
 
@@ -189,11 +169,10 @@ end
 function _ttl_counter_mt:reset(key) self._buckets[key] = nil end
 function _ttl_counter_mt:clear() self._buckets = {} end
 
---- Export bucket state for save/load. Timestamps inside entries are clock-domain-specific
---- (game_sec persists meaningfully; os.clock does not survive VM restart).
+--- Export bucket state for save/load; timestamps are clock-domain-specific (game_sec persists, os.clock does not survive a VM restart).
 function _ttl_counter_mt:get_snapshot() return self._buckets end
 
---- Restore bucket state from save data. Replaces current state wholesale.
+--- Restore bucket state from save data, replacing the current state wholesale.
 function _ttl_counter_mt:load(data) self._buckets = data or {} end
 
 function _ttl_counter_mt:get_all()
@@ -202,8 +181,7 @@ function _ttl_counter_mt:get_all()
     return result
 end
 
---- Create TTL-based occurrence counter for sliding window rate limiting
---- Returns metatable-backed counter with per-key buckets; expired entries pruned on count()
+--- Create a TTL-based sliding-window occurrence counter with per-key buckets; expired entries are pruned on get_count().
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
 --- @cost O(1) add, O(n) count over key's bucket | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.get_game_sec
 --- @param opts table { ttl?, clock? } duration in seconds
@@ -213,11 +191,11 @@ function create_ttl_counter(opts)
     return setmetatable({ _ttl = opts.ttl, _clock = opts.clock or clock, _buckets = {} }, _ttl_counter_mt)
 end
 
---- Token Bucket: per-key rate limiter with burst control
+--- Token Bucket: per-key rate limiter with burst control.
 local _token_bucket_mt = {}
 _token_bucket_mt.__index = _token_bucket_mt
 
---- Acquire one token for key, return true if allowed
+--- Acquire one token for the key, returning true if allowed.
 function _token_bucket_mt:get_token(key)
     local now = self._clock()
     local state = self._keys[key]
@@ -235,7 +213,7 @@ function _token_bucket_mt:get_token(key)
     return false
 end
 
---- Check if a token is available for key without consuming it
+--- Check if a token is available for the key without consuming it.
 --- @cost O(1) | 0 luabind (pure Lua)
 function _token_bucket_mt:check(key)
     local state = self._keys[key]
@@ -244,16 +222,16 @@ function _token_bucket_mt:check(key)
     return min(self._capacity, state.tokens + elapsed * self._rate) >= 1
 end
 
---- Reset bucket state for key
+--- Reset bucket state for the key.
 function _token_bucket_mt:reset(key) self._keys[key] = nil end
 
---- Clear all bucket states
+--- Clear all bucket states.
 function _token_bucket_mt:clear() self._keys = {} end
 
---- Update refill rate (tokens/sec). In-flight state preserved; next refill uses new rate.
+--- Update the refill rate (tokens/sec); in-flight state is preserved and the next refill uses the new rate.
 function _token_bucket_mt:set_rate(rate) self._rate = rate end
 
---- Create per-key token bucket rate limiter. O(1) per get_token with fractional accumulation; bucket capacity is burst limit, rate controls sustained throughput.
+--- Create a per-key token-bucket rate limiter; capacity is the burst limit, rate the sustained throughput, O(1) per get_token.
 --- @safety SAFE - pure Lua tables + clock function (os.clock default, or injected game clock)
 --- @cost O(1) per get_token/check | 0 luabind with os.clock, 2 luabind medium per clock call with xtime.get_game_sec
 --- @param opts table { capacity, rate, clock? } capacity = max burst (tokens), rate = refill (tokens/sec)
@@ -267,11 +245,11 @@ function create_token_bucket(opts)
     }, _token_bucket_mt)
 end
 
---- FIFO Cache: bounded key-value store with oldest-first eviction
+--- FIFO Cache: bounded key-value store with oldest-first eviction.
 local _fifo_mt = {}
 _fifo_mt.__index = _fifo_mt
 
---- Get cached value by key
+--- Get the cached value by key.
 --- @cost O(1) | 0 luabind (pure Lua)
 --- @param key any Cache key
 --- @return any|nil Value or nil if not cached (false is a valid cached value)
@@ -279,16 +257,14 @@ function _fifo_mt:get(key)
     return self._data[key]
 end
 
---- Check if key is cached
+--- Check if the key is cached.
 --- @cost O(1) | 0 luabind (pure Lua)
 function _fifo_mt:has(key)
     return self._data[key] ~= nil
 end
 
---- Set key-value pair; evicts oldest entry when at capacity
---- Updating an existing key changes its value but keeps its eviction position (correct FIFO).
---- Ring buffer overwrites oldest slot on insert; hash map provides O(1) lookup.
---- If on_evict callback is set, it is called with (evicted_value, evicted_key) before removal.
+--- Set a key-value pair, evicting the oldest entry at capacity; updating an existing key keeps its eviction position (correct FIFO).
+--- The on_evict callback, when set, is called with (evicted_value, evicted_key) before removal.
 --- @cost O(1) | 0 luabind (pure Lua)
 --- @param key any Cache key
 --- @param value any Value to cache (nil not allowed, use false for negative cache entries)
@@ -308,14 +284,14 @@ function _fifo_mt:set(key, value)
     self._head = self._head % self._capacity + 1
 end
 
---- Clear all entries
+--- Clear all entries.
 function _fifo_mt:clear()
     self._data = {}
     self._ring = {}
     self._head = 1
 end
 
---- Count cached entries
+--- Count cached entries.
 --- @cost O(n) | 0 luabind (pairs over hash table)
 function _fifo_mt:get_size()
     local count = 0
@@ -323,7 +299,7 @@ function _fifo_mt:get_size()
     return count
 end
 
---- Iterate all cached values in insertion order (oldest first)
+--- Iterate all cached values in insertion order (oldest first).
 --- @cost O(capacity) | 0 luabind (pure Lua loop over ring)
 --- @param fn function(value, key) Called for each cached entry
 function _fifo_mt:iterate(fn)
@@ -336,9 +312,8 @@ function _fifo_mt:iterate(fn)
     end
 end
 
---- Create bounded FIFO cache
---- O(1) get/set with ring buffer eviction. When capacity is reached, the oldest entry is evicted.
---- Values may not be nil; use false for negative cache entries (e.g. "checked, not a mutant").
+--- Create a bounded FIFO cache: O(1) get/set with ring-buffer eviction of the oldest entry at capacity.
+--- Values may not be nil; use false for negative cache entries.
 --- @safety SAFE - pure Lua tables, no luabind, no timers
 --- @cost O(1) get/set | 0 luabind (pure Lua hash + ring buffer mod arithmetic)
 --- @param opts table|nil { capacity = number, on_evict = function(value, key) } (default capacity 128)
