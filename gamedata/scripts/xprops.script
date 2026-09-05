@@ -1,18 +1,9 @@
---- xprops: placeable world objects (props, furniture, set dressing). Spawns a dynamic_objects
---- physic section into the world ground-snapped and collision-checked, and removes it cleanly.
---- Placement is engine-native: a downward ray_pick resolves the ground surface and its normal, and
---- an oriented bounding-box edge-cast rejects a spot already occupied by geometry or another object.
---- All of it queries the loaded collision DB, so the target LEVEL MUST BE ONLINE -- callers place a
---- prop only when its area is online (an offline ray returns nil, never a crash). Dormant: nothing
---- runs at load; consumers call.
+--- xprops: spawn and remove ground-snapped, collision-checked dynamic_objects physic props (level must be online)
 
 local ipairs = ipairs
 local ray_pick, alife, alife_create, alife_object = ray_pick, alife, alife_create, alife_object
 
--- Physic-object classes safe to alife_create as a standalone world object (dynamic_objects.ltx:10,18).
--- A section of any other class -- a weapon like W_MOUNTD, an item, an artefact -- makes the engine
--- read inventory fields it lacks and HARD-CTDs inside alife_create (not a Lua error, cannot be
--- pcall'd), so spawn_object() rejects it up front. An unknown/typo section also fails this and is refused.
+-- Physic-object classes safe to alife_create as a standalone world object; any other class HARD-CTDs inside alife_create.
 local _SAFE_CLASS = { O_PHYSIC = true, O_PHYS_S = true, P_DSTRBL = true, O_DSTR_S = true }
 
 -- Collision-DB ray flags (xrCDB, xr_collide_defs.h:72-76): Objects=1, Statics=2, Shapes=4, Obstacles=8.
@@ -24,18 +15,15 @@ local DEFAULT_PROBE_UP_M = 1.5
 -- Metres a ground probe searches below the start point.
 local DEFAULT_PROBE_DEPTH_M = 5.0
 
--- One shared ray, lazily created (single-threaded engine, each cast fully sets+queries+reads before
--- the next). ray_pick allocates a CRayPick; reusing one avoids an allocation per bbox edge.
+-- One shared ray, lazily created; the single-threaded engine finishes each cast before the next, so reuse avoids a CRayPick alloc per edge.
 local _ray
 local function _get_ray()
     if not _ray then _ray = ray_pick() end
     return _ray
 end
 
--- Cast from pos along dir for range against the flagged collision set. Returns hit distance, surface
--- normal, and hit object when it strikes within range, else nil. query() runs the cast (xrCDB
--- traversal); the getters read its result. A zero/negative distance is "started inside/against a
--- face" and is treated as no hit so a box edge resting on the floor does not self-trigger.
+-- Cast from pos along dir for range against the flagged collision set; returns (distance, normal, object) on a hit within range, else nil.
+-- A zero/negative distance is treated as no hit, so a box edge resting on the floor does not self-trigger.
 -- @cost O(1) | 6 luabind (set_flags/range/position/direction + query spatial scan + get_distance)
 local function _get_ray_hit(pos, dir, range, flags)
     local ray = _get_ray()
@@ -55,8 +43,7 @@ end
 --- @cost O(1) | one _get_ray_hit
 --- @src xray/xrGame/level_script.cpp(2643-2653) CRayPick binding
 --- @param pos vector Position to drop a ray from (its y is the ceiling of the search)
---- @param opts table|nil { up = how far above pos to start (default 1.5), depth = how far below to
----   search (default 5), flags = collision set (default Statics = terrain + baked geometry) }
+--- @param opts table|nil { up (start height above pos, default 1.5), depth (search below, default 5), flags (default Statics) }
 --- @return table|nil { pos = surface point, normal = surface normal, object = hit game object or nil }
 function find_ground(pos, opts)
     if not pos then return nil end
@@ -69,8 +56,7 @@ function find_ground(pos, opts)
     return { pos = vector():set(start.x, start.y - dist, start.z), normal = normal, object = obj }
 end
 
--- Unit box corners (sign per axis) and the 24 edge + diagonal vertex pairs to probe. Ported from the
--- furniture bbox collider: 12 edges (orthogonals + uprights) plus 12 diagonals cover the surface.
+-- Unit box corners (sign per axis) and the 24 edge + diagonal vertex pairs to probe (12 edges plus 12 diagonals cover the surface).
 local CORNERS = {
     { -1, -1, -1 }, { 1, -1, -1 }, { -1, -1, 1 }, { 1, -1, 1 },
     { -1, 1, -1 }, { 1, 1, -1 }, { -1, 1, 1 }, { 1, 1, 1 },
@@ -83,8 +69,7 @@ local PAIRS = {
 -- Float the box off the ground so a flat floor is not read as a collision; only walls and objects.
 local BASE_LIFT = 0.08
 
--- Scratch reused across a clearance check (8 box corners + 2 edge directions), lazily created so
--- module load touches no engine vector ctor.
+-- Scratch reused across a clearance check (8 box corners + 2 edge directions), lazily created so module load touches no vector ctor.
 local _verts, _fwd, _rev
 local function _init_scratch()
     if _verts then return end
@@ -93,11 +78,8 @@ local function _init_scratch()
     _fwd, _rev = vector(), vector()
 end
 
---- Report whether the volume at pos is free of geometry and other objects, by building a box of the
---- given dims resting on pos and ray-casting its edges and diagonals; any edge in contact means the
---- spot is occupied. Casts each edge from both ends because a ray only registers a front-facing
---- normal, and floats the box BASE_LIFT off the ground so a flat floor never counts, only walls,
---- props, and obstacles.
+--- Report whether the volume at pos is free of geometry and objects, by ray-casting the edges and diagonals of a box resting on pos.
+--- Each edge is cast from both ends (a ray registers only a front-facing normal) and the box floats BASE_LIFT so a flat floor never counts.
 --- @scope global - reads the loaded collision DB; level must be online
 --- @safety SAFE - nil-guarded; degenerate (zero) edges are skipped
 --- @cost O(1) | up to 48 _get_ray_hit (24 edges x 2 directions), early-out on the first contact
@@ -134,18 +116,15 @@ function is_clear(pos, dims, opts)
     return true
 end
 
---- Place a prop: snap to the ground below pos, reject if the spot is occupied, then spawn the section
---- there. Level orientation (no slope tilt in this version; find_ground returns the normal for a
---- caller that wants to tilt). Server-side spawn, so it works while the area is online.
+--- Place a prop: snap to the ground below pos, reject an occupied spot, then server-spawn the section there.
+--- No slope tilt (find_ground returns the normal for a caller that wants to tilt).
 --- @scope global - spawns a server entity; requires the level online for the ground/clear rays
 --- @safety SAFE - returns nil (never crashes) when there is no ground, the spot is blocked, or spawn fails
 --- @cost O(1) | find_ground + is_clear (<=49 casts) + alife_create
 --- @src xray/xrGame/level_script.cpp(2643-2653), anomaly/dynamic_objects.ltx physic sections
 --- @param section string A dynamic_objects physic section (e.g. "box_1a")
 --- @param pos vector Rough target position (its ground is resolved by a down-ray)
---- @param opts table|nil { dims = clearance box {w,l,h}, no_clear = skip the occupancy check,
----   ground = false to spawn at pos as-is, lvid/gvid = spawn vertices (default: level vertex at the
----   ground point + the actor's game vertex), up/depth/flags forwarded to find_ground }
+--- @param opts table|nil { dims = clearance box {w,l,h}, no_clear (skip occupancy), ground = false (spawn as-is), lvid/gvid, up/depth/flags (find_ground) }
 --- @return userdata|nil se_obj The spawned server object, or nil
 --- @return string|userdata|nil reason "bad_class" / "no_ground" / "spawn_failed", "blocked" or the blocker object
 function spawn_object(section, pos, opts)
@@ -162,9 +141,6 @@ function spawn_object(section, pos, opts)
         local ok, blocker = is_clear(at, opts.dims, opts)
         if not ok then return nil, blocker or "blocked" end
     end
-    -- Spawn vertices belong to the PROP's position, not the actor's: derive the level vertex from
-    -- the ground point, take the game vertex from the caller or the actor (game graph is per-level,
-    -- and a prop only spawns while its level is online, so the actor's game vertex is on it).
     local lvid = opts.lvid or level.vertex_id(at)
     local gvid = opts.gvid or (db.actor and db.actor:game_vertex_id())
     if not lvid or not gvid then return nil, "no_vertex" end
@@ -173,9 +149,8 @@ function spawn_object(section, pos, opts)
     return se
 end
 
---- Remove a placed prop by id. Resolves the server object and releases it through the alife
---- simulator, which works whether the prop is online or offline, so decay can remove a prop at an
---- unloaded area without loading it.
+--- Remove a placed prop by id, releasing the server object through the alife simulator.
+--- Works whether the prop is online or offline, so decay can remove one at an unloaded area without loading it.
 --- @scope global - releases a server entity
 --- @safety SAFE - nil-guarded; false when the id does not resolve
 --- @cost O(1) | 1 luabind (alife_object) + release
