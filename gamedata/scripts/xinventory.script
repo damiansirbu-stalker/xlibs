@@ -8,13 +8,7 @@ local level, ini_sys, ini_file, xlevel = level, ini_sys, ini_file, xlevel
 local get_object_story_id, se_load_var = get_object_story_id, se_load_var
 local table_concat = table.concat
 
--- ENGINE SLOT CONSTANTS (xrServerEntities/inventory_space.h:7-43)
--- LAST_MAIN_SLOT=14 matches the runtime slot count. CInventory::m_slots is sized
--- dynamically from system.ltx [inventory] slot_persistent_<N> at Inventory.cpp:72-86,
--- NOT from the MORE_INVENTORY_SLOTS enum define. Vanilla Anomaly and GAMMA both
--- ship system.ltx with slot_persistent_1..14 only; ItemFromSlot at Inventory.cpp:658
--- is unbounded, so slots 15..18 are OOB UB. Do not raise without a matching
--- system.ltx that declares the higher slot_persistent_ lines.
+-- Engine slot constants (inventory_space.h:7-43); m_slots is sized from system.ltx slot_persistent_<N>, so slots 15..18 are OOB UB.
 
 SLOT_KNIFE     = 1
 SLOT_PISTOL    = 2
@@ -25,9 +19,7 @@ SLOT_HELMET    = 12
 BACKPACK_SLOT  = 13
 LAST_MAIN_SLOT = 14
 
--- GRANULAR CONSUMABLE SECTION SETS (hand-maintained)
--- Vanilla bundles all of these under kind=i_medical with no further subdivision.
--- Addons add new sections; extend these sets when GAMMA/Boomsticks/etc. ship.
+-- Granular consumable section sets, hand-maintained (vanilla bundles all under kind=i_medical); extend when addons ship new sections.
 
 local _medkit_set = {
     medkit         = true, medkit_army    = true, medkit_scientic = true,
@@ -49,7 +41,7 @@ local _stim_set = {
     drug_booster      = true, adrenalin         = true,
 }
 
--- protein excluded: vanilla has kind=i_food, classified by get_section_category sec -> "food"
+-- protein excluded: vanilla tags it kind=i_food, so get_section_category classifies it "food"
 local _pill_set = {
     caffeine       = true, drug_sleepingpills  = true, antibio_sulfad = true,
     antibio_chlor  = true, antiemetic          = true, yadylin        = true,
@@ -59,16 +51,13 @@ local _pill_set = {
     akvatab        = true, glucose             = true, glucose_s      = true,
 }
 
--- Hand-curated. Criterion: kind=w_explosive AND class prefix G_ (excludes WP_* launchers like RPG-7).
--- Vanilla Anomaly has no _ITM["grenade"] bucket; iterating ini_sys to discover them breaches the
--- 4ms ceiling on cold call. Add sections here when a new hand-grenade addon ships.
+-- Hand-curated, kind=w_explosive AND class prefix G_ (no _ITM["grenade"] bucket exists; ini_sys discovery breaches the cold-call ceiling).
 local _grenade_set = {
     grenade_f1     = true, grenade_rgd5   = true,
     ["grenade_gd-05"] = true, grenade_smoke  = true,
 }
 
--- BLACKLIST (xr_corpse_detection.ltx [ignore_sections])
--- Loaded once at first call; vanilla hand-curated section blacklist.
+-- Untouchable blacklist from xr_corpse_detection.ltx [ignore_sections], loaded once at first call.
 
 local CORPSE_DETECTION_LTX = "ai_tweaks\\xr_corpse_detection.ltx"
 local IGNORE_SECTIONS      = "ignore_sections"
@@ -90,10 +79,7 @@ local function _build_blacklist()
     end
 end
 
--- KIND CACHE (per-section ini_sys:r_string_ex("kind") lookup, cached)
-
--- String-keyed: weak-key mode would be a no-op (strings are never removed from weak tables);
--- the section universe is LTX-bounded, so the cache is naturally capped.
+-- Per-section kind/class caches; string keys make weak mode a no-op, and the LTX-bounded section universe caps them naturally.
 local _kind_cache = {}
 -- Cached kind-field lookup. `false` sentinel records nil to avoid re-querying.
 -- @cost O(1) on cache hit; 1 luabind heavy on miss (r_string_ex)
@@ -144,7 +130,7 @@ end
 
 -- NPC SLOT ACCESSORS
 
---- Get item in NPC's knife slot (slot 1)
+--- Get the item in the NPC's knife slot (slot 1).
 --- @safety SAFE - nil-guarded npc; item_in_slot returns nil for empty slot
 --- @cost O(1) | 1 luabind trivial (item_in_slot: CInventory::ItemFromSlot)
 --- @src xray/xrServerEntities/inventory_space.h(7-43), xray/xrGame/Inventory.cpp ItemFromSlot
@@ -155,7 +141,7 @@ function get_equipped_knife(npc)
     return npc:item_in_slot(SLOT_KNIFE)
 end
 
---- Get item in NPC's pistol slot (slot 2)
+--- Get the item in the NPC's pistol slot (slot 2).
 --- @safety SAFE - nil-guarded npc
 --- @cost O(1) | 1 luabind trivial (item_in_slot)
 --- @src xray/xrServerEntities/inventory_space.h(11)
@@ -166,7 +152,7 @@ function get_equipped_pistol(npc)
     return npc:item_in_slot(SLOT_PISTOL)
 end
 
---- Get item in NPC's rifle slot (slot 3)
+--- Get the item in the NPC's rifle slot (slot 3).
 --- @safety SAFE - nil-guarded npc
 --- @cost O(1) | 1 luabind trivial (item_in_slot)
 --- @src xray/xrServerEntities/inventory_space.h(13)
@@ -177,7 +163,7 @@ function get_equipped_rifle(npc)
     return npc:item_in_slot(SLOT_RIFLE)
 end
 
---- Get item in NPC's grenade slot (slot 4)
+--- Get the item in the NPC's grenade slot (slot 4).
 --- @safety SAFE - nil-guarded npc
 --- @cost O(1) | 1 luabind trivial (item_in_slot)
 --- @src xray/xrServerEntities/inventory_space.h(15)
@@ -188,7 +174,7 @@ function get_equipped_grenade(npc)
     return npc:item_in_slot(SLOT_GRENADE)
 end
 
---- Get item in NPC's outfit slot (slot 7)
+--- Get the item in the NPC's outfit slot (slot 7).
 --- @safety SAFE - nil-guarded npc
 --- @cost O(1) | 1 luabind trivial (item_in_slot)
 --- @src xray/xrServerEntities/inventory_space.h(21)
@@ -199,7 +185,7 @@ function get_equipped_outfit(npc)
     return npc:item_in_slot(SLOT_OUTFIT)
 end
 
---- Get item in NPC's helmet slot (slot 12)
+--- Get the item in the NPC's helmet slot (slot 12).
 --- @safety SAFE - nil-guarded npc
 --- @cost O(1) | 1 luabind trivial (item_in_slot)
 --- @src xray/xrServerEntities/inventory_space.h(31)
@@ -210,12 +196,8 @@ function get_equipped_helmet(npc)
     return npc:item_in_slot(SLOT_HELMET)
 end
 
---- Get set of item ids equipped across the protected main slots
---- Used by inventory walkers (trade / stash / cull via get_category) to skip equipped gear in
---- one O(1) lookup per item. SLOT_GRENADE is deliberately excluded: a grenade in the grenade
---- slot is a throwable the inventory policy must still manage (cap it, and for contraband like
---- smoke remove it), not protected gear -- otherwise a slotted grenade reads as "equipped" and
---- escapes every policy pass. The dedicated get_equipped_grenade(npc) still reports slot 4.
+--- Get the set of item ids equipped across the protected main slots - the walkers' one-lookup equipped check.
+--- SLOT_GRENADE is deliberately excluded: a slotted grenade is a throwable the policy must still manage, not protected gear.
 --- @safety SAFE - nil-guarded npc; item_in_slot nil-safe per slot
 --- @cost O(1) | 13 luabind trivial (item_in_slot per protected slot)
 --- @src xray/xrServerEntities/inventory_space.h(7-43)
@@ -231,12 +213,8 @@ function get_equipped_ids(npc)
     return _ids
 end
 
---- Build canonical opts table for get_category from an online NPC
---- Captures equipped state (slot 1..LAST_MAIN_SLOT ids, plus pistol and rifle weapon sections
---- for per-slot ammo tier resolution) and the npc id (for the companion-gifted check in
---- get_category). Caller builds once before iterate_inventory and threads the same opts into
---- every get_category call. Snapshot semantics: equipped state is captured once; consumer
---- walks complete within a single Lua call so no frame tick mutates between.
+--- Build the canonical opts table for get_category from an online NPC; build once, thread into every get_category call.
+--- Snapshot semantics: equipped state is captured once, and consumer walks complete within a single Lua call, so nothing mutates between.
 --- @safety SAFE - nil-guarded npc; returns empty opts when npc nil
 --- @cost O(1) | up to 17 luabind trivial (14 item_in_slot via get_equipped_ids + 2 item_in_slot pistol/rifle + 1 id) + 2 luabind heavy (section shared_str)
 --- @src xray/xrServerEntities/inventory_space.h, xray/xrGame/script_game_object_inventory_owner.cpp(1605)
@@ -275,11 +253,8 @@ end
 
 local _ammo_tier_cache = {}
 
---- Get ammo tier map for a weapon's ammo_class (k_ap-ranked, N tiers)
---- Sorts accepted ammo sections by k_ap ascending (cost as tiebreaker); splits into N
---- buckets via floor((i-1) * N / count). Tier 1 = least armor-piercing (basic/FMJ),
---- tier N = most armor-piercing (AP). Falls back to cost-only sort when all k_ap=0
---- (rare; some addon ammo may omit k_ap). Cached per (weapon_sec, n_tiers).
+--- Get the ammo tier map for a weapon's ammo_class: k_ap ascending (cost tiebreaker) split into N tiers, cached per (weapon_sec, n_tiers).
+--- Tier 1 = least armor-piercing, tier N = most; a cost-only sort covers the all-k_ap-zero case.
 --- @safety SAFE - nil-guarded; empty map on missing ammo_class
 --- @cost O(N log N) sort on miss; O(1) cached; ~3 luabind heavy per section on miss (k_ap + cost reads via r_float_ex)
 --- @src anomaly/weapon_ammo.ltx (k_ap, cost per ammo section)
@@ -304,8 +279,6 @@ function get_ammo_tier_map(weapon_sec, n_tiers)
     local all_zero_kap = true
     for i = 1, count do
         local sec = sections[i]
-        -- Skip ammo the engine can't spawn: CWeaponAmmo::Load strict-reads k_ap (r_string), so a
-        -- section missing it is a CTD on create. r_float_ex returns nil there; never tier it.
         local kap = ini_sys:r_float_ex(sec, "k_ap")
         if kap then
             if kap > 0 then all_zero_kap = false end
@@ -372,8 +345,7 @@ local function _merge_buckets(buckets)
     return list
 end
 
--- Filter _ITM["eatable"] (combined food + drink + i_mutant_cooked bucket per Parse_ITM
--- _g.script:3264-3266) by exact kind. Picks out food vs drink without re-walking ini_sys.
+-- Filter _ITM["eatable"] (the combined food + drink + i_mutant_cooked bucket) by exact kind, without re-walking ini_sys.
 -- @cost O(n) eatable sections; per-section 1 cached _get_kind hit
 local function _filter_eatable_by_kind(target_kinds)
     local list = {}
@@ -385,11 +357,7 @@ local function _filter_eatable_by_kind(target_kinds)
     return list
 end
 
--- Dispatch table: category name → builder closure. Builders run once per category on first
--- call to get_category_sections; result cached in _category_sections_cache.
--- The engine's CWeaponAmmo::Load strict-reads k_ap (r_string) for every ammo spawn, so an ammo
--- section that lacks k_ap is a guaranteed CTD on create (e.g. the packed dormant ammo_dyno). Keep
--- such sections out of the spawnable ammo pool so trade / market / test never create them.
+-- CWeaponAmmo::Load strict-reads k_ap, so an ammo section lacking it is a CTD on create; keep such sections out of the spawnable pool.
 -- @cost O(1), 1 luabind (r_float_ex, inheritance-aware)
 local function _is_ammo_spawnable(sec)
     return ini_sys:r_float_ex(sec, "k_ap") ~= nil
@@ -430,16 +398,10 @@ local _SECTION_BUILDERS = {
 
 local _category_sections_cache = {}
 
---- Get list of sections that belong to a category
---- Symmetric inverse of get_section_category. Covers every category that can be the result
---- of get_section_category plus the sentinel "ammo_not_equipped". Per-NPC categories
---- (equipped, ammo_slot_*) and "untouchable" / "other" / "weapon" return empty (not
---- enumerable as a single section set). Each category's list is built once per session via
---- its builder and cached; addons that ship new sections matching a Parse_ITM bucket or
---- hand-set predicate are picked up automatically on first call.
+--- Get the list of sections that belong to a category - the symmetric inverse of get_section_category, built once per session and cached.
+--- Per-NPC categories (equipped, ammo_slot_*) and "untouchable" / "other" / "weapon" return empty (not enumerable as one section set).
 --- @safety SAFE - returns empty list for nil, unknown, or per-NPC / sentinel categories
---- @cost O(1) cached; first-call cost varies per category: hand-sets ~10 ops, _ITM bucket
----       walks ~50-200 ops. No ini_sys walks.
+--- @cost O(1) cached; first call ~10 ops for hand-sets, ~50-200 for _ITM bucket walks, no ini_sys walks
 --- @src anomaly/_g.script(3173,3230) _ITM + Parse_ITM
 --- @param category string Category name (same set as get_section_category result)
 --- @return table List of section names, order unspecified (caller sorts if order matters)
@@ -455,12 +417,8 @@ end
 
 local _cost_cache = {}
 
---- Get item section's vanilla cost (system.ltx `cost` float field)
---- Pure primitive: returns nil if section or key missing. Caller chooses the default
---- by context (vanilla `axr_trade_manager` uses 30 in trade context per :236,303,550;
---- `xr_corpse_detection` uses 0 in loot-detection context per :157). Cost is a per-section
---- property; condition-aware pricing is the caller's responsibility. Cached per session;
---- `false` sentinel records the nil case so subsequent calls short-circuit without re-querying.
+--- Get an item section's vanilla cost (the system.ltx cost field), cached per session; nil when the section or key is missing.
+--- The caller picks the miss default by context (trade uses 30, loot detection 0) and owns condition-aware pricing.
 --- @safety SAFE - nil-guarded sec; r_float_ex returns nil when section or key missing
 --- @cost O(1) cached, 1 luabind heavy on miss (r_float_ex: section_exist + line_exist + r_float ini parse)
 --- @src anomaly/_g.script(1525-1529), anomaly/axr_trade_manager.script(236), xray/xrServerEntities/script_ini_file.cpp(93)
@@ -475,9 +433,8 @@ function get_cost(sec)
     return v
 end
 
---- Translated player-facing name of an item section: resolves `inv_name` through the string table.
---- Falls back to the section id when no inv_name is set or the lookup misses, so the return is
---- always a usable display string.
+--- Translated player-facing name of an item section: resolves inv_name through the string table.
+--- Falls back to the section id on any miss, so the return is always a usable display string.
 --- @safety SAFE - nil-guarded sec; returns the section id on any miss
 --- @cost O(1) | 1 r_string_ex + 1 translate
 --- @src xray/xrServerEntities/script_ini_file.cpp r_string_ex; anomaly inv_name -> game.translate_string convention
@@ -495,8 +452,8 @@ end
 
 local _box_size_cache = {}
 
---- Get ammo box size (rounds per stack) for an ammo section
---- Reads ini_sys:box_size; cached per session. section_exist + line_exist guard avoids r_u32 fatal on miss.
+--- Get the ammo box size (rounds per stack) for an ammo section, cached per session.
+--- The section_exist + line_exist guard avoids the r_u32 fatal on a miss.
 --- @safety SAFE - section_exist + line_exist guard before r_u32 (which fatals via THROW3 otherwise)
 --- @cost O(1) cached, 3 luabind heavy on miss (section_exist, line_exist, r_u32)
 --- @src xray/xrServerEntities/script_ini_file.cpp(36,41,79)
@@ -514,11 +471,8 @@ end
 
 -- CATEGORY RESOLVER
 
---- Resolve category from a section name (no item required)
---- Untouchables (quest / anim / blacklisted) gate first. Ammo always returns
---- "ammo_not_equipped"; per-NPC tier resolution lives in get_category. Weapon detected by
---- class prefix "WP_" (no Parse_ITM bucket exists for weapons; vanilla weapon_classes is
---- clsid-only). Hand grenades detected via _grenade_set hand-curated lookup.
+--- Resolve the category from a section name (no item required); untouchables (quest / anim / blacklisted) gate first.
+--- Ammo always returns "ammo_not_equipped" (per-NPC tiers live in get_category); weapons detect by class prefix "WP_".
 --- @safety SAFE - nil-guarded sec
 --- @cost O(1) | up to ~14 hash lookups + 1 luabind heavy on cache miss (kind, class via cached _get_kind / _get_class)
 --- @param sec string Item section name
@@ -526,12 +480,10 @@ end
 function get_section_category(sec)
     if not sec then return "other" end
 
-    -- Untouchables
     if IsItem("quest", sec) or IsItem("anim", sec) then return "untouchable" end
     _build_blacklist()
     if _blacklist_set[sec] then return "untouchable" end
 
-    -- Granular consumables (hand-maintained sets)
     if _medkit_set[sec]   then return "medkit"  end
     if _bandage_set[sec]  then return "bandage" end
     if _antirad_set[sec]  then return "antirad" end
@@ -539,14 +491,10 @@ function get_section_category(sec)
     if _pill_set[sec]     then return "pill"    end
     if _grenade_set[sec]  then return "grenade" end
 
-    -- Kind-tagged consumables
     local kind = _get_kind(sec)
     if kind == "i_food" or kind == "i_mutant_cooked" then return "food"  end
     if kind == "i_drink"                              then return "drink" end
 
-    -- Parse_ITM bucket lookups. Order = priority: in practice sections live in only one
-    -- Parse_ITM bucket (exclusive assignment in Parse_ITM_value at _g.script:3195), but mod
-    -- overlays could populate multiple. First match wins.
     if IsItem("grenade_ammo", sec) then return "grenade_ammo"      end
     if IsItem("ammo",         sec) then return "ammo_not_equipped" end
     if IsItem("artefact",     sec) then return "artefact" end
@@ -556,17 +504,14 @@ function get_section_category(sec)
     if IsItem("money",        sec) then return "money"    end
     if IsItem("tool", sec) or IsItem("part", sec) or IsItem("upgrade", sec) then return "crafting" end
 
-    -- Weapon by class prefix (no Parse_ITM bucket; engine IsWeapon is clsid-only)
     local cls = _get_class(sec)
     if cls and cls:sub(1, 3) == "WP_" then return "weapon" end
 
     return "other"
 end
 
---- Resolve a per-NPC ammo category from a section + opts (no item required)
---- Used by item-less callers (stash loot scan) that need to ask "does this ammo section match
---- ammo_slot_X_tY for this member's equipped weapons?". Pure section-string-based ammo tier
---- resolution; mirrors the ammo branch in get_category. Returns nil if section isn't ammo.
+--- Resolve a per-NPC ammo category from a section + opts (no item required) - the section-string form of get_category's ammo branch.
+--- For item-less callers like the stash loot scan; nil when the section is not ammo.
 --- @safety SAFE - nil-guarded sec; opts optional (nil opts -> "ammo_not_equipped")
 --- @cost O(1) | 1 IsItem hash lookup + up to 2 cached get_ammo_tier_map lookups
 --- @src anomaly/_g.script IsItem + parse_list, xinventory.get_ammo_tier_map
@@ -587,28 +532,16 @@ function resolve_ammo_category(sec, opts)
     return "ammo_not_equipped"
 end
 
---- Resolve category for a live item with per-NPC opts (equipped + ammo tier overrides)
---- Untouchables gate first via get_section_category (section-level: quest/anim/blacklist).
---- Three additional runtime per-item untouchable checks then apply:
----   1. get_object_story_id(item:id()) — item has a runtime story_id (quest tracker).
----      Vanilla precedent: release_npc_inventory.script:81 "extra protection".
----   2. axr_companions.is_assigned_item(opts.npc_id, item:id()) — item the actor
----      gave to a companion. Vanilla precedent: death_manager.script:407,
----      axr_companions.script:1300,1360.
----   3. se_load_var(item:id(), nil, "strapped_item") — player-strapped weapon.
----      Vanilla precedent: death_manager.script:439, itms_manager.script:338,
----      axr_companions.script:1360.
---- Equipped check then uses opts.equipped_ids (item id). Ammo resolves to ammo_slot_2_tN /
---- ammo_slot_3_tN per equipped pistol / rifle tier_map, else stays "ammo_not_equipped".
---- Other categories delegate to get_section_category.
+--- Resolve the category for a live item with per-NPC opts: three runtime untouchable checks (story_id, companion-gifted, strapped) apply.
+--- Then the opts.equipped_ids check, then ammo tier resolution per equipped pistol / rifle; the rest delegates to get_section_category.
 --- @safety SAFE - nil-guarded item; opts entirely optional; axr_companions module guarded
 --- @cost O(1) | get_section_category cost + item:section/id luabind + 3 hash lookups (story_id, assigned, strapped)
 --- @src xray/xrGame/script_game_object_script.cpp section(), anomaly/_g.script get_object_story_id, anomaly/axr_companions.script is_assigned_item
+--- @src anomaly/_g.script:2647-2653 (se_load_var ignores the save_name arg; "" matches the itms_manager pattern)
 --- @param item game_object Inventory item
 --- @param opts table|nil { equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }
 --- @return string Category name
---- @return string|nil The item's section, resolved here already, so callers that also need it
----         (get_policy_key) need not re-read it; nil for a nil / sectionless item
+--- @return string|nil The item's section, resolved here already so callers need not re-read it; nil for a nil / sectionless item
 function get_category(item, opts)
     if not item then return "other" end
     local sec = item:section()
@@ -616,21 +549,16 @@ function get_category(item, opts)
 
     local base = get_section_category(sec)
 
-    -- Untouchable wins (section-level: quest / anim / blacklisted)
     if base == "untouchable" then return base, sec end
 
-    -- Item-level runtime protections (any one → untouchable)
     local item_id = item:id()
     if get_object_story_id and get_object_story_id(item_id) then return "untouchable", sec end
     if opts and opts.npc_id and axr_companions and axr_companions.is_assigned_item
         and axr_companions.is_assigned_item(opts.npc_id, item_id) then return "untouchable", sec end
-    -- save_name (2nd arg) is unused by _g.script:2647-2653; "" matches vanilla itms_manager pattern
     if se_load_var and se_load_var(item_id, "", "strapped_item") then return "untouchable", sec end
 
-    -- Equipped: opt-in via opts.equipped_ids
     if opts and opts.equipped_ids and opts.equipped_ids[item_id] then return "equipped", sec end
 
-    -- Ammo tier resolution per equipped weapon slot
     if base == "ammo_not_equipped" then
         local resolved = resolve_ammo_category(sec, opts)
         if resolved then return resolved, sec end
@@ -639,11 +567,8 @@ function get_category(item, opts)
     return base, sec
 end
 
---- True if section's category equals the given category name
---- Section-based predicate replacing the per-category is_X family. Routes through
---- get_section_category. Categories needing per-NPC context (equipped, ammo_slot_*) are
---- never returned by get_section_category, so is_in_category(sec, "equipped") is always
---- false — use get_category(item, opts) for those.
+--- True if the section's category equals the given category name (routes through get_section_category).
+--- Per-NPC categories (equipped, ammo_slot_*) are never returned on this path, so those always read false; use get_category for them.
 --- @safety SAFE - nil-guarded sec and category
 --- @cost O(1) | get_section_category cost (~13 hash lookups + cached kind/class on miss)
 --- @param sec string Item section name
@@ -655,9 +580,8 @@ end
 
 -- RANK GATE
 
--- True when the actor's rank is below the floor tier named for this section or category. A missing
--- floor entry or unresolved tier name returns false (no block). Split out to keep get_rank_chance
--- under the complexity ceiling.
+-- True when the actor's rank is below the floor tier named for this section or category.
+-- A missing floor entry or unresolved tier name returns false (no block).
 local function _is_below_rank_floor(actor, floor, section, category)
     local tier = floor and (floor[section] or floor[category])
     if not tier then return false end
@@ -667,16 +591,8 @@ local function _is_below_rank_floor(actor, floor, section, category)
     return lo and actor_rank and actor_rank < lo or false
 end
 
---- Rank-gated appearance chance for a section under a ruleset
---- Generic kernel: resolves the section's category (get_section_category) and cost (get_cost)
---- and the actor's rank tier (ranks.get_obj_rank_name / character_rank), then returns a 0..1
---- chance. Two gates: (1) hard floor — a section or category named in ruleset.floor returns
---- chance 0 while the actor's character_rank is below that tier's interval lower bound; (2) cost
---- band — within the actor's tier row, the first {cost, chance} entry whose cost >= the section
---- cost wins (entries ascending by cost), so cheap sections stay common and expensive ones rare
---- at low rank. Missing floor / tier row / bands all open (chance 1), so an unconfigured ruleset
---- never blocks; a misconfigured floor tier name is ignored (does not block). Caller rolls
---- math_random() <= chance and fail-closes.
+--- Rank-gated 0..1 appearance chance for a section under a ruleset: a hard rank floor, then the actor tier's first matching cost band.
+--- Missing floor / tier row / bands all open (chance 1), so an unconfigured ruleset never blocks; the caller rolls and fail-closes.
 --- @safety SAFE - nil-guarded section / actor / ruleset; bad tier name skips the floor
 --- @cost O(1) | get_section_category + get_cost + 2 ranks lookups + O(bands) row walk (~3)
 --- @src anomaly/ranks.script(56) get_obj_rank_name, (89) get_rank_interval; xray/xrGame/script_game_object_script2.cpp(106) character_rank
@@ -689,7 +605,6 @@ function get_rank_chance(section, actor, ruleset)
     local category = get_section_category(section)
     if _is_below_rank_floor(actor, ruleset.floor, section, category) then return 0 end
 
-    -- Cost band per actor tier (falls back to a default row, then to fully open)
     local bands = ruleset.bands
     if not bands then return 1 end
     local row = bands[ranks.get_obj_rank_name(actor)] or bands.default
@@ -699,18 +614,13 @@ function get_rank_chance(section, actor, ruleset)
         local band = row[i]
         if band.cost and cost <= band.cost then return band.chance or 0 end
     end
-    -- Cost above every listed threshold: take the rarest (last) defined band
     return row[#row] and row[#row].chance or 0
 end
 
 -- ITEM LIFECYCLE (moved from xobject per item-domain boundary)
 
---- Iterate an NPC's inventory iff the NPC is online; nil-returns otherwise
---- Engine exposes no Lua API for offline server-inventory walks; this wrapper makes the
---- online-only constraint explicit. Callback signature: function(npc_go, item_go); return true
---- to stop early (engine convention). max_items bounds the walk to that many items and returns
---- true as the second value when the cap stopped it early (the NPC held more) -- a single-frame
---- cost ceiling for pathological inventories; nil leaves the walk unbounded.
+--- Iterate an NPC's inventory iff the NPC is online (the engine exposes no offline server-inventory walk); nil-returns otherwise.
+--- The callback returns true to stop early; max_items caps the walk and reports the truncation as a second return value.
 --- @safety SAFE - returns nil on nil npc_id / callback / offline NPC
 --- @cost O(min(items, max_items)) | 2 luabind (level.object_by_id trivial + iterate_inventory) + STL walk; +1 Lua closure alloc when max_items set
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) IterateInventory (for-loop returns on callback == true)
@@ -741,11 +651,7 @@ function iterate_inventory(npc_id, callback, max_items)
     return npc_go, hit_cap
 end
 
---- Force a requested condition onto a freshly created item that itms_manager.create_item ignored.
---- The engine cond path only registers a condition for sections flagged use_condition (consumables,
---- itms_manager.script:1367); weapons/outfits/helmets carry a condition value but no use_condition
---- flag, so { cond = x } is silently dropped. alife_process_item registers the condition with no
---- degradability gate (itms_manager.script:1403), and set_condition applies to any inventory item.
+--- Force a requested condition onto a freshly created item that itms_manager silently dropped it for (no use_condition flag).
 --- Gated on not is_degradable so the degradable path (including cond_r/cond_cr) is left untouched.
 --- @safety SAFE - skips nil se, table (ammo) returns without an id, and missing/zero cond
 local function _apply_cond(se, section, t)
@@ -755,11 +661,8 @@ local function _apply_cond(se, section, t)
     return se
 end
 
---- Create an item on any NPC (online, offline, any map)
---- Three branches all route through alife_create_item for uniform property handling:
----   (1) online NPC + valid lvid -> game_object owner
----   (2) offline NPC + valid lvid -> server-entity owner
----   (3) offline NPC + invalid lvid -> table owner with smart-terrain fallback
+--- Create an item on any NPC (online, offline, cross-map); all three branches route through alife_create_item.
+--- An offline NPC with an invalid lvid falls back to its smart terrain's position as the spawn anchor.
 --- @safety SAFE - all branches nil-guarded; smart fallback validates lvid
 --- @cost O(log n) | 2-4 luabind (alife_object medium + alife_create_item heavy)
 --- @src anomaly/_g.script(2129), anomaly/itms_manager.script(1254)
@@ -819,9 +722,8 @@ function release_item(item)
     return true
 end
 
---- Release an item from the simulation by id (online or offline)
---- The id-based sibling of release_item: works without a game_object, so it releases offline items
---- too (release_item needs a live game_object). Event-queued, safe mid-iterate.
+--- Release an item from the simulation by id - the id-based sibling of release_item, so it works on offline items too.
+--- Event-queued, safe mid-iterate.
 --- @safety SAFE - nil-guarded id
 --- @cost O(1) | 1 luabind (alife_release_id: event queue enqueue)
 --- @src anomaly/_g.script alife_release_id, xray/xrGame/alife_simulator_script.cpp
@@ -833,48 +735,23 @@ function release_item_id(id)
     return true
 end
 
--- POLICY PRIMITIVES (load + collect_policy_counts + iterate surplus + surplus map)
--- Three near-identical orchestrators (trade, stash, inventory-balance) historically
--- carried their own LTX loader, inventory counting pass, and surplus iterator. These
--- primitives factor the common kernel into one uniform shape:
---
---   POLICY LTX (consumer mods own the values; xinventory owns the shape):
---     [<section_name>]
---     <category>      = <min>, <max>   ; a category name (medkit, grenade, ammo_slot_2_t1, ...)
---     <item_section>  = <min>, <max>   ; a single item section name (grenade_f1, ...)
---     ...
---     <special_key>   = <number>       ; pulled out per specials_set
---
---   Each consumer ships its own LTX file under configs/<mod>/<mod>_<purpose>_policy.ltx;
---   declaration order in the block carries BUY/LOOT priority; specials_set names numeric
---   keys (profit_max, extras_max, fill_max, ...) so they bypass the {min, max} parser.
---
---   A row key is EITHER a category OR an item section -- both live in one rules map. An item
---   resolves to its section's rule when that section is named in the policy, otherwise to its
---   category's rule (see get_policy_key). So a config caps a whole category (grenade = 3) or names
---   individual items (grenade_f1 = 0, 3) and leaves others unmentioned -- an unmentioned item
---   has no rule and is left alone. Mixing is allowed; the more specific (section) rule wins.
+-- Policy primitives: one uniform LTX policy shape shared by every consumer; the values live in the consumer mods (see architecture.md).
 
--- Parse a policy rule cell. Two accepted shapes:
---   "min, max"  -> { min = number, max = number }   (trade / stash; both fields used)
---   "max"       -> { min = 0,      max = number }   (cull-only consumers; min unused)
--- Empty / malformed cells yield nil.
+-- Parse a policy rule cell: "min, max" -> { min, max }, a bare "max" -> { min = 0, max }.
+-- Empty or malformed cells yield nil.
 local function _parse_rule(value)
     if not value or value == "" then return nil end
-    -- Try "min, max" first (longest match)
     local min_str, max_str = string_match(value, "(%S+)%s*,%s*(%S+)")
     if min_str then
         local min, max = tonumber(min_str), tonumber(max_str)
         if min and max then return { min = min, max = max } end
     end
-    -- Fall back to single-value (max only); min defaults to 0
     local max_only = tonumber(value)
     if max_only then return { min = 0, max = max_only } end
     return nil
 end
 
--- Contribution one item makes to its category count: ammo categories count rounds
--- (ammo_get_count across stacks), others count 1 item per stack. Internal helper.
+-- Contribution one item makes to its category count: ammo categories count rounds, others count 1 item per stack.
 local function _get_unit(category, item)
     if category == "ammo_not_equipped"
         or string_sub(category, 1, 11) == "ammo_slot_2"
@@ -884,10 +761,8 @@ local function _get_unit(category, item)
     return 1
 end
 
--- Route one parsed LTX line into the accumulating block: numeric specials go to
--- block.specials; {min, max} rows become an ordered block.entries plus a block.rules[key]
--- mapping. A key is a category name or an item section name; both share one rules map.
--- Empty/malformed keys/values skipped.
+-- Route one parsed LTX line into the accumulating block: numeric specials to block.specials, rows to entries + rules[key].
+-- A key is a category name or an item section name; both share one rules map, and malformed lines are skipped.
 local function _read_policy_line(key, value, specials_set, block)
     if not key or key == "" then return end
     if specials_set[key] then
@@ -912,12 +787,8 @@ local function _load_policy_block(ini, section, specials_set)
     return block
 end
 
---- Load an LTX policy file with uniform {min, max}-per-category shape
---- Generic loader for the trade / stash / inventory-balance policy shape. Each named
---- section yields a block { entries, rules, specials }. entries preserves declaration order
---- (= BUY / LOOT priority); rules is the hash for O(1) per-key lookup, where a key is a category
---- name or an item section name; specials carries numeric keys named in specials_set
---- (profit_max, extras_max, ...).
+--- Load an LTX policy file with the uniform {min, max}-per-key shape; each named section yields { entries, rules, specials }.
+--- entries preserves declaration order (= BUY / LOOT priority), rules is the per-key hash, specials carries the specials_set numerics.
 --- @safety SAFE - missing file / section / line yields empty block; malformed lines skipped
 --- @cost O(lines) | per line: 1 luabind heavy r_line_ex
 --- @src anomaly/axr_trade_manager precedent (per-section buy_sell rows; this generalizes to per-category)
@@ -936,11 +807,8 @@ function load_policy(path, sections, specials_set)
     return result
 end
 
---- Resolve the policy key for a live item under a rules map
---- The item's section when that section is named in rules, otherwise its category. This is the
---- one place "section overrides category" lives, so every policy walk keys items the same way.
---- Returns nil for untouchable / equipped items (consumers skip those). Category and section are
---- also returned (category for _get_unit and on_surplus; section for on_surplus).
+--- Resolve the policy key for a live item: its section when named in rules, else its category - the one place that override lives.
+--- Returns nil for untouchable / equipped items; the category and section come back as extra returns.
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | get_category cost (which also returns the section) + 1 hash lookup
 --- @src xray/xrGame/script_game_object_script.cpp section()
@@ -956,13 +824,8 @@ function get_policy_key(item, opts, rules)
     return (rules and rules[sec]) and sec or cat, cat, sec
 end
 
---- Count NPC inventory items per policy key (online NPC)
---- Single iterate over the NPC's inventory; get_policy_key drops untouchable and equipped
---- automatically (caller never sees them). Ammo keys count in ROUNDS (sum of ammo_get_count
---- across stacks); other keys count in ITEMS. With rules given, an item whose section is named
---- in rules counts under its SECTION key, otherwise its category key, so a category cap sees
---- only items that have no section rule of their own. max_items bounds the walk (forwarded to
---- iterate_inventory) and is returned as the second value when the cap truncated it.
+--- Count an online NPC's inventory per policy key in one iterate; untouchable and equipped items never reach the counts.
+--- Ammo keys count in ROUNDS, other keys in ITEMS; a section named in rules counts under its section key, not its category.
 --- @safety SAFE - nil-guarded npc; offline npc yields empty (iterate_inventory online-only)
 --- @cost O(min(items, max_items)) | per item: get_policy_key + 0-1 ammo_get_count
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
@@ -984,27 +847,14 @@ function collect_policy_counts(npc, opts, rules, max_items)
     return counts, hit_cap
 end
 
---- Walk NPC inventory and surface items above their policy max
---- For each non-untouchable non-equipped item: get_policy_key resolves the rule key (section if the
---- item's section is named in ctx.rules, else category). If a rule exists AND count > max,
---- mutates ctx.counts in place (counts[key] -= unit) and invokes ctx.on_surplus(item, cat, sec, unit).
---- Returning true from on_surplus stops iteration (engine convention).
---- For unit == 1 (medkit, weapon, grenade, etc.) the walk lands at exactly max.
---- For unit > 1 (ammo, in rounds) releases happen whole-stack; the final count can fall short
---- of max by up to (unit - 1) when the boundary stack overshoots.
---- The caller's on_surplus owns the action: trade transfers + credits, inventory-balance
---- releases. No release happens unless on_surplus does it. ctx.max_items bounds the walk
---- (forwarded to iterate_inventory); pass the same value collect_policy_counts used so both walks cover the
---- identical first-N items (m_all order is stable across calls, no mutation between them).
+--- Walk an NPC's inventory and hand each item above its policy max to ctx.on_surplus, decrementing ctx.counts in place.
+--- unit == 1 keys land exactly at max; ammo releases whole stacks, so the final count can undershoot by up to unit - 1 rounds.
 --- @safety SAFE - nil-guarded args; iterate_inventory tolerant of nil items
 --- @cost O(min(items, max_items)) | per item: get_policy_key + 1 hash lookup + 0-1 ammo_get_count
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc)
---- @param ctx table { rules = hash from load_policy(...).rules,
----                    counts = mutable counts from collect_policy_counts(npc, opts, rules),
----                    on_surplus = function(item, category, section, unit),
----                    max_items = number|nil cap forwarded to iterate_inventory }
+--- @param ctx table { rules, counts (mutable, from collect_policy_counts), on_surplus = fn(item, cat, sec, unit), max_items|nil }
 --- @return number Count of surplus items ctx.on_surplus was called on
 function iterate_surplus(npc, opts, ctx)
     if not npc or not ctx or not ctx.rules or not ctx.counts or not ctx.on_surplus then return 0 end
@@ -1026,27 +876,14 @@ function iterate_surplus(npc, opts, ctx)
     return invoked
 end
 
---- Count an NPC's inventory per policy key and release its surplus in a SINGLE walk
---- The single-walk form of collect_policy_counts + iterate_surplus for the common "count and release the same
---- NPC's surplus" case. One iterate_inventory pass builds the per-key counts and, in m_all order,
---- the list of releasable-key items; a second pure-Lua pass walks that list and, with the identical
---- whole-stack decrement, hands each over-max item to on_surplus in the identical m_all order. So it
---- is a drop-in for collect_policy_counts + iterate_surplus -- same released set, same order, same post-release
---- counts, same hit_cap -- at half the per-item walk cost (one engine walk, one get_policy_key, one
---- _get_unit per item instead of two). Untouchable / equipped items and keys without a rule.max never
---- reach on_surplus (get_policy_key drops the former, the rule gate the latter). on_surplus owns the
---- action (release / transfer / credit); returning true stops the release early. counts is returned
---- post-release so a caller can drive a follow-up pass (e.g. a BUY pass) off it. Release happens
---- after the walk, over the captured list -- never during a live iterate_inventory -- so it cannot
---- perturb the walk. max_items bounds the walk (forwarded to iterate_inventory).
+--- Count an NPC's inventory per policy key AND release its surplus in one engine walk - the drop-in single-walk form.
+--- The release runs after the walk over a captured list (never during a live iterate), same released set and order, half the per-item cost.
 --- @safety SAFE - nil-guarded npc / rules / on_surplus; iterate tolerant of nil items
 --- @cost O(min(items, max_items)) | per item: get_policy_key + 1 _get_unit + 1 hash; then 0-N on_surplus
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(266-270) iterate_inventory
 --- @param npc game_object Online NPC
 --- @param opts table|nil From get_category_opts(npc)
---- @param ctx table { rules = hash from load_policy(...).rules,
----                    on_surplus = function(item, category, section, unit) (return true to stop early),
----                    max_items = number|nil cap forwarded to iterate_inventory }
+--- @param ctx table { rules, on_surplus = fn(item, cat, sec, unit) (return true to stop early), max_items|nil }
 --- @return number Count of surplus items on_surplus was called on
 --- @return table Post-release per-key counts (identical to collect_policy_counts then iterate_surplus)
 --- @return boolean|nil true when the walk was capped at max_items (more items remained)
@@ -1080,11 +917,8 @@ function collect_surplus(npc, opts, ctx)
     return released, counts, hit_cap
 end
 
---- Derive surplus per policy key from counts vs rules (pure)
---- Returns keys where count > rule.max with the surplus amount. Keys without a rule or with no
---- max are ignored. Keys are categories or item sections, matching collect_policy_counts and the rules map,
---- so an unmentioned item (no key in rules) never shows as surplus. Used by stash fill to plan
---- deposits without re-walking inventory.
+--- Derive surplus per policy key from counts vs rules (pure): keys where count > rule.max, with the surplus amount.
+--- An unmentioned key never shows as surplus; stash fill plans deposits off this without re-walking inventory.
 --- @safety SAFE - nil-guarded inputs (returns empty)
 --- @cost O(counts) pure Lua, no luabind
 --- @param counts table From collect_policy_counts(npc, opts, rules)
@@ -1103,10 +937,8 @@ function build_surplus_map(counts, rules)
     return surplus
 end
 
---- True when a before_move event is the actor taking an item OUT of a dead body: loot mode with the
---- source list being the dead-body bag (a deposit into the corpse reads iActorBag and is false).
---- Every take path (move, move-all, take-all, drag, double-click) funnels through Cond_Move, so a
---- before_move handler that vetoes here with disable_move blocks them all.
+--- True when a before_move event is the actor taking an item OUT of a dead body (a deposit reads iActorBag and is false).
+--- Every take path funnels through Cond_Move, so a before_move handler that vetoes here with disable_move blocks them all.
 --- @safety SAFE - pure enum compare, no luabind
 --- @cost O(1) | 0 luabind
 --- @src EDDListType.iDeadBodyBag; ui_inventory.script:241-242,908-918,2251 (Cond_Move funnel; npc_bag -> iDeadBodyBag)
@@ -1133,12 +965,8 @@ local function _add_count(sec, counts, order)
     if counts[sec] == 1 then order[#order + 1] = sec end
 end
 
---- Dump an NPC's inventory to a log function as ONE aggregated line, reusable for any trader. The
---- single write, not one per item, is what keeps it light even for a hub trader's full stock; the
---- per-item section reads are cheap luabind, and iterate_inventory is atomic so it cannot be spread
---- across frames anyway. Output is per-section counts, e.g.
---- "inv_dump(trade) npc=123 n=214 [ammo_9x18_fmj x120, medkit x8, ...]". Call it behind the calling
---- mod's own debug gate; it does no gating itself.
+--- Dump an NPC's inventory to a log function as ONE aggregated per-section-counts line.
+--- Call it behind the calling mod's own debug gate; it does no gating itself.
 --- @safety SAFE - nil-guarded npc and log_fn
 --- @cost O(inventory): 1 walk + 1 section read per item + 1 write
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp:256 (iterate_inventory)
