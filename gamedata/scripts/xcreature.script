@@ -462,7 +462,7 @@ function create_trader(npc, cfg_path, stock_now)
 end
 
 -- id-yielding iterator so the caller can validate via alife_object(id) before any method call; both back stores are id-keyed.
-local _online_iter_with_id = gameobjects_registry and function()
+local _online_id_iter = gameobjects_registry and function()
     local k, obj
     return function()
         k, obj = next(gameobjects_registry, k)
@@ -484,7 +484,7 @@ end
 --- @src modded-exes/callbacks_gameobject.script(28-45), anomaly/db.script(15,70-83)
 --- @return function Iterator yielding (id, game_object) pairs
 function iterate_online()
-    return _online_iter_with_id()
+    return _online_id_iter()
 end
 
 --- True if any mutant is online (first-found over the online object set, early-out on the first).
@@ -494,7 +494,7 @@ end
 --- @src anomaly/db.script online storage; xray clsid via IsMonster
 --- @return boolean
 function has_online_mutant()
-    for _, obj in _online_iter_with_id() do
+    for _, obj in _online_id_iter() do
         if obj and is_mutant(obj) then return true end
     end
     return false
@@ -509,7 +509,7 @@ end
 function has_online_human()
     local actor = db.actor
     local actor_id = actor and actor:id()
-    for id, obj in _online_iter_with_id() do
+    for id, obj in _online_id_iter() do
         if id ~= actor_id and obj and is_stalker(obj) then return true end
     end
     return false
@@ -536,7 +536,7 @@ function iterate_online_monsters()
             return id, st and st.object or nil
         end
     end
-    local it = _online_iter_with_id()
+    local it = _online_id_iter()
     local seen = 0
     return function()
         while seen < MONSTER_ITER_CAP do

@@ -13,8 +13,8 @@ local STALKER_FACTIONS = {
 }
 local _factions_cache = {}
 local _section_faction_cache = {}
-local _section_npc_max_cache = {}
-local _section_npc_range_cache = {}
+local _npc_max_cache = {}
+local _npc_range_cache = {}
 local ANOMALY_RADIUS_SQR = 2500
 -- Results returned when the caller sets no cap.
 local DEFAULT_RESULT_CAP = 5
@@ -233,7 +233,7 @@ end
 -- Walk smart.npc_info and return the first online live NPC whose role set contains the asked role.
 -- Engine-authoritative (npc_info is the engine's smart roster); multi-role NPCs answer every matching lookup.
 -- @cost O(n) n=npc_info entries (typically 5-30) | per entry: 1 medium (xobject.get_go), 1 trivial (alive), 1 cached role set lookup
-local function _get_role_at_smart(smart, role)
+local function _get_smart_role(smart, role)
     if not smart or not smart.npc_info then return nil end
     for npc_id, _ in pairs(smart.npc_info) do
         local npc = xobject.get_go(npc_id)
@@ -249,7 +249,7 @@ end
 --- @param smart smart_terrain Smart terrain to query
 --- @return game_object|nil Online trader NPC, or nil if none online at this smart
 function get_trader_at_smart(smart)
-    return _get_role_at_smart(smart, "trader")
+    return _get_smart_role(smart, "trader")
 end
 
 --- Resolve the medic NPC at a smart. Walks npc_info, returns first live NPC whose get_npc_roles set contains "medic".
@@ -259,7 +259,7 @@ end
 --- @param smart smart_terrain Smart terrain to query
 --- @return game_object|nil Online medic NPC, or nil if none online at this smart
 function get_medic_at_smart(smart)
-    return _get_role_at_smart(smart, "medic")
+    return _get_smart_role(smart, "medic")
 end
 
 --- Resolve the mechanic NPC at a smart. Walks npc_info, returns first live NPC whose get_npc_roles set contains "mechanic".
@@ -269,37 +269,37 @@ end
 --- @param smart smart_terrain Smart terrain to query
 --- @return game_object|nil Online mechanic NPC, or nil if none online at this smart
 function get_mechanic_at_smart(smart)
-    return _get_role_at_smart(smart, "mechanic")
+    return _get_smart_role(smart, "mechanic")
 end
 
 --- Test if any live online NPC at the smart has role "trader".
---- @safety SAFE - delegates to _get_role_at_smart
+--- @safety SAFE - delegates to _get_smart_role
 --- @cost O(n) n=npc_info entries | same as get_trader_at_smart
 --- @src anomaly/smart_terrain.script(801)
 --- @param smart smart_terrain Smart terrain to query
 --- @return boolean
 function has_trader_at_smart(smart)
-    return _get_role_at_smart(smart, "trader") ~= nil
+    return _get_smart_role(smart, "trader") ~= nil
 end
 
 --- Test if any live online NPC at the smart has role "medic".
---- @safety SAFE - delegates to _get_role_at_smart
+--- @safety SAFE - delegates to _get_smart_role
 --- @cost O(n) n=npc_info entries | same as get_medic_at_smart
 --- @src anomaly/smart_terrain.script(801)
 --- @param smart smart_terrain Smart terrain to query
 --- @return boolean
 function has_medic_at_smart(smart)
-    return _get_role_at_smart(smart, "medic") ~= nil
+    return _get_smart_role(smart, "medic") ~= nil
 end
 
 --- Test if any live online NPC at the smart has role "mechanic".
---- @safety SAFE - delegates to _get_role_at_smart
+--- @safety SAFE - delegates to _get_smart_role
 --- @cost O(n) n=npc_info entries | same as get_mechanic_at_smart
 --- @src anomaly/smart_terrain.script(801)
 --- @param smart smart_terrain Smart terrain to query
 --- @return boolean
 function has_mechanic_at_smart(smart)
-    return _get_role_at_smart(smart, "mechanic") ~= nil
+    return _get_smart_role(smart, "mechanic") ~= nil
 end
 
 --- Owner faction of the nearest live SELLER (trader/barman, medic, mechanic) within radius of pos, measured to the seller itself.
@@ -497,11 +497,11 @@ end
 --- @return number Upper bound of npc_in_squad, or 0 when section/field missing
 function get_section_npc_max(section)
     if not section then return 0 end
-    local cached = _section_npc_max_cache[section]
+    local cached = _npc_max_cache[section]
     if cached ~= nil then return cached end
     local raw = ini_sys:r_string_ex(section, "npc_in_squad")
     if not raw or raw == "" then
-        _section_npc_max_cache[section] = 0
+        _npc_max_cache[section] = 0
         return 0
     end
     local _, high = string_match(raw, "(%d+)%s*,%s*(%d+)")
@@ -511,7 +511,7 @@ function get_section_npc_max(section)
     else
         result = tonumber(string_match(raw, "(%d+)")) or 0
     end
-    _section_npc_max_cache[section] = result
+    _npc_max_cache[section] = result
     return result
 end
 
@@ -526,7 +526,7 @@ end
 --- @return number Upper bound of npc_in_squad, or 0 when section/field missing
 function get_section_npc_range(section)
     if not section then return 0, 0 end
-    local cached = _section_npc_range_cache[section]
+    local cached = _npc_range_cache[section]
     if cached then return cached[1], cached[2] end
     local raw = ini_sys:r_string_ex(section, "npc_in_squad")
     local low, high
@@ -539,7 +539,7 @@ function get_section_npc_range(section)
     end
     low = tonumber(low) or 0
     high = tonumber(high) or 0
-    _section_npc_range_cache[section] = { low, high }
+    _npc_range_cache[section] = { low, high }
     return low, high
 end
 
@@ -787,7 +787,7 @@ end
 
 -- Any-of acceptance check used by find_smart / find_first_smart when opts.factions is a set.
 -- @cost O(k) factions | 0 luabind (pure Lua pairs); short-circuits on first accept
-local function _can_accept_any_faction(smart, fset)
+local function _accepts_any_faction(smart, fset)
     for f in pairs(fset) do
         if can_accept_faction(smart, f) then return true end
     end
@@ -814,7 +814,7 @@ function find_smart(pos, opts)
     local filter = opts.filter
     local factions_check
     if factions then
-        if type(factions) == "table" then factions_check = _can_accept_any_faction else factions_check = can_accept_faction end
+        if type(factions) == "table" then factions_check = _accepts_any_faction else factions_check = can_accept_faction end
     end
     local min_dist_sqr = -1
     if opts.min_distance then min_dist_sqr = opts.min_distance * opts.min_distance end
@@ -864,7 +864,7 @@ function find_first_smart(opts)
     local factions = opts.factions
     local factions_check
     if factions then
-        if type(factions) == "table" then factions_check = _can_accept_any_faction else factions_check = can_accept_faction end
+        if type(factions) == "table" then factions_check = _accepts_any_faction else factions_check = can_accept_faction end
     end
     for _, smart in pairs(pool) do
         if _is_smart_match(smart, opts.exclude_id, factions, factions_check, opts.level_id, opts.filter) then

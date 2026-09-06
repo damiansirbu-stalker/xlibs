@@ -63,7 +63,7 @@ local function _is_task_giver(squad, squad_id, cmd_id)
 end
 
 -- Pure build (no state): the O(t) walk over active tasks, collecting each current_target objective id.
-local function _get_active_task_targets()
+local function _build_task_targets()
     local set = {}
     local tm = task_manager and task_manager.get_task_manager()
     local ti = (tm and tm.task_info) or {}
@@ -76,7 +76,7 @@ local function _get_active_task_targets()
     return set
 end
 
--- Lazy per-frame memo over _get_active_task_targets; cache state lives only in this do-block, rebuilt once per engine frame.
+-- Lazy per-frame memo over _build_task_targets; cache state lives only in this do-block, rebuilt once per engine frame.
 do
     local cache, cache_frame
     --- Set of active tasks' current_target objective ids - each active CGeneralTask's map-marker alife id.
@@ -87,7 +87,7 @@ do
     --- @return table Set {[id]=true} of active-task objective ids (empty when none)
     function get_active_task_targets()
         local now = time_global()
-        if cache_frame ~= now then cache, cache_frame = _get_active_task_targets(), now end
+        if cache_frame ~= now then cache, cache_frame = _build_task_targets(), now end
         return cache
     end
 end

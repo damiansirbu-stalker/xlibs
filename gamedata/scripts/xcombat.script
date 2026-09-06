@@ -840,7 +840,7 @@ end
 
 -- One member check; lifted out so the loop body has no nested if-chain.
 -- @cost O(1) | 2 luabind (level.object_by_id + alive) on hit; vector field access
-local function _is_member_on_line(member_id, my_id, axis)
+local function _member_on_line(member_id, my_id, axis)
     if member_id == my_id then return false end
     local member = level_object_by_id(member_id)
     if not member or not member:alive() then return false end
@@ -870,7 +870,7 @@ function xcombat.has_friendly_in_line(npc, npc_pos, ene_pos, lateral_thresh_m)
     }
     local my_id = npc:id()
     for member_id in xsquad.iterate_member_ids(squad) do
-        if _is_member_on_line(member_id, my_id, axis) then return true end
+        if _member_on_line(member_id, my_id, axis) then return true end
     end
     return false
 end
@@ -1084,7 +1084,7 @@ end
 -- Capped fire-clearance ray from origin toward the enemy chest; returns (blocker distance or nil when clear, distance to the chest).
 -- Gap vs the engine ray: no transparency accumulation, so glass and bushes read as blockers the engine's own gate shoots through.
 -- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query + get_distance)
-local function _get_fire_lane_hit(origin, enemy_pos)
+local function _fire_lane_hit(origin, enemy_pos)
     local dx = enemy_pos.x - origin.x
     local dy = (enemy_pos.y + BODY_Y.CHEST) - origin.y
     local dz = enemy_pos.z - origin.z
@@ -1114,7 +1114,7 @@ end
 function xcombat.can_kill_enemy(npc, enemy)
     if not (npc and enemy) then return false end
     if _has_bind(npc, "can_kill_enemy") then return npc:can_kill_enemy() end
-    local hit_m = _get_fire_lane_hit(_get_fire_origin(npc), enemy:position())
+    local hit_m = _fire_lane_hit(_get_fire_origin(npc), enemy:position())
     return hit_m == nil
 end
 
@@ -1138,14 +1138,14 @@ local FIRE_HEIGHT_M   = 2.0
 local FIRE_MIN_DIST_M = 2.5
 local FIRE_UNSEEN_MS  = 10000
 -- The ef_weapon_type classes the engine's unseen suppression window accepts (ai_stalker_fire.cpp:920-930); read from ini_sys, never a bind.
-local AUTO_EF_WEAPON_TYPES = { [6] = true, [7] = true, [8] = true, [10] = true }
+local AUTO_WEAPON_TYPES = { [6] = true, [7] = true, [8] = true, [10] = true }
 
 -- nil = unprobed; false = cvars absent (floor exe); true = cvars present (read live per call)
 local _fire_cvars = nil
 
 -- The 4 gate values: the live ai_fire_* cvars when the exe has them, the vanilla constants otherwise.
 -- @cost O(1) | 0 luabind on the floor after the first probe, 5 luabind trivial per call when cvars exist
-local function _get_fire_gate_values()
+local function _fire_gate_values()
     if _fire_cvars == nil then
         _fire_cvars = get_console():get_string("ai_fire_range_extension") ~= nil
     end
@@ -1172,10 +1172,10 @@ end
 function xcombat.fire_make_sense(npc, enemy)
     if not (npc and enemy) then return false end
     if _has_bind(npc, "fire_make_sense") then return npc:fire_make_sense() end
-    local ext_m, height_m, min_dist_m, unseen_ms = _get_fire_gate_values()
+    local ext_m, height_m, min_dist_m, unseen_ms = _fire_gate_values()
     local enemy_pos = enemy:position()
     if math_abs(npc:position().y - enemy_pos.y) > height_m then return false end
-    local hit_m, dist_m = _get_fire_lane_hit(_get_fire_origin(npc), enemy_pos)
+    local hit_m, dist_m = _fire_lane_hit(_get_fire_origin(npc), enemy_pos)
     local pick_m = hit_m or dist_m
     if pick_m + ext_m < dist_m then return false end
     if pick_m < min_dist_m then return false end
@@ -1183,7 +1183,7 @@ function xcombat.fire_make_sense(npc, enemy)
     if xcombat.get_unseen_ms(npc, enemy, time_global()) > unseen_ms then return false end
     local wpn = npc:best_weapon()
     if not wpn then return false end
-    return AUTO_EF_WEAPON_TYPES[tonumber(ini_sys:r_string_ex(wpn:section(), "ef_weapon_type") or "")] == true
+    return AUTO_WEAPON_TYPES[tonumber(ini_sys:r_string_ex(wpn:section(), "ef_weapon_type") or "")] == true
 end
 
 --- Register fn on the combat action-switch veto (npc_on_combat_action_switch, PR #595); set flags.allow = false to keep the current action.
@@ -1449,7 +1449,7 @@ end
 -- Try one fan offset to both sides of away_dir (straight-away when offset is 0); the first side with a clear full-distance lane wins.
 -- The XZ rotation of away_dir by +-offset is the 2D rotation matrix, no atan2.
 -- @cost O(1) | up to 2 (vertex_in_direction + accessible + raycast)
-local function _find_flee_lane_at(npc, own_lvid, npc_pos, away_dir, offset_deg, distance_m)
+local function _find_lane_offset(npc, own_lvid, npc_pos, away_dir, offset_deg, distance_m)
     local dir = vector()
     for side = 1, (offset_deg == 0 and 1 or 2) do
         local angle = (side == 1 and offset_deg or -offset_deg) * DEG_TO_RAD
@@ -1480,7 +1480,7 @@ function xcombat.find_flee_lane(npc, away_dir, distance_m, arc_deg, max_spread_d
     local npc_pos = npc:position()
     local offset_deg = 0
     while offset_deg <= max_spread_deg do
-        local vid = _find_flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, distance_m)
+        local vid = _find_lane_offset(npc, own, npc_pos, away_dir, offset_deg, distance_m)
         if vid then return vid end
         offset_deg = offset_deg + arc_deg
     end
@@ -1488,7 +1488,7 @@ function xcombat.find_flee_lane(npc, away_dir, distance_m, arc_deg, max_spread_d
     if half_m >= STEP_DECREMENT_M then
         offset_deg = 0
         while offset_deg <= max_spread_deg do
-            local vid = _find_flee_lane_at(npc, own, npc_pos, away_dir, offset_deg, half_m)
+            local vid = _find_lane_offset(npc, own, npc_pos, away_dir, offset_deg, half_m)
             if vid then return vid end
             offset_deg = offset_deg + arc_deg
         end
