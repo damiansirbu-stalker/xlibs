@@ -127,13 +127,13 @@ xsquad.release_squad(squad)
 - `create_squad(smart, section)` - Spawn a squad at a smart through the vanilla board path (roster + squad_on_npc_creation native)
 - `get_squad_smart(squad)`
 - `is_stationed(squad, smart_id)` - True when engine considers squad stationed (current_action=1). With smart_id, also requires current_target_id match. Sticky until idle_time expires or new target assigned
-- `get_squad_by_member(npc_id)` - Get squad containing NPC
+- `get_member_squad(npc_id)` - Get squad containing NPC
 - `get_community(squad)` - Raw community id (faction key), untranslated. Use for keying/comparison; the translated `get_community_name` is display-only
 - `get_community_name(squad)` - Translated community name (safe, never nil)
 - `is_permanent_squad(squad)` - Static identity check (story, trader, named_npc, empty), cached
 - `has_active_role(squad)` - Dynamic role check (task_giver, companion)
 - `is_task_target(squad)` - Task target check (task_squads hash + current_target objective id + bounty/hostage member fallback)
-- `get_active_task_targets()` - Per-frame-cached set {[id]=true} of active tasks' current_target objective ids, for entity-level protection lookups (e.g. an online guard's orphan path)
+- `get_task_targets()` - Per-frame-cached set {[id]=true} of active tasks' current_target objective ids, for entity-level protection lookups (e.g. an online guard's orphan path)
 - `is_scripted(squad)` - Check engine/vanilla scripting fields (scripted_target, condlist, random_targets)
 - `is_squad(obj)` - clsid guard: true only for sim_squad_scripted instances (id-recycling defense)
 - `has_squad(pos, opts)` - Short-circuiting boolean: any squad within max_distance matches?
@@ -165,7 +165,7 @@ Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over
 - `get_blocked_planners()`, `get_operator(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Blocked planner-id list, current brain operator, body facing as a unit vector, body-facing offset in degrees
 - `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held). Engine beliefs, not concealment geometry; nil when there is no planner to ask
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
-- `has_obstacle_between(a, b)`, `has_obstacle_to_target(a, b)`, `has_friendly_lane(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
+- `has_obstacle_between(a, b)`, `has_shot_obstacle(a, b)`, `has_friendly_lane(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
 - `get_crouch_openness(lvid, dir)`, `get_stand_openness(lvid, dir)` - Baked cover-graph openness toward a direction at crouch and standing height (0 walled, 1 open), the cheap posture reads - static geometry only, blind to bodies (contrast the object-aware rays); see `doc/library/modding/cover-and-los-queries.md`
 - `find_cover(npc, enemy_pos, opts)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders. find_cover is four ways from `opts.selection` (nearest walks the baked cover points closest-first, best takes best_cover) and `opts.firing` (true = a vertex to shoot from, false = a vertex that hides); `opts.radius` and `opts.search_pos` required. find_flee_lane is clear-lane fans
 - `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
@@ -243,7 +243,7 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 
 **Weapon config**:
 - `get_ammo_sections(weapon_sec)` - ordered array of ammo sections accepted (cached)
-- `get_ammo_tier_map(weapon_sec, n_tiers)` - map `{[ammo_sec]=tier_idx}`; sorts ammo_class by k_ap asc (cost tiebreaker, cost-only fallback if all k_ap=0), splits into N tiers via median. Cached per `(weapon_sec, n_tiers)`. Default `n_tiers=2`.
+- `get_ammo_tiers(weapon_sec, n_tiers)` - map `{[ammo_sec]=tier_idx}`; sorts ammo_class by k_ap asc (cost tiebreaker, cost-only fallback if all k_ap=0), splits into N tiers via median. Cached per `(weapon_sec, n_tiers)`. Default `n_tiers=2`.
 - `get_box_size(sec)` - rounds per ammo stack (cached)
 
 **Category set returned by `get_category`** (24 values):
@@ -294,9 +294,9 @@ local valid = xlevel.is_valid_lvid(se_obj)
 ```
 
 - `get_level_id(se_obj)` - Level ID from server entity (pcall-guarded)
-- `get_actor_level_id()` - Actor's current level ID
-- `get_level_name(level_id)`, `get_level_id_by_name(name)` - Level id <-> name resolution (session-cached)
-- `get_smart_display_name(smart)` - Translated smart terrain name
+- `get_actor_level()` - Actor's current level ID
+- `get_level_name(level_id)`, `resolve_level_id(name)` - Level id <-> name resolution (session-cached)
+- `get_smart_name(smart)` - Translated smart terrain name
 - `get_neighbor_levels(source_id, hops)` - Level-id set within N graph hops. Returns the cached set BY REFERENCE: read-only, never mutate or hold across sessions
 - `is_valid_lvid(se_obj)` - Check level vertex validity (0xFFFFFFFF = invalid)
 - `is_surge()` - True while a surge or psi-storm is underway (pure Lua module reads via xr_conditions.surge_started)
@@ -314,7 +314,7 @@ Smart property predicates (read from smart.props / engine fields):
 - `has_surge_shelter(smart)` - Smart has surge shelter (emission-safe indoor)
 - `has_campfire(smart)` - Has a map-placed campfire (any distance) or a live online one; static `xdata.campfire_smarts` set, online table as fallback
 - `has_anomaly(smart)` - Within 50m of any online anomaly zone
-- `has_animated_stalker_jobs(smart)` - Has any non-stub stalker job (excludes generic_point / campfire_point stubs)
+- `has_animated_jobs(smart)` - Has any non-stub stalker job (excludes generic_point / campfire_point stubs)
 - `accepts_faction(smart, faction)` - Engine target_precondition Tier 1: props.all OR props.all_stalker/all_monster OR props[faction]
 - `is_near_campfire(smart, position, radius)` - Position within radius of one of the smart's campfires
 
@@ -324,7 +324,7 @@ Smart finders:
 - `find_first_smart(opts)` - Distance-free variant; first matching smart in pool iteration order
 - `find_smarts_spawning(level_id, faction)` - Array of smarts on level whose recipes produce given faction
 - `find_friendly_base(community, pos, opts)` - Nearest base-class smart friendly to the community (min_distance filter)
-- `smarts_by_names()` - Name-keyed smart lookup table (SIMBOARD.smarts_by_names read)
+- `get_named_smarts()` - Name-keyed smart lookup table (SIMBOARD.smarts_by_names read)
 - `smart_iter()` - Stateful iterator over all SIMBOARD smart terrains
 
 SIMBOARD roster (sim-intent membership, NOT physical occupancy):
@@ -332,16 +332,16 @@ SIMBOARD roster (sim-intent membership, NOT physical occupancy):
 - `assign_squad_to_smart(squad, smart_id)` - Wrap SIMBOARD:assign_squad_to_smart; nil to detach
 - `reconcile_squad_roster(squad, from_smart_id)` - Sync SIMBOARD.smarts rosters after a squad changed smart via the roster-blind vanilla `sim_squad_scripted:assign_smart` (called from specific_update / generic_update, which never update the squads table or population). Drops the stale `from` entry, adds the current `smart_id` entry, recomputes both populations via `smart_terrain_squad_count`, fires leave/enter callbacks. Idempotent (table-state gated), so it is a no-op on a base that already syncs. Consumed by AlifePlus `ap_core_anomaly_fixes`
 - `iter_stationed_squads(smart_id, exclude_id, cap)` - Closure iterator yielding se for squads with current_action=1 AND current_target_id=smart_id (xsquad.is_stationed). Skips in-transit. Cap default 5
-- `has_squad_of_faction(smart_id, faction, exclude_id)` - True if any stationed squad of given faction
+- `has_faction_squad(smart_id, faction, exclude_id)` - True if any stationed squad of given faction
 - `has_enemy_squad(smart_id, community, exclude_id)` - True if any stationed squad is faction-enemy of community
-- `get_faction_smart_count(factions, level_id)` - Count of smarts on the level with a stationed squad of the community (string) or of any community in the set (table). Per-level snapshot of stationed communities, 60s TTL (xttltable). Consumed by AlifePlus per-faction expansion caps
+- `get_faction_count(factions, level_id)` - Count of smarts on the level with a stationed squad of the community (string) or of any community in the set (table). Per-level snapshot of stationed communities, 60s TTL (xttltable). Consumed by AlifePlus per-faction expansion caps
 - `is_smart_empty(smart_id)` - No squads assigned (raw roster check, includes in-transit)
 
 Service NPC resolution (online + actor-level via npc_info walk):
 - `get_npc_roles(npc)` - SET of roles `{trader=true, medic=true, mechanic=true}` (any subset, empty for non-service NPCs). Multi-role NPCs (Yar = medic+trader, mechanics with dm_init_trader = mechanic+trader) populate multiple keys. Cached per NPC id with a section verify on hit (id-recycling defense). Signals: community="trader", clsid=script_trader/trader, section substring patterns, trade= field in active logic block (Demonized-style classifier per Trader Destockifier `trader_autoinject.script:85`). level_spot is NOT used (false-positives on quest NPCs)
 - `is_trader_npc(npc)`, `is_medic_npc(npc)`, `is_mechanic_npc(npc)` - Boolean wrappers checking `get_npc_roles(npc)[role]`
-- `get_trader_at_smart(smart)`, `get_medic_at_smart(smart)`, `get_mechanic_at_smart(smart)` - First online live NPC at smart with role in their set, or nil
-- `has_trader_at_smart(smart)`, `has_medic_at_smart(smart)`, `has_mechanic_at_smart(smart)` - Boolean variants
+- `get_smart_trader(smart)`, `get_smart_medic(smart)`, `get_smart_mechanic(smart)` - First online live NPC at smart with role in their set, or nil
+- `has_smart_trader(smart)`, `has_smart_medic(smart)`, `has_smart_mechanic(smart)` - Boolean variants
 
 Squad-smart interaction:
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
@@ -350,7 +350,7 @@ Squad-smart interaction:
 
 Jobs (smart.stalker_jobs):
 - `has_stalker_jobs(smart, type_id)` - Has any (type_id nil) or specific job_type_id (e.g. JOB_TYPE_TRADER = 15)
-- `get_job_for_npc(smart, npc_id)` - Job descriptor the NPC currently holds at the smart (npc_info read)
+- `get_npc_job(smart, npc_id)` - Job descriptor the NPC currently holds at the smart (npc_info read)
 
 Section metadata (LTX squad_descr):
 - `section_faction(section)` - Faction (player_id) a squad section produces (cached per section)
@@ -359,7 +359,7 @@ Section metadata (LTX squad_descr):
 Diagnostic:
 - `dump_smarts(level_id)` - Per-smart faction + service role inventory (filtered by level when given)
 
-Spawn helpers (set / clear shared / exclusive spawn, set_shared_spawn_section for injecting an explicit squad_descr section rather than an identity->pool lookup, set_exclusive_spawn_section for a faction-tagged explicit section that passes the exclusive gate under an owner, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
+Spawn helpers (set / clear shared / exclusive spawn, set_shared_section for injecting an explicit squad_descr section rather than an identity->pool lookup, set_exclusive_section for a faction-tagged explicit section that passes the exclusive gate under an owner, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
 
 ### xstash.script - Stash Operations
 

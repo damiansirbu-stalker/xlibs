@@ -52,7 +52,7 @@ end
 --- @cost O(1) | 4 luabind trivial (alife: ptr return, actor: ptr return, vertex: ptr+offset, level_id: field read)
 --- @src xray/xrGame/alife_simulator_script.cpp(35) alife, xray/xrGame/game_graph_inline.h
 --- @return number|nil Level ID (nil during transitions)
-function get_actor_level_id()
+function get_actor_level()
     local sim = alife()
     if not sim then return nil end
     local actor = sim:actor()
@@ -149,7 +149,7 @@ end
 --- @src anomaly/smart_terrain.script(1766-1787)
 --- @param smart userdata Smart terrain server object
 --- @return string|nil Translated name; falls back to level name, then cleaned raw section; nil when input is invalid
-function get_smart_display_name(smart)
+function get_smart_name(smart)
     if not smart or not smart.name then return nil end
     local raw = smart:name()
     if not raw then return nil end
@@ -189,7 +189,7 @@ end
 --- @src xray/xrGame/alife_simulator.cpp(28-48), xray/xrServerEntities/script_storage.cpp(391-399)
 --- @param name string Raw level name (sim:level_name format)
 --- @return number|nil Level ID, or nil if name unknown or SIMBOARD unavailable
-function get_level_id_by_name(name)
+function resolve_level_id(name)
     if not name then return nil end
     if _level_id_by_name then return _level_id_by_name[name] end
     local sim = alife()

@@ -754,7 +754,7 @@ function xcombat.is_line_blocked(a, b, opts)
 end
 
 --- True if a wall or game object blocks a MOVEMENT lane between two points - the run-lane test at the low LANE height.
---- A ~1m crate the navmesh routes through is caught; for a SHOT at an enemy use has_obstacle_to_target instead.
+--- A ~1m crate the navmesh routes through is caught; for a SHOT at an enemy use has_shot_obstacle instead.
 --- @safety SAFE - see is_line_blocked
 --- @cost O(1) | 6 luabind (one is_line_blocked ray)
 --- @param start_pos vector start (feet)
@@ -782,7 +782,7 @@ end
 --- @param target_pos vector target position (feet); the ray aims at CHEST and stops short of the body
 --- @param eye_y number the shooter's eye height (BODY_Y.STAND_EYE or BODY_Y.CROUCH_EYE)
 --- @return boolean true if the shot is blocked before it reaches the target
-function xcombat.has_obstacle_to_target(start_pos, target_pos, eye_y)
+function xcombat.has_shot_obstacle(start_pos, target_pos, eye_y)
     return xcombat.is_line_blocked(start_pos, target_pos, { from_y = eye_y, to_y = BODY_Y.CHEST, self_clear = SELF_CLEARANCE_M, target_clear = ENEMY_BODY_CLEARANCE_M })
 end
 
@@ -822,7 +822,7 @@ function xcombat.is_in_sight(viewer, npc, cone_deg)
     if not viewer then return false end
     local npos = npc:position()
     if xcombat.get_facing_offset(viewer, npos) > cone_deg then return false end
-    return not xcombat.has_obstacle_to_target(viewer:position(), npos, BODY_Y.STAND_EYE)
+    return not xcombat.has_shot_obstacle(viewer:position(), npos, BODY_Y.STAND_EYE)
 end
 
 -- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
@@ -850,7 +850,7 @@ end
 --- True if any living squadmate sits roughly on the NPC -> enemy firing line within combat range.
 --- Projects each member onto the firing axis; used to detect a friendly line-of-fire block before firing.
 --- @safety SAFE - nil-guarded squad lookup, empty-squad returns false
---- @cost O(m) members | 1 luabind get_squad_by_member + 2 luabind per online member (object_by_id, alive)
+--- @cost O(m) members | 1 luabind get_member_squad + 2 luabind per online member (object_by_id, alive)
 --- @src anomaly/sim_squad_scripted.script (squad_members)
 --- @param npc game_object
 --- @param npc_pos vector NPC position
@@ -858,7 +858,7 @@ end
 --- @param lateral_thresh_m number lateral half-width of the firing lane
 --- @return boolean true if a squadmate blocks the lane
 function xcombat.has_friendly_lane(npc, npc_pos, ene_pos, lateral_thresh_m)
-    local squad = xsquad.get_squad_by_member(npc:id())
+    local squad = xsquad.get_member_squad(npc:id())
     if not squad then return false end
     local dx = ene_pos.x - npc_pos.x
     local dz = ene_pos.z - npc_pos.z
@@ -886,7 +886,7 @@ local _actor_dist_cache = {}
 --- @src xray/script_game_object_script2.cpp (position), the _weapon_kind_cache TTL precedent above
 --- @param npc game_object
 --- @return number squared distance in m^2, math.huge when no actor exists
-function xcombat.get_actor_dist_sqr(npc)
+function xcombat.get_actor_dist(npc)
     local id = npc:id()
     local tg = time_global()
     local entry = _actor_dist_cache[id]
@@ -1316,7 +1316,7 @@ end
 local function _find_firing_vid(npc, from_lvid, dir, step, enemy_pos)
     local vid = level.vertex_in_direction(from_lvid, dir, step)
     if not vid or vid >= INVALID_LVID or vid == from_lvid or not _is_free(npc, vid) then return nil end
-    if xcombat.has_obstacle_to_target(level.vertex_position(vid), enemy_pos, BODY_Y.STAND_EYE) then return nil end
+    if xcombat.has_shot_obstacle(level.vertex_position(vid), enemy_pos, BODY_Y.STAND_EYE) then return nil end
     return vid
 end
 
@@ -1680,7 +1680,7 @@ end
 --- @src xray/object_property_evaluators.cpp:112-119 (the ready triple), xray/script_game_object_script2.cpp:184 (get_ammo_in_magazine)
 --- @param obj game_object combatant (stalker or actor)
 --- @return string|nil "unarmed" | "reloading" | "magazine_empty", nil when the weapon can fire
-function xcombat.get_weapon_block_term(obj)
+function xcombat.get_block_reason(obj)
     if not obj then return nil end
     local wpn = obj:active_item()
     if not wpn or not IsWeapon(wpn) then return "unarmed" end

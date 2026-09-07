@@ -85,7 +85,7 @@ do
     --- @cost O(t) on the first call each frame, t=3-10 typical, reused within the frame | 0 luabind
     --- @src anomaly/task_objects.script current_target, anomaly/task_manager.script task_info
     --- @return table Set {[id]=true} of active-task objective ids (empty when none)
-    function get_active_task_targets()
+    function get_task_targets()
         local now = time_global()
         if cache_frame ~= now then cache, cache_frame = _build_task_targets(), now end
         return cache
@@ -97,7 +97,7 @@ end
 local function _check_member_target(squad)
     local bounties = axr_task_manager and axr_task_manager.bounties_by_id
     local hostages = axr_task_manager and axr_task_manager.hostages_by_id
-    local targets = get_active_task_targets()
+    local targets = get_task_targets()
     local has_targets = next(targets) ~= nil
     if not bounties and not hostages and not has_targets then return false, nil end
     if squad:npc_count() == 0 then return false, nil end
@@ -128,7 +128,7 @@ function is_task_target(squad)
     and sim_offline_combat.task_squads[squad.id] then
         return true, "task_squads"
     end
-    if get_active_task_targets()[squad.id] then return true, "current_target" end
+    if get_task_targets()[squad.id] then return true, "current_target" end
     return _check_member_target(squad)
 end
 
@@ -290,7 +290,7 @@ end
 --- @src anomaly/_g.script(2062), xray/xrGame/alife_simulator_script.cpp(40)
 --- @param npc_id number NPC ID (can be offline)
 --- @return se_squad|nil Squad server object or nil if not in squad
-function get_squad_by_member(npc_id)
+function get_member_squad(npc_id)
     if not npc_id then return nil end
     local se_npc = alife_object(npc_id)
     if not se_npc then return nil end
@@ -301,13 +301,13 @@ end
 
 --- True when the NPC is the last man of his squad - squadless, or the sole surviving member.
 --- The combat-AI read for behaviors reserved for a man with nobody standing beside him (a rout).
---- @safety SAFE - get_squad_by_member nil-guards; no squad reads as last man
---- @cost O(log n) | 2 luabind medium (get_squad_by_member's alife resolves) + 1 (npc_count)
+--- @safety SAFE - get_member_squad nil-guards; no squad reads as last man
+--- @cost O(log n) | 2 luabind medium (get_member_squad's alife resolves) + 1 (npc_count)
 --- @src anomaly/sim_squad_scripted.script (npc_count); the compare mirrors the prior inline site (AlifeTactics at_combat_doctrine)
 --- @param npc_id number NPC id (can be offline)
 --- @return boolean true when squadless or the sole member
 function is_last_man(npc_id)
-    local squad = get_squad_by_member(npc_id)
+    local squad = get_member_squad(npc_id)
     return squad == nil or squad:npc_count() <= 1
 end
 

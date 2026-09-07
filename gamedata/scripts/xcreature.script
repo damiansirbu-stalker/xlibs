@@ -259,7 +259,7 @@ end
 --- @cost O(1) | 1 luabind
 --- @param obj game_object online object
 --- @return boolean
-function is_enemy_to_actor(obj)
+function is_actor_enemy(obj)
     return get_actor_relation(obj) == "enemy"
 end
 

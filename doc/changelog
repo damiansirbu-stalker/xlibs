@@ -9,7 +9,7 @@ next
       A hit victim prioritizes a close attacker on the real hit signal, no forged sighting.
     - Added set_movement_hold(npc, hold): the per-NPC movement hold (engine PR #645, pending merge), probe-gated, no-op on older builds.
       While held the engine mover keeps the stalker planted with his path preserved. The caller owns clearing the hold, a stale true plants the NPC until cleared.
-    - Added get_weapon_block_term(obj): the weapon-state reason a combatant cannot fire right now (unarmed, reloading, magazine_empty), or nil when the weapon is ready.
+    - Added get_block_reason(obj): the weapon-state reason a combatant cannot fire right now (unarmed, reloading, magazine_empty), or nil when the weapon is ready.
       One active_item read serves the ordered terms, mirroring the engine ready-to-kill triple minus the unreadable misfire term. Policy-free: which combatant
       kinds carry which extra terms (animation, locomotion) stays the consumer's business rule. An earlier composite form of this read never shipped.
     - Added is_unarmed(obj) and is_magazine_empty(obj): the standalone weapon reads behind the block term, one rule each.
