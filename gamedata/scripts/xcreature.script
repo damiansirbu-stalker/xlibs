@@ -328,7 +328,7 @@ local MUTANT_NAMES = {
 }
 
 -- Resolve a mutant display name, handling compound names (psy_dog) by checking part pairs against the MUTANT_NAMES hash.
-local function _get_mutant_display_name(section)
+local function _get_display_name(section)
     local lower = section:lower()
     local parts = {}
     for part in lower:gmatch("[^_]+") do
@@ -366,7 +366,7 @@ local function _get_mutant_name(section)
     local inv_name = ini_sys:r_string_ex(section, "inv_name")
     local name = (inv_name and _get_translation(inv_name))
         or _get_translation(section)
-        or _get_mutant_display_name(section)
+        or _get_display_name(section)
     if not name then
         local clean = section:gsub("_normal", ""):gsub("_weak", ""):gsub("_strong", "")
         name = clean:gsub("_", " "):gsub("^%l", string.upper)

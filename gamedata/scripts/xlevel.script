@@ -118,7 +118,7 @@ end
 
 -- Resolve a smart's level to a translated display name, nil if unresolvable.
 -- @cost O(log n) | 3 luabind: vertex + level_id trivial, level_name + translate_string medium (LEVEL_MAP / STRING_TABLE find)
-local function _resolve_smart_level_name(smart)
+local function _resolve_level_name(smart)
     if not smart.m_game_vertex_id then return nil end
     local graph = get_game_graph()
     if not graph then return nil end
@@ -164,7 +164,7 @@ function get_smart_display_name(smart)
     if warfare_translated and warfare_translated ~= key then
         return _get_stripped_name(warfare_translated:gsub(" %- ", " "))
     end
-    local level_name = _resolve_smart_level_name(smart)
+    local level_name = _resolve_level_name(smart)
     if level_name then return level_name end
     return (raw:gsub("_", " "))
 end

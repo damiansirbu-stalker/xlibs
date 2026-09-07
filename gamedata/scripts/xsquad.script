@@ -94,7 +94,7 @@ end
 
 -- Match member ids against active task targets (bounty/hostage registries plus current_target) in one squad_members walk.
 -- @cost O(m*(b+h)) worst case | 1 luabind medium (npc_count) + squad_members iterator
-local function _check_member_task_target(squad)
+local function _check_member_target(squad)
     local bounties = axr_task_manager and axr_task_manager.bounties_by_id
     local hostages = axr_task_manager and axr_task_manager.hostages_by_id
     local targets = get_active_task_targets()
@@ -115,7 +115,7 @@ local function _check_member_task_target(squad)
 end
 
 --- Check if a squad is an active task target via three signals: task_squads, the current_target objective id, and the bounty/hostage registries.
---- Squad-level checks are O(1) hashes; the member-level checks share one squad_members walk in _check_member_task_target.
+--- Squad-level checks are O(1) hashes; the member-level checks share one squad_members walk in _check_member_target.
 --- @safety SAFE - nil-guarded, returns true for nil (fail-safe)
 --- @cost O(1) typical (task_squads or squad current_target hash hit) | O(m*(b+h)) worst case
 --- @src anomaly/sim_offline_combat.script(53), anomaly/task_objects.script current_target, anomaly/axr_task_manager.script bounties_by_id hostages_by_id
@@ -129,7 +129,7 @@ function is_task_target(squad)
         return true, "task_squads"
     end
     if get_active_task_targets()[squad.id] then return true, "current_target" end
-    return _check_member_task_target(squad)
+    return _check_member_target(squad)
 end
 
 -- Resolve the commander entity and section from a squad.

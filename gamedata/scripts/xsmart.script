@@ -19,7 +19,7 @@ local ANOMALY_RADIUS_SQR = 2500
 -- Results returned when the caller sets no cap.
 local DEFAULT_RESULT_CAP = 5
 -- Metres around a smart terrain when the caller names no radius.
-local DEFAULT_SMART_RADIUS_M = 60
+local SMART_RADIUS_M = 60
 
 JOB_TYPE_GENERIC_POINT = 0
 JOB_TYPE_CAMPFIRE_POINT = 1
@@ -313,7 +313,7 @@ end
 --- @return string|nil owner community, number|nil its distance - both nil if no seller within radius
 function find_base_owner(pos, radius)
     if not pos then return nil end
-    radius = radius or DEFAULT_SMART_RADIUS_M
+    radius = radius or SMART_RADIUS_M
     local best_dist, best = radius, nil
     for _, obj in xcreature.iterate_online() do
         if not (obj and xcreature.is_stalker(obj)) then goto continue end

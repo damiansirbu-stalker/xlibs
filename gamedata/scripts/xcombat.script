@@ -44,7 +44,7 @@ local HELD_WEAPON_KINDS = {
 local WEAPON_TTL_MS = 2000
 
 -- Sweep expired entries on an interval so an id-keyed TTL cache never grows unbounded (stalker-code.md hot path rule 5).
-local CACHE_SWEEP_INTERVAL_MS = 60000
+local SWEEP_INTERVAL_MS = 60000
 local _next_sweep = setmetatable({}, { __mode = "k" })
 local _sweep_keys = {}
 
@@ -56,7 +56,7 @@ local _sweep_keys = {}
 --- @param tg number time_global() in ms
 local function _clear_expired(cache, tg)
     if tg < (_next_sweep[cache] or 0) then return end
-    _next_sweep[cache] = tg + CACHE_SWEEP_INTERVAL_MS
+    _next_sweep[cache] = tg + SWEEP_INTERVAL_MS
     local found = 0
     for key, entry in pairs(cache) do
         if tg >= entry.expires then
@@ -876,7 +876,7 @@ function xcombat.has_friendly_lane(npc, npc_pos, ene_pos, lateral_thresh_m)
 end
 
 -- Squared NPC-to-actor distance TTL cache; 5s bounds the radius-compare error to +-70m at worst-case closure, acceptable for a perceivability gate.
-local ACTOR_DIST_TTL_MS = 5000
+local DIST_TTL_MS = 5000
 local _actor_dist_cache = {}
 
 --- Squared distance from an NPC to the actor, TTL-cached per id (5s); radius-agnostic, so one shared cache serves all consumers.
@@ -895,7 +895,7 @@ function xcombat.get_actor_dist_sqr(npc)
     if not actor then return math_huge end
     local dist_sqr = npc:position():distance_to_sqr(actor:position())
     _clear_expired(_actor_dist_cache, tg)
-    _actor_dist_cache[id] = { dist_sqr = dist_sqr, expires = tg + ACTOR_DIST_TTL_MS }
+    _actor_dist_cache[id] = { dist_sqr = dist_sqr, expires = tg + DIST_TTL_MS }
     return dist_sqr
 end
 
@@ -1274,8 +1274,8 @@ end
 -- Movement targeting: the finders return a level vertex or nil, no side effects; _find_toward is the geometry primitive.
 
 -- best_cover cost grows ~r^2 with the radius scanned and is worst on a no-cover result (radius 10 measured up to 2.7ms in dense cover).
-local COVER_MIN_ENEMY_DIST = 1
-local COVER_MAX_ENEMY_DIST = 30
+local COVER_MIN_DIST = 1
+local COVER_MAX_DIST = 30
 local CONCEAL_THRESH       = 0.3
 local COS_30               = 0.866
 local STEP_DECREMENT_M     = 2
@@ -1378,7 +1378,7 @@ end
 -- firing=true sweeps for a firing vertex beside it; firing=false returns the cover point itself.
 -- @cost O(covers-in-radius) + O(rings) when firing | 1 best_cover heavy, then the sweep only when firing
 local function _find_best_cover(npc, enemy_pos, radius, search_pos, firing)
-    local cover = npc:best_cover(search_pos, enemy_pos, radius, COVER_MIN_ENEMY_DIST, COVER_MAX_ENEMY_DIST)
+    local cover = npc:best_cover(search_pos, enemy_pos, radius, COVER_MIN_DIST, COVER_MAX_DIST)
     if not cover then return nil end
     local vid = cover:level_vertex_id()
     if firing then return _find_shot_vid(npc, vid, enemy_pos) end

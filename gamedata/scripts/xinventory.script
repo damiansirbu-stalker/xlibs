@@ -347,7 +347,7 @@ end
 
 -- Filter _ITM["eatable"] (the combined food + drink + i_mutant_cooked bucket) by exact kind, without re-walking ini_sys.
 -- @cost O(n) eatable sections; per-section 1 cached _get_kind hit
-local function _filter_eatable_by_kind(target_kinds)
+local function _filter_by_kind(target_kinds)
     local list = {}
     local bucket = _ITM and _ITM["eatable"]
     if not bucket then return list end
@@ -392,8 +392,8 @@ local _SECTION_BUILDERS = {
 
     crafting = function() return _merge_buckets({ "tool", "part", "upgrade" }) end,
 
-    food  = function() return _filter_eatable_by_kind({ i_food = true, i_mutant_cooked = true }) end,
-    drink = function() return _filter_eatable_by_kind({ i_drink = true }) end,
+    food  = function() return _filter_by_kind({ i_food = true, i_mutant_cooked = true }) end,
+    drink = function() return _filter_by_kind({ i_drink = true }) end,
 }
 
 local _category_sections_cache = {}
@@ -582,7 +582,7 @@ end
 
 -- True when the actor's rank is below the floor tier named for this section or category.
 -- A missing floor entry or unresolved tier name returns false (no block).
-local function _is_below_rank_floor(actor, floor, section, category)
+local function _is_below_floor(actor, floor, section, category)
     local tier = floor and (floor[section] or floor[category])
     if not tier then return false end
     local interval = ranks.get_rank_interval(tier)
@@ -603,7 +603,7 @@ end
 function get_rank_chance(section, actor, ruleset)
     if not section or not actor or not ruleset then return 0 end
     local category = get_section_category(section)
-    if _is_below_rank_floor(actor, ruleset.floor, section, category) then return 0 end
+    if _is_below_floor(actor, ruleset.floor, section, category) then return 0 end
 
     local bands = ruleset.bands
     if not bands then return 1 end
