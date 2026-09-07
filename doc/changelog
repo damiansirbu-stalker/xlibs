@@ -35,7 +35,7 @@ next
     - Added squad_record(squad): the one-line per-squad diagnostic formatter (community, level, member count, current smart, target, commander role and name), now shared by dump_squads so both carry the commander name.
 
   xsound
-    - Added set_ambient_bed_handler(fn) and set_level_music_handler(fn): the engine ambient sound seams (engine PR #644, pending merge).
+    - Added set_bed_handler(fn) and set_music_handler(fn): the engine ambient sound seams (engine PR #644, pending merge).
       xlibs owns the _G callbacks the engine fires at the System A background-bed and level-music play sites and routes them to one registered handler,
       which returns { volume_mult } (0 vetoes or silences, below 1 attenuates, nil vanilla). Inert on builds without the hooks and while no handler is registered.
 
