@@ -495,7 +495,7 @@ end
 --- @src anomaly/sim_board.script(149) create_squad reads npc_in_squad upper as the population cap
 --- @param section string Squad section name (e.g. "simulation_boar_3_5", "bandit_sim_squad_novice")
 --- @return number Upper bound of npc_in_squad, or 0 when section/field missing
-function get_section_npc_max(section)
+function get_section_max(section)
     if not section then return 0 end
     local cached = _npc_max_cache[section]
     if cached ~= nil then return cached end
@@ -516,7 +516,7 @@ function get_section_npc_max(section)
 end
 
 --- Get both bounds of a squad section's npc_in_squad field: "X, Y" returns (X, Y), a single "X" returns (X, X), missing returns (0, 0).
---- Same field get_section_npc_max reads; use this when the lower bound or the expected size ((min+max)/2 under the uniform draw) is needed.
+--- Same field get_section_max reads; use this when the lower bound or the expected size ((min+max)/2 under the uniform draw) is needed.
 --- @safety SAFE - returns 0, 0 when section missing, has no npc_in_squad field, or value unparseable
 --- @cost O(1) | 0 luabind cached, 1 luabind heavy on miss (ini_sys:r_string_ex: LTX section lookup + string alloc) + 1-2 pure-Lua regex matches
 --- @src anomaly/configs/misc/squad_descr/squad_descr_default_mutants.ltx, anomaly/configs/misc/squad_descr/squad_descr_default_stalkers.ltx

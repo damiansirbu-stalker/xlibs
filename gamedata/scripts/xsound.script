@@ -302,7 +302,7 @@ end
 --- @safety SAFE  @cost O(1) | 0 luabind
 --- @src xray/xrGame/GamePersistent.cpp (WeathersUpdate bed play site; fires _G.COnAmbientBed)
 --- @param handler function|nil
-function set_ambient_bed_handler(handler)
+function set_bed_handler(handler)
     _set_sound_handler("COnAmbientBed", handler)
 end
 
@@ -310,7 +310,7 @@ end
 --- @safety SAFE  @cost O(1) | 0 luabind
 --- @src xray/xrGame/level_sounds.cpp (SMusicTrack::Play; fires _G.COnLevelMusic)
 --- @param handler function|nil
-function set_level_music_handler(handler)
+function set_music_handler(handler)
     _set_sound_handler("COnLevelMusic", handler)
 end
 

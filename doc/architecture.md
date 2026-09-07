@@ -165,7 +165,7 @@ Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over
 - `get_blocked_planners()`, `get_operator(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Blocked planner-id list, current brain operator, body facing as a unit vector, body-facing offset in degrees
 - `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held). Engine beliefs, not concealment geometry; nil when there is no planner to ask
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
-- `has_obstacle_between(a, b)`, `has_obstacle_to_target(a, b)`, `has_friendly_in_line(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
+- `has_obstacle_between(a, b)`, `has_obstacle_to_target(a, b)`, `has_friendly_lane(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
 - `get_crouch_openness(lvid, dir)`, `get_stand_openness(lvid, dir)` - Baked cover-graph openness toward a direction at crouch and standing height (0 walled, 1 open), the cheap posture reads - static geometry only, blind to bodies (contrast the object-aware rays); see `doc/library/modding/cover-and-los-queries.md`
 - `find_cover(npc, enemy_pos, opts)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders. find_cover is four ways from `opts.selection` (nearest walks the baked cover points closest-first, best takes best_cover) and `opts.firing` (true = a vertex to shoot from, false = a vertex that hides); `opts.radius` and `opts.search_pos` required. find_flee_lane is clear-lane fans
 - `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
@@ -183,7 +183,7 @@ Engine fire-gate wrappers (themrdemonized/xray-monolith PRs #594 aim+vision, #59
 - `set_hit_redirect(npc, max, falloff)` - Per-NPC selection lever toward the last attacker (PR #636): within falloff metres up to max is subtracted from the attacker's selection cost, decaying to 0 at falloff, so a hit victim flips selection on the real hit signal - no forged sighting, fire still needs real line of sight. Floor: no-op, the vanilla -5/-100 hit step is the fallback
 - `set_visible_enemy_bias(npc, actor_bias, npc_bias)` - Per-NPC override of the baked "prefers whoever sees me" selection pull (PR #637): vanilla subtracts 900 for the actor vs 300 for an NPC; a negative argument keeps that side vanilla, 0 removes the pull. Floor: no-op, the vanilla bias is the fallback
 - `can_kill_enemy(npc, enemy)` - Engine shot clearance (5-ray safety fan, frame-cached). Floor: one capped rqtBoth ray from the weapon-hand bone, stopped short of the enemy body
-- `can_kill_member(npc, enemy_pos)` - Non-enemy in the fire lane; a repositioning hint, never a hold-fire gate (the engine's CObjectActionFire hold survives a combat-planner block). Floor: living squadmates only via has_friendly_in_line
+- `can_kill_member(npc, enemy_pos)` - Non-enemy in the fire lane; a repositioning hint, never a hold-fire gate (the engine's CObjectActionFire hold survives a combat-planner block). Floor: living squadmates only via has_friendly_lane
 - `is_under_fire(npc, enemy, tg, window_ms)` - Danger-memory read: has the enemy hit or shot at the NPC within the window
 - `fire_make_sense(npc, enemy)` - The engine fire-discipline gate. Floor: the engine gate order from floor primitives (height gap, capped clearance ray, see-now, 10s unseen window with an automatic weapon), constants tracking the ai_fire_* cvars when the exe has them
 - `on_action_switch(fn)` - Register fn on the npc_on_combat_action_switch veto; registers only when the seam exists and returns whether it did. Enhancement-only, no floor imitation possible
@@ -354,7 +354,7 @@ Jobs (smart.stalker_jobs):
 
 Section metadata (LTX squad_descr):
 - `section_faction(section)` - Faction (player_id) a squad section produces (cached per section)
-- `get_section_npc_max(section)` - Upper bound of npc_in_squad LTX field (cached)
+- `get_section_max(section)` - Upper bound of npc_in_squad LTX field (cached)
 
 Diagnostic:
 - `dump_smarts(level_id)` - Per-smart faction + service role inventory (filtered by level when given)
@@ -374,15 +374,15 @@ Spawn helpers (set / clear shared / exclusive spawn, set_shared_spawn_section fo
 ```lua
 xsound.play(path, { volume = 0.8, position = vec })
 local handle = xsound.acquire(xsound.SND.MONOLITH_HUM, { smoothing = 0.5 })
-xsound.set_ambient_bed_handler(function(section, file, pos) return { volume_mult = 0 } end)
+xsound.set_bed_handler(function(section, file, pos) return { volume_mult = 0 } end)
 ```
 
 Sound wrap: fire-and-forget one-shots (`play`, engine-owned emitter, GC-safe), stoppable retained one-shots (`play_at`, `stop_shot`, `stop_shots`), looping handles with volume lerp on a shared 100ms tick (`acquire`, `set_volume`, `release`, `is_active`, `inspect`), duration without playing (`length`), and the verified-safe path table `SND`.
 
 Engine ambient sound seams (themrdemonized/xray-monolith PR #644, pending merge): the engine calls a named `_G` global at each ambient play site when the global is set; xlibs owns those globals - a consumer never touches `_G.*` - and routes each call to one registered handler returning `{ volume_mult }` (0 vetoes/silences, below 1 attenuates, nil = vanilla). Policy-free: what to trace and when to veto lives entirely in the handler. Inert on exes without the hooks and while no handler is registered. Handlers are NOT cleared in on_game_start: axr_main calls module on_game_start() in filesystem order, so clearing would silently wipe a consumer that registered in its own on_game_start.
 
-- `set_ambient_bed_handler(fn)` - The System A per-weather background bed play site (CGamePersistent::WeathersUpdate); fn(section, file, pos), 0 vetoes the play, the channel still reschedules on its own period
-- `set_level_music_handler(fn)` - The level music track (SMusicTrack::Play); fn(file), volume-only (0 silences the track)
+- `set_bed_handler(fn)` - The System A per-weather background bed play site (CGamePersistent::WeathersUpdate); fn(section, file, pos), 0 vetoes the play, the channel still reschedules on its own period
+- `set_music_handler(fn)` - The level music track (SMusicTrack::Play); fn(file), volume-only (0 silences the track)
 
 ### xtable.script - Table Utilities
 
