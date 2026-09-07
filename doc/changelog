@@ -22,7 +22,7 @@ next
     - Added is_in_sight(viewer, npc, cone_deg): the one sight primitive, viewer facing within the cone plus a clear shot line, viewer and cone as parameters.
       Replaces the actor-only is_in_actor_sight and drops its in-hands weapon term, which never discriminates in combat.
     - Added set_visible_enemy_bias(npc, actor_bias, npc_bias): per-NPC override of the 900/300 "sees me" selection pull (engine PR #637), probe-gated, no-op on older builds.
-    - Corrected the disclose_enemy doc: make_enemy_visible restores the prior visible bit, so it shares knowledge but cannot promote an unseen shooter into the seen class.
+    - Corrected the show_enemy doc: make_enemy_visible restores the prior visible bit, so it shares knowledge but cannot promote an unseen shooter into the seen class.
       A reliable victim turn is set_hit_redirect's job.
     - Changed sees to return false without an engine log when the perceiving NPC is dead, where the raw visibility bind would otherwise log a dead-object error.
       sees_within inherits the guard through it.
