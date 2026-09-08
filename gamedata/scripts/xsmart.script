@@ -40,6 +40,162 @@ local function _is_prop_truthy(smart, key)
     return v ~= nil and v > 0
 end
 
+-- Walk a job table; type_id nil matches any (non-empty), >0 matches specific job_type_id.
+local function _has_jobs_in(jobs, type_id)
+    if not jobs or #jobs == 0 then return false end
+    if not type_id then return true end
+    for i = 1, #jobs do
+        if jobs[i].job_type_id == type_id then return true end
+    end
+    return false
+end
+
+-- Signal C of the role cascade: substring match on the NPC section name (see _get_role for orchestration).
+-- @cost O(1) | 9 string:find calls, bounded by literal pattern count.
+local function _get_section_roles(sec)
+    local roles = {}
+    if sec:find("mechanic") or sec:find("_tech") or sec:find("mech_mlr") or sec:find("mechan") then roles.mechanic = true end
+    if sec:find("medic") or sec:find("medik") or sec:find("doctor") then roles.medic = true end
+    if sec:find("trader") or sec:find("barm[ae]n") then roles.trader = true end
+    return roles
+end
+
+-- Signal D of the role cascade: the NPC's active logic-block trade = LTX field (Demonized's classifier, trader_autoinject.script:85).
+-- Companion catalogs are exclusion-only; the "_exclude" sentinel distinguishes them from an absent trade field (nil).
+-- @cost O(1) | 1 db.storage lookup + 1 r_string_ex + at most 4 string:find.
+local function _get_trade_role(npc)
+    local st = db.storage[npc:id()]
+    if not (st and st.ini and st.section_logic) then return nil end
+    local trade_cat = st.ini:r_string_ex(st.section_logic, "trade")
+    if not trade_cat then return nil end
+    if trade_cat:find("companion") then return "_exclude" end
+    if trade_cat:find("trade_generic_mechanic") then return "mechanic" end
+    if trade_cat:find("trade_generic_barman") then return "trader" end
+    if trade_cat:find("trade_generic_medic") then return "medic" end
+    return "trader"
+end
+
+-- Per-NPC role detection returning the SET of all roles the NPC fulfills; all four signals contribute additively, no early returns.
+-- The level_spot map-icon hint is deliberately NOT a signal: quest scripts set it on non-traders, causing false positives.
+-- @cost O(1) | 1 community + 1 clsid + _get_section_roles + _get_trade_role, cached per NPC id after first call
+local function _get_role(npc, sec)
+    local roles = _get_section_roles(sec)
+    if character_community(npc) == xconst.COMMUNITY.TRADER then roles.trader = true end
+    local cls = npc:clsid()
+    if cls == clsid.script_trader or cls == clsid.trader then roles.trader = true end
+    local trade_role = _get_trade_role(npc)
+    if trade_role and trade_role ~= "_exclude" then roles[trade_role] = true end
+    return roles
+end
+
+-- Walk smart.npc_info and return the first online live NPC whose role set contains the asked role.
+-- Engine-authoritative (npc_info is the engine's smart roster); multi-role NPCs answer every matching lookup.
+-- @cost O(n) n=npc_info entries (typically 5-30) | per entry: 1 medium (xobject.get_go), 1 trivial (alive), 1 cached role set lookup
+local function _get_smart_role(smart, role)
+    if not smart or not smart.npc_info then return nil end
+    for npc_id, _ in pairs(smart.npc_info) do
+        local npc = xobject.get_go(npc_id)
+        if npc and npc:alive() and get_npc_roles(npc)[role] == true then return npc end
+    end
+    return nil
+end
+
+local function _EMPTY_ITER() return nil end
+
+-- Set of communities with a stationed squad at the smart, or nil when none.
+-- @cost O(min(n,5)) stationed squads | per squad: 1 medium (alife_object)
+local function _get_stationed_communities(smart_id)
+    local communities
+    for se in iterate_stationed_squads(smart_id) do
+        communities = communities or {}
+        communities[se.player_id] = true
+    end
+    return communities
+end
+
+-- Snapshot one level: per smart, the set of stationed communities. nil before SIMBOARD setup.
+-- @cost O(all smarts) x xlevel.get_level_id + _get_stationed_communities per level smart
+local function _build_level_occupancy(level_id)
+    local pool = SIMBOARD and SIMBOARD.smarts_by_names
+    if not pool then return nil end
+    local by_smart = {}
+    for _, smart in pairs(pool) do
+        if xlevel.get_level_id(smart) == level_id then
+            by_smart[smart.id] = _get_stationed_communities(smart.id)
+        end
+    end
+    return by_smart
+end
+
+-- True when any community in the set has a stationed squad in the communities set.
+-- @cost O(communities at smart) pure Lua
+local function _has_faction_match(communities, faction_set)
+    for community in pairs(communities) do
+        if faction_set[community] then return true end
+    end
+    return false
+end
+
+-- Any-of acceptance check used by find_smart / find_first_smart when opts.factions is a set.
+-- @cost O(k) factions | 0 luabind (pure Lua pairs); short-circuits on first accept
+local function _can_accept_any(smart, fset)
+    for f in pairs(fset) do
+        if can_accept_faction(smart, f) then return true end
+    end
+    return false
+end
+
+-- Per-smart predicate for find_first_smart; cheapest filters first.
+-- @cost O(1) | 0-1 luabind (xlevel.get_level_id cached after first lookup; filter caller-provided)
+local function _is_smart_match(smart, exclude_id, factions, factions_check, level_id, filter)
+    if not smart then return false end
+    if exclude_id and smart.id == exclude_id then return false end
+    if factions_check and not factions_check(smart, factions) then return false end
+    if level_id and xlevel.get_level_id(smart) ~= level_id then return false end
+    if filter and not filter(smart) then return false end
+    return true
+end
+
+-- Any section in recipe.squads has get_section_faction equal to faction? Short-circuits on match.
+-- @cost O(Q) sections per recipe (~1-5) | 0 luabind cached per section, else 1 luabind heavy via get_section_faction
+local function _has_recipe_faction(recipe, faction)
+    if not recipe.squads then return false end
+    for _, section in ipairs(recipe.squads) do
+        if get_section_faction(section) == faction then return true end
+    end
+    return false
+end
+
+-- Any recipe in smart.respawn_params produces this faction? Short-circuits on first matching recipe.
+-- @cost O(R*Q) recipes * sections | luabind via _has_recipe_faction (cached after first read per section)
+local function _has_faction_recipe(smart, faction)
+    if not smart.respawn_params then return false end
+    for _, recipe in pairs(smart.respawn_params) do
+        if _has_recipe_faction(recipe, faction) then return true end
+    end
+    return false
+end
+
+-- Collect service-role NPC ids at a smart for diagnostic output. Reads role from xdata.npc_roles via the NPC's section name on the CSE. Offline-friendly.
+-- @cost O(n) n=npc_info entries | per entry: 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
+local function _get_role_inventory(smart)
+    if not smart or not smart.npc_info then return {} end
+    local found, count = {}, 0
+    for npc_id, _ in pairs(smart.npc_info) do
+        local se = alife_object(npc_id)
+        if not se then goto continue end
+        local entry = xdata.npc_roles[se:section_name()]
+        if not entry then goto continue end
+        local role = entry.trader and "trader" or entry.medic and "medic" or entry.mechanic and "mechanic"
+        if not role or found[role] then goto continue end
+        found[role] = npc_id
+        count = count + 1
+        if count == 3 then break end
+        ::continue::
+    end
+    return found
+end
+
 --- @scope global - smart.props from simulation_objects_props.ltx loaded at on_register; same value on all levels regardless of online state
 --- @cost O(1) | 0 luabind
 --- @src doc/library/modding/online-offline-scoping.md
@@ -71,16 +227,6 @@ function is_territory(smart) return _is_prop_truthy(smart, "territory") end
 --- @return boolean True if smart has surge shelter (emission-safe indoor)
 --- @src anomaly/smart_terrain.script(1566), anomaly/surge_manager.script(1265)
 function has_surge_shelter(smart) return _is_prop_truthy(smart, "surge") end
-
--- Walk a job table; type_id nil matches any (non-empty), >0 matches specific job_type_id.
-local function _has_jobs_in(jobs, type_id)
-    if not jobs or #jobs == 0 then return false end
-    if not type_id then return true end
-    for i = 1, #jobs do
-        if jobs[i].job_type_id == type_id then return true end
-    end
-    return false
-end
 
 --- Check if the smart's stalker_jobs has any entry, or a specific job_type_id.
 --- type_id nil matches any non-empty table; an integer matches one job_type_id (e.g. JOB_TYPE_TRADER).
@@ -145,44 +291,6 @@ function remove_npc_role(npc_id)
     _npc_role[npc_id] = nil
 end
 
--- Signal C of the role cascade: substring match on the NPC section name (see _get_role for orchestration).
--- @cost O(1) | 9 string:find calls, bounded by literal pattern count.
-local function _get_section_roles(sec)
-    local roles = {}
-    if sec:find("mechanic") or sec:find("_tech") or sec:find("mech_mlr") or sec:find("mechan") then roles.mechanic = true end
-    if sec:find("medic") or sec:find("medik") or sec:find("doctor") then roles.medic = true end
-    if sec:find("trader") or sec:find("barm[ae]n") then roles.trader = true end
-    return roles
-end
-
--- Signal D of the role cascade: the NPC's active logic-block trade = LTX field (Demonized's classifier, trader_autoinject.script:85).
--- Companion catalogs are exclusion-only; the "_exclude" sentinel distinguishes them from an absent trade field (nil).
--- @cost O(1) | 1 db.storage lookup + 1 r_string_ex + at most 4 string:find.
-local function _get_trade_role(npc)
-    local st = db.storage[npc:id()]
-    if not (st and st.ini and st.section_logic) then return nil end
-    local trade_cat = st.ini:r_string_ex(st.section_logic, "trade")
-    if not trade_cat then return nil end
-    if trade_cat:find("companion") then return "_exclude" end
-    if trade_cat:find("trade_generic_mechanic") then return "mechanic" end
-    if trade_cat:find("trade_generic_barman") then return "trader" end
-    if trade_cat:find("trade_generic_medic") then return "medic" end
-    return "trader"
-end
-
--- Per-NPC role detection returning the SET of all roles the NPC fulfills; all four signals contribute additively, no early returns.
--- The level_spot map-icon hint is deliberately NOT a signal: quest scripts set it on non-traders, causing false positives.
--- @cost O(1) | 1 community + 1 clsid + _get_section_roles + _get_trade_role, cached per NPC id after first call
-local function _get_role(npc, sec)
-    local roles = _get_section_roles(sec)
-    if character_community(npc) == xconst.COMMUNITY.TRADER then roles.trader = true end
-    local cls = npc:clsid()
-    if cls == clsid.script_trader or cls == clsid.trader then roles.trader = true end
-    local trade_role = _get_trade_role(npc)
-    if trade_role and trade_role ~= "_exclude" then roles[trade_role] = true end
-    return roles
-end
-
 --- Get the SET of roles for an online NPC, cached for the session; multi-role NPCs return multiple keys true.
 --- Pre-bind empty sets are not cached, so a later call after the NPC's logic binds re-detects.
 --- @safety SAFE - nil-guarded; all engine reads are standard game_object methods
@@ -229,18 +337,6 @@ end
 --- @return boolean
 function is_mechanic_npc(npc)
     return npc and get_npc_roles(npc).mechanic == true or false
-end
-
--- Walk smart.npc_info and return the first online live NPC whose role set contains the asked role.
--- Engine-authoritative (npc_info is the engine's smart roster); multi-role NPCs answer every matching lookup.
--- @cost O(n) n=npc_info entries (typically 5-30) | per entry: 1 medium (xobject.get_go), 1 trivial (alive), 1 cached role set lookup
-local function _get_smart_role(smart, role)
-    if not smart or not smart.npc_info then return nil end
-    for npc_id, _ in pairs(smart.npc_info) do
-        local npc = xobject.get_go(npc_id)
-        if npc and npc:alive() and get_npc_roles(npc)[role] == true then return npc end
-    end
-    return nil
 end
 
 --- Resolve the trader NPC at a smart: the first online live NPC in npc_info whose get_npc_roles set contains "trader".
@@ -606,8 +702,6 @@ function get_smart_squads(smart_id)
     return data.squads
 end
 
-local function _EMPTY_ITER() return nil end
-
 --- Iterate squads physically stationed at a smart (xsquad.is_stationed), capped (default 5) against roster explosion, skipping in-transit.
 --- Closure-based and re-entrant; cross-level safe since SIMBOARD persists offline and across levels.
 --- @safety SAFE - nil-guarded, single-pass snapshot of SIMBOARD roster at call time
@@ -683,40 +777,6 @@ function has_enemy_squad(smart_id, community, exclude_id)
     return false
 end
 
--- Set of communities with a stationed squad at the smart, or nil when none.
--- @cost O(min(n,5)) stationed squads | per squad: 1 medium (alife_object)
-local function _get_stationed_communities(smart_id)
-    local communities
-    for se in iterate_stationed_squads(smart_id) do
-        communities = communities or {}
-        communities[se.player_id] = true
-    end
-    return communities
-end
-
--- Snapshot one level: per smart, the set of stationed communities. nil before SIMBOARD setup.
--- @cost O(all smarts) x xlevel.get_level_id + _get_stationed_communities per level smart
-local function _build_level_occupancy(level_id)
-    local pool = SIMBOARD and SIMBOARD.smarts_by_names
-    if not pool then return nil end
-    local by_smart = {}
-    for _, smart in pairs(pool) do
-        if xlevel.get_level_id(smart) == level_id then
-            by_smart[smart.id] = _get_stationed_communities(smart.id)
-        end
-    end
-    return by_smart
-end
-
--- True when any community in the set has a stationed squad in the communities set.
--- @cost O(communities at smart) pure Lua
-local function _has_faction_match(communities, faction_set)
-    for community in pairs(communities) do
-        if faction_set[community] then return true end
-    end
-    return false
-end
-
 --- Count smarts on a level where a squad of the given community (string) or any community in the set is physically stationed.
 --- A smart counts once per query; snapshot per level, refreshed after OCCUPANCY_TTL_SEC (presence changes at squad-travel speed).
 --- @scope global - walks SIMBOARD.smarts_by_names across all levels on rebuild
@@ -787,15 +847,6 @@ function update_squad_roster(squad, from_smart_id)
     end
 end
 
--- Any-of acceptance check used by find_smart / find_first_smart when opts.factions is a set.
--- @cost O(k) factions | 0 luabind (pure Lua pairs); short-circuits on first accept
-local function _can_accept_any(smart, fset)
-    for f in pairs(fset) do
-        if can_accept_faction(smart, f) then return true end
-    end
-    return false
-end
-
 --- Find the nearest smart terrain matching the criteria in opts, iterating opts.source or SIMBOARD.smarts_by_names.
 --- Cheapest filters first (exclude_id, factions, level_id), distance_to_sqr last.
 --- @scope global - iterates the supplied pool (SIMBOARD.smarts_by_names across all levels when opts.source is nil); per-candidate scope follows the filter
@@ -838,17 +889,6 @@ function find_smart(pos, opts)
     end
 
     return best
-end
-
--- Per-smart predicate for find_first_smart; cheapest filters first.
--- @cost O(1) | 0-1 luabind (xlevel.get_level_id cached after first lookup; filter caller-provided)
-local function _is_smart_match(smart, exclude_id, factions, factions_check, level_id, filter)
-    if not smart then return false end
-    if exclude_id and smart.id == exclude_id then return false end
-    if factions_check and not factions_check(smart, factions) then return false end
-    if level_id and xlevel.get_level_id(smart) ~= level_id then return false end
-    if filter and not filter(smart) then return false end
-    return true
 end
 
 --- Find the first smart matching the criteria in opts - the distance-free variant of find_smart, for when the caller has no comparable position.
@@ -902,26 +942,6 @@ function find_friendly_base(community, pos, opts)
             end
             return not has_enemy_squad(smart.id, community)
         end })
-end
-
--- Any section in recipe.squads has get_section_faction equal to faction? Short-circuits on match.
--- @cost O(Q) sections per recipe (~1-5) | 0 luabind cached per section, else 1 luabind heavy via get_section_faction
-local function _has_recipe_faction(recipe, faction)
-    if not recipe.squads then return false end
-    for _, section in ipairs(recipe.squads) do
-        if get_section_faction(section) == faction then return true end
-    end
-    return false
-end
-
--- Any recipe in smart.respawn_params produces this faction? Short-circuits on first matching recipe.
--- @cost O(R*Q) recipes * sections | luabind via _has_recipe_faction (cached after first read per section)
-local function _has_faction_recipe(smart, faction)
-    if not smart.respawn_params then return false end
-    for _, recipe in pairs(smart.respawn_params) do
-        if _has_recipe_faction(recipe, faction) then return true end
-    end
-    return false
 end
 
 --- Find all smart terrains on a level whose recipes spawn the given faction, by get_section_faction match over respawn_params.
@@ -991,26 +1011,6 @@ function get_proximity(squad, smart)
         threshold = 25
     end
     return math.sqrt(squad.position:distance_to_sqr(smart.position)), threshold, false, true
-end
-
--- Collect service-role NPC ids at a smart for diagnostic output. Reads role from xdata.npc_roles via the NPC's section name on the CSE. Offline-friendly.
--- @cost O(n) n=npc_info entries | per entry: 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
-local function _get_role_inventory(smart)
-    if not smart or not smart.npc_info then return {} end
-    local found, count = {}, 0
-    for npc_id, _ in pairs(smart.npc_info) do
-        local se = alife_object(npc_id)
-        if not se then goto continue end
-        local entry = xdata.npc_roles[se:section_name()]
-        if not entry then goto continue end
-        local role = entry.trader and "trader" or entry.medic and "medic" or entry.mechanic and "mechanic"
-        if not role or found[role] then goto continue end
-        found[role] = npc_id
-        count = count + 1
-        if count == 3 then break end
-        ::continue::
-    end
-    return found
 end
 
 --- Diagnostic dump of smarts with faction, level, and service-role inventory; level_id filters to one level when given.
