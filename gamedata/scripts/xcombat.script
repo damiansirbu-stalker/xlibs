@@ -139,6 +139,358 @@ local function _clear_expired(cache, tg)
         _sweep_keys[i] = nil
     end
 end
+-- Append one id, only when it resolves to a number; a removed or renumbered scheme is skipped rather than faulting the install.
+local function _add_planner_id(list, id)
+    if type(id) == "number" then list[#list + 1] = id end
+end
+
+-- An action id off a scheme module, or nil when that scheme is not installed (auto-load returns nil for a missing .script).
+local function _get_scheme_id(module_ref, field)
+    if not module_ref then return nil end
+    return module_ref[field]
+end
+
+-- Register the +1/+2/+3 sub-action labels for one numeric action id, skipping any id already mapped.
+local function _set_variants(ops, name, aid)
+    if type(aid) ~= "number" then return end
+    for i = 1, 3 do
+        if ops[aid + i] == nil then ops[aid + i] = name .. "+" .. i end
+    end
+end
+
+-- The combat-state matrix [fire][posture][movement] -> the one state_lib state bundling exactly those knobs; a missing cell = no such engine state.
+local COMBAT_STATES = {
+    FIRE = {
+        STAND  = { STILL = "threat_fire", WALK = "raid_fire", RUN = "assault_fire" },
+        CROUCH = { STILL = "hide_fire",   WALK = "sneak_fire" },
+    },
+    SNIPE = {
+        STAND  = { STILL = "threat_sniper_fire" },
+        CROUCH = { STILL = "hide_sniper_fire" },
+    },
+    READY = {
+        STAND  = { STILL = "threat_na", WALK = "raid",  RUN = "assault" },
+        CROUCH = { STILL = "hide_na",   WALK = "sneak" },
+    },
+    STOW = {
+        STAND  = { RUN = "sprint" },
+    },
+}
+
+-- State for a (fire, posture, movement) combo, or nil when the engine ships none.
+-- @cost O(1) | 0 luabind (nested table lookup)
+local function _get_combat_state(fire, posture, movement)
+    local by_fire = COMBAT_STATES[fire]
+    local by_post = by_fire and by_fire[posture]
+    return by_post and by_post[movement]
+end
+
+-- Set the sight at the committed target: the engine sight slot has NO expiry, so the previous owner's stare survives a planner block until this write.
+-- Mirrors look_at_object (state_mgr_direction.script); the point_obj_dir stamp lets the direction evaluator's mode term pass once identity matches.
+-- @cost O(1) | 2 luabind (id, set_sight; set_sight dedups engine-side when unchanged)
+-- @src xray/sight_manager.cpp:242 (u32(-1) sight duration), anomaly/state_mgr.script:318 (the fire gate), xray/sight_action_inline.h:87-111 (operator==)
+local function _set_committed_sight(npc, aim)
+    local st = db.storage[npc:id()]
+    local sm = st and st.state_mgr
+    local point_dir = (sm ~= nil) and state_mgr_direction.look_object_type(npc, sm) or false
+    if sm and sm.look_object == aim:id() then sm.point_obj_dir = point_dir end
+    local torso_look = true
+    local fire_object = not point_dir
+    local no_pitch = false
+    npc:set_sight(aim, torso_look, fire_object, no_pitch)
+end
+
+-- The engine's fire discipline: seen fires as asked (the vanilla kill_enemy order), blind consults fire_make_sense, else READY; reload degrades first.
+-- Never gate the seen branch on can_kill_enemy: the engine never does, and measured 2026-07-12 it muted 73% of reads through normal sight lag.
+-- @cost O(1) | 1-2 luabind (reload state) + 1 luabind (see) when seen; + the fire_make_sense reads when blind
+-- @src xray/stalker_combat_actions.cpp:483-496 (seen -> fire), :906-914 (blind fire_make_sense); a fire goal on a reloading weapon cancels the reload
+local function _resolve_fire(npc, requested, enemy)
+    if xcombat.is_reloading(npc) then return xcombat.READY, "reloading" end
+    if enemy and xcombat.can_see(npc, enemy) then return requested, "seen" end
+    if enemy and xcombat.fire_make_sense(npc, enemy) then return requested, "memory" end
+    return xcombat.READY, "hold"
+end
+
+-- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
+-- axis = { npc_pos, nx, nz, dist, thresh_sqr }, precomputed once by the caller.
+-- @cost O(1) | 0 luabind (pure vector field math)
+local function _is_on_line(member_pos, axis)
+    local mx = member_pos.x - axis.npc_pos.x
+    local mz = member_pos.z - axis.npc_pos.z
+    local along = mx * axis.nx + mz * axis.nz
+    if along <= 0 or along >= axis.dist then return false end
+    local perp_x = mx - along * axis.nx
+    local perp_z = mz - along * axis.nz
+    return perp_x*perp_x + perp_z*perp_z < axis.thresh_sqr
+end
+
+-- One member check; lifted out so the loop body has no nested if-chain.
+-- @cost O(1) | 2 luabind (level.object_by_id + alive) on hit; vector field access
+local function _is_member_lined(member_id, my_id, axis)
+    if member_id == my_id then return false end
+    local member = level_object_by_id(member_id)
+    if not member or not member:alive() then return false end
+    return _is_on_line(member:position(), axis)
+end
+
+-- Bind availability by name, probed once and cached for the session (the bind set is a property of the exe, immutable at runtime).
+local _bind_ready = {}
+
+-- True when the engine bind `name` exists on this exe's game_object.
+-- @cost O(1) | 1 luabind trivial on the first probe (method lookup), 0 cached
+local function _has_bind(npc, name)
+    local ready = _bind_ready[name]
+    if ready == nil then
+        ready = type(npc[name]) == "function"
+        _bind_ready[name] = ready
+    end
+    return ready
+end
+
+local FIRE_BONE = "bip01_r_finger02"
+-- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
+local INVALID_BONE_ID = 65535
+-- Fire origin: the weapon-hand bone position, STAND_EYE over the feet when the skeleton lacks the bone.
+-- @src xray/ai_stalker_fire.cpp:208 (the engine fires from eye_matrix.c); rx_ff.check_in_los + utils_obj.safe_bone_pos precedents
+-- @cost O(1) | 2-3 luabind trivial (get_bone_id + bone_position, or position)
+local function _get_fire_origin(npc)
+    if npc:get_bone_id(FIRE_BONE) ~= INVALID_BONE_ID then
+        return npc:bone_position(FIRE_BONE)
+    end
+    local pos = npc:position()
+    return vector():set(pos.x, pos.y + BODY_Y.STAND_EYE, pos.z)
+end
+
+-- Capped fire-clearance ray from origin toward the enemy chest; returns (blocker distance or nil when clear, distance to the chest).
+-- Gap vs the engine ray: no transparency accumulation, so glass and bushes read as blockers the engine's own gate shoots through.
+-- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query + get_distance)
+local function _compute_lane_hit(origin, enemy_pos)
+    local dx = enemy_pos.x - origin.x
+    local dy = (enemy_pos.y + BODY_Y.CHEST) - origin.y
+    local dz = enemy_pos.z - origin.z
+    local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
+    local range = dist - ENEMY_BODY_CLEARANCE_M - SELF_CLEARANCE_M
+    if range <= 0 then return nil, dist end
+    local ux, uy, uz = dx/dist, dy/dist, dz/dist
+    local ray = ray_pick()
+    ray:set_flags(RQ_BOTH)
+    ray:set_position(vector():set(origin.x + ux*SELF_CLEARANCE_M, origin.y + uy*SELF_CLEARANCE_M, origin.z + uz*SELF_CLEARANCE_M))
+    ray:set_direction(vector():set(ux, uy, uz))
+    ray:set_range(range)
+    ray:query()
+    local hit = ray:get_distance()
+    if hit > 0 and hit < range then return hit + SELF_CLEARANCE_M, dist end
+    return nil, dist
+end
+
+-- Vanilla fire-gate values (ai_stalker_fire.cpp:65-68); post-floor exes expose them as the ai_fire_* cvars, probed once and read live when present.
+local FIRE_EXT_M      = 2.5
+local FIRE_HEIGHT_M   = 2.0
+local FIRE_MIN_DIST_M = 2.5
+local FIRE_UNSEEN_MS  = 10000
+
+-- nil = unprobed; false = cvars absent (floor exe); true = cvars present (read live per call)
+local _fire_cvars = nil
+
+-- The 4 gate values: the live ai_fire_* cvars when the exe has them, the vanilla constants otherwise.
+-- @cost O(1) | 0 luabind on the floor after the first probe, 5 luabind trivial per call when cvars exist
+local function _get_gate_values()
+    if _fire_cvars == nil then
+        _fire_cvars = get_console():get_string("ai_fire_range_extension") ~= nil
+    end
+    if not _fire_cvars then
+        return FIRE_EXT_M, FIRE_HEIGHT_M, FIRE_MIN_DIST_M, FIRE_UNSEEN_MS
+    end
+    local console = get_console()
+    local ext_m = console:get_float("ai_fire_range_extension")
+    local height_m = console:get_float("ai_fire_max_height_diff")
+    local min_dist_m = console:get_float("ai_fire_min_dist")
+    local unseen_ms = console:get_integer("ai_fire_make_sense_interval")
+    return ext_m, height_m, min_dist_m, unseen_ms
+end
+
+-- Registers fn on one engine-forwarder callback behind the functor probe (the shared body of the registrars).
+-- Registers ONLY when the forwarder exists on this exe and returns whether it did, so the caller self-gates on older builds.
+-- @cost O(1) | one-time registration, 2 table reads per repeat call
+local function _register_forwarded(fn, forwarder, callback_name)
+    if type(fn) ~= "function" then return false end
+    if callbacks_gameobject == nil then return false end
+    if type(rawget(_G, forwarder)) ~= "function" then return false end
+    RegisterScriptCallback(callback_name, fn)
+    return true
+end
+
+-- Movement targeting: the finders return a level vertex or nil, no side effects; _find_toward is the geometry primitive.
+
+-- True if vid is in-range, accessible, not the NPC's own node, and free (or already ours).
+-- Mirrors vanilla utils_obj.validate (the battle-tested validate+lmove pattern), reservation-aware.
+-- @cost O(1) | 2 luabind (accessible medium, level_vertex_id trivial) + db read
+local function _is_free(npc, vid)
+    if not vid or vid >= INVALID_LVID then return false end
+    if not npc:accessible(vid) then return false end
+    if vid == npc:level_vertex_id() then return false end
+    local owner = db.used_level_vertex_ids[vid]
+    return owner == nil or owner == npc:id()
+end
+
+-- Nearest free accessible vertex toward dir, decreasing the step until one validates (the vanilla try_to_strafe pattern).
+-- vertex_in_direction returns the origin on no-progress, which is rejected like nil.
+-- @cost O(s/2) steps | up to step/2 luabind (vertex_in_direction trivial + accessible medium) each
+local function _find_toward(npc, from_lvid, dir, step)
+    local step_m = step
+    while step_m >= STEP_DECREMENT_M do
+        local vid = level.vertex_in_direction(from_lvid, dir, step_m)
+        if vid and vid < INVALID_LVID and vid ~= from_lvid and _is_free(npc, vid) then return vid end
+        step_m = step_m - STEP_DECREMENT_M
+    end
+    return nil
+end
+
+-- One probe: a free reachable vertex step metres from from_lvid along dir with a clear SHOT line to the enemy, or nil.
+-- Object-aware: a crate between the vertex and the enemy disqualifies it, while the enemy's own body does not (the ray stops short).
+-- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
+local function _find_firing_vid(npc, from_lvid, dir, step, enemy_pos)
+    local vid = level.vertex_in_direction(from_lvid, dir, step)
+    if not vid or vid >= INVALID_LVID or vid == from_lvid or not _is_free(npc, vid) then return nil end
+    if xcombat.has_shot_obstacle(level.vertex_position(vid), enemy_pos, BODY_Y.STAND_EYE) then return nil end
+    return vid
+end
+
+-- One ring of probes around a centre vertex: PROBE_DIRS directions at `step`, first with a clear shot wins.
+-- @cost O(d) dirs | up to PROBE_DIRS (vertex_in_direction + accessible + raycast) per ring
+local function _find_ring_vid(npc, from_lvid, step, enemy_pos)
+    local dir = vector()
+    for index = 0, PROBE_DIRS - 1 do
+        local angle = index * PROBE_ARC
+        local vid = _find_firing_vid(npc, from_lvid, dir:set(math_cos(angle), 0, math_sin(angle)), step, enemy_pos)
+        if vid then return vid end
+    end
+    return nil
+end
+
+-- Sweep rings of increasing radius around a centre vertex for the nearest free vertex with a clear shot.
+-- @cost O(r*d) | up to (rings*PROBE_DIRS) raycasts
+local function _find_shot_vid(npc, from_lvid, enemy_pos)
+    local step = PROBE_MIN_M
+    while step <= PROBE_MAX_M do
+        local vid = _find_ring_vid(npc, from_lvid, step, enemy_pos)
+        if vid then return vid end
+        step = step + PROBE_STEP_M
+    end
+    return nil
+end
+
+-- True when the baked cover point at `vid` is walled toward `dir` - hides from an enemy in that direction.
+-- @cost O(1) | 2 baked cover reads
+local function _is_concealed(vid, dir)
+    local hi = xcombat.get_stand_openness(vid, dir)
+    local lo = xcombat.get_crouch_openness(vid, dir)
+    return (hi < lo and hi or lo) < CONCEAL_THRESH
+end
+
+-- True when reaching cover_pos means moving toward enemy_pos (best_cover's threat_on_the_way, cover_evaluators.cpp:172).
+-- @cost O(1) | pure vector math
+local function _is_toward_enemy(npc_pos, cover_pos, enemy_pos)
+    local cx, cy, cz = cover_pos.x - npc_pos.x, cover_pos.y - npc_pos.y, cover_pos.z - npc_pos.z
+    local cover_mag = math_sqrt(cx*cx + cy*cy + cz*cz)
+    local ex, ey, ez = enemy_pos.x - npc_pos.x, enemy_pos.y - npc_pos.y, enemy_pos.z - npc_pos.z
+    local threat_mag = math_sqrt(ex*ex + ey*ey + ez*ez)
+    if cover_mag < 0.1 or threat_mag < 0.1 then return false end
+    local proj = (cx*ex + cy*ey + cz*ez) / cover_mag
+    if proj / threat_mag < COS_30 then return false end
+    return proj <= cover_mag * 1.5
+end
+
+-- The fire/hide terminal check for a cover point that already passed the loop guards.
+-- Returns a firing vertex beside it when shooting, the cover itself when hiding, or nil.
+-- @cost O(rings) shoot / O(1) hide | _find_shot_vid or _is_concealed
+local function _resolve_cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
+    if firing then return _find_shot_vid(npc, vid, enemy_pos) end
+    dir:set(enemy_pos.x - cpos.x, enemy_pos.y - cpos.y, enemy_pos.z - cpos.z)
+    return _is_concealed(vid, dir) and vid or nil
+end
+
+-- Best-hidden reachable cover (best_cover, distance-blind, with the engine's own floor/threat/distance guards).
+-- firing=true sweeps for a firing vertex beside it; firing=false returns the cover point itself.
+-- @cost O(covers-in-radius) + O(rings) when firing | 1 best_cover heavy, then the sweep only when firing
+local function _find_best_cover(npc, enemy_pos, radius, search_pos, firing)
+    local cover = npc:best_cover(search_pos, enemy_pos, radius, COVER_MIN_DIST, COVER_MAX_DIST)
+    if not cover then return nil end
+    local vid = cover:level_vertex_id()
+    if firing then return _find_shot_vid(npc, vid, enemy_pos) end
+    return vid
+end
+
+-- Nearest reachable cover (get_nearby_covers walk), guarded to his floor and never toward the enemy.
+-- firing=true keeps the nearest whose firing vertex is clear; firing=false keeps the nearest that hides him.
+-- @cost O(covers-in-radius) walk | per nearer candidate: _cover_candidate
+local function _find_nearest_cover(npc, enemy_pos, radius, search_pos, firing)
+    local covers = level.get_nearby_covers(search_pos, radius)
+    local dir = vector()
+    local best_vid, best_dist_sqr = nil, radius * radius + 1
+    for vid in pairs(covers) do
+        local cpos = level.vertex_position(vid)
+        local dist_sqr = search_pos:distance_to_sqr(cpos)
+        local dy = cpos.y - search_pos.y
+        local chosen = dist_sqr < best_dist_sqr and dy < 3 and dy > -3
+            and not _is_toward_enemy(search_pos, cpos, enemy_pos) and npc:accessible(vid)
+            and _resolve_cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
+        if chosen then best_vid, best_dist_sqr = chosen, dist_sqr end
+    end
+    return best_vid
+end
+
+-- One flee-lane probe: a free reachable vertex the full distance_m along dir AND a clear straight run lane out to it.
+-- Unlike _find_firing_vid the ray is the NPC's own run lane, it tests objects too, and the vertex must reach the full distance.
+-- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
+local function _find_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
+    local vid = level.vertex_in_direction(own_lvid, dir, distance_m)
+    if not vid or vid >= INVALID_LVID or vid == own_lvid or not _is_free(npc, vid) then return nil end
+    if xcombat.has_obstacle_between(npc_pos, level.vertex_position(vid)) then return nil end
+    return vid
+end
+
+-- The validated flee fallback: the farthest reachable partial along dir whose run lane is ALSO clear, at decreasing lengths.
+-- An accessibility-only fallback could send a flee straight into a tree trunk or crate the navmesh routes around.
+-- @cost O(s/2) steps | up to step/2 (vertex_in_direction + accessible + raycast) each
+local function _find_toward_clear(npc, own_lvid, npc_pos, dir, step)
+    local step_m = step
+    while step_m >= STEP_DECREMENT_M do
+        local vid = _find_flee_lane(npc, own_lvid, npc_pos, dir, step_m)
+        if vid then return vid end
+        step_m = step_m - STEP_DECREMENT_M
+    end
+    return nil
+end
+
+-- Try one fan offset to both sides of away_dir (straight-away when offset is 0); the first side with a clear full-distance lane wins.
+-- The XZ rotation of away_dir by +-offset is the 2D rotation matrix, no atan2.
+-- @cost O(1) | up to 2 (vertex_in_direction + accessible + raycast)
+local function _find_lane_offset(npc, own_lvid, npc_pos, away_dir, offset_deg, distance_m)
+    local dir = vector()
+    for side = 1, (offset_deg == 0 and 1 or 2) do
+        local angle = (side == 1 and offset_deg or -offset_deg) * DEG_TO_RAD
+        local cos_a, sin_a = math_cos(angle), math_sin(angle)
+        dir:set(away_dir.x * cos_a - away_dir.z * sin_a, 0, away_dir.x * sin_a + away_dir.z * cos_a)
+        local vid = _find_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
+        if vid then return vid end
+    end
+    return nil
+end
+
+-- Distance to the first static-mesh hit from pos along dir within range, or nil.
+-- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
+local function _get_static_dist(pos, dir, range)
+    local ray = ray_pick()
+    ray:set_flags(RQ_STATIC)
+    ray:set_position(pos)
+    ray:set_direction(dir)
+    ray:set_range(range)
+    ray:query()
+    local hit = ray:get_distance()
+    return (hit > 0 and hit <= range) and hit or nil
+end
+
 local _weapon_kind_cache = {}
 
 --- Kind string for the weapon an NPC is fighting with (w_rifle / w_pistol / ...), TTL-cached 2s per id so it holds stable through transitions.
@@ -355,17 +707,6 @@ function xcombat.is_under_fire(npc, enemy, tg, window_ms)
 end
 
 -- GOAP takeover: the planner block list and the squad combat-mask lifecycle the blocked CStalkerCombatPlanner no longer performs.
-
--- Append one id, only when it resolves to a number; a removed or renumbered scheme is skipped rather than faulting the install.
-local function _add_planner_id(list, id)
-    if type(id) == "number" then list[#list + 1] = id end
-end
-
--- An action id off a scheme module, or nil when that scheme is not installed (auto-load returns nil for a missing .script).
-local function _get_scheme_id(module_ref, field)
-    if not module_ref then return nil end
-    return module_ref[field]
-end
 
 --- GOAP action ids the takeover precondition-blocks while a transaction is open (built once, cached).
 --- An action NOT listed satisfies the brain's goal directly and bypasses the takeover, so the list is enumerated, never sampled.
@@ -586,14 +927,6 @@ function xcombat.get_sight_target(npc)
     return obj and obj:id() or nil, params.m_sight_type
 end
 
--- Register the +1/+2/+3 sub-action labels for one numeric action id, skipping any id already mapped.
-local function _set_variants(ops, name, aid)
-    if type(aid) ~= "number" then return end
-    for i = 1, 3 do
-        if ops[aid + i] == nil then ops[aid + i] = name .. "+" .. i end
-    end
-end
-
 --- Short name of the engine combat operator the NPC's brain is running now (combat / danger / alife / any xr_actions_id name) - who drives.
 --- A still unknown id shows as its number, an absent or uninitialized manager as "-".
 --- @safety SAFE - nil-guarded manager + initialized() check, never constructs
@@ -668,59 +1001,6 @@ function xcombat.is_facing(obj, target_pos, cone_deg)
 end
 
 -- NPC control: set_combat owns weapon mode + posture + movement + fire discipline; set_destination owns destination.
-
--- The combat-state matrix [fire][posture][movement] -> the one state_lib state bundling exactly those knobs; a missing cell = no such engine state.
-local COMBAT_STATES = {
-    FIRE = {
-        STAND  = { STILL = "threat_fire", WALK = "raid_fire", RUN = "assault_fire" },
-        CROUCH = { STILL = "hide_fire",   WALK = "sneak_fire" },
-    },
-    SNIPE = {
-        STAND  = { STILL = "threat_sniper_fire" },
-        CROUCH = { STILL = "hide_sniper_fire" },
-    },
-    READY = {
-        STAND  = { STILL = "threat_na", WALK = "raid",  RUN = "assault" },
-        CROUCH = { STILL = "hide_na",   WALK = "sneak" },
-    },
-    STOW = {
-        STAND  = { RUN = "sprint" },
-    },
-}
-
--- State for a (fire, posture, movement) combo, or nil when the engine ships none.
--- @cost O(1) | 0 luabind (nested table lookup)
-local function _get_combat_state(fire, posture, movement)
-    local by_fire = COMBAT_STATES[fire]
-    local by_post = by_fire and by_fire[posture]
-    return by_post and by_post[movement]
-end
-
--- Set the sight at the committed target: the engine sight slot has NO expiry, so the previous owner's stare survives a planner block until this write.
--- Mirrors look_at_object (state_mgr_direction.script); the point_obj_dir stamp lets the direction evaluator's mode term pass once identity matches.
--- @cost O(1) | 2 luabind (id, set_sight; set_sight dedups engine-side when unchanged)
--- @src xray/sight_manager.cpp:242 (u32(-1) sight duration), anomaly/state_mgr.script:318 (the fire gate), xray/sight_action_inline.h:87-111 (operator==)
-local function _set_committed_sight(npc, aim)
-    local st = db.storage[npc:id()]
-    local sm = st and st.state_mgr
-    local point_dir = (sm ~= nil) and state_mgr_direction.look_object_type(npc, sm) or false
-    if sm and sm.look_object == aim:id() then sm.point_obj_dir = point_dir end
-    local torso_look = true
-    local fire_object = not point_dir
-    local no_pitch = false
-    npc:set_sight(aim, torso_look, fire_object, no_pitch)
-end
-
--- The engine's fire discipline: seen fires as asked (the vanilla kill_enemy order), blind consults fire_make_sense, else READY; reload degrades first.
--- Never gate the seen branch on can_kill_enemy: the engine never does, and measured 2026-07-12 it muted 73% of reads through normal sight lag.
--- @cost O(1) | 1-2 luabind (reload state) + 1 luabind (see) when seen; + the fire_make_sense reads when blind
--- @src xray/stalker_combat_actions.cpp:483-496 (seen -> fire), :906-914 (blind fire_make_sense); a fire goal on a reloading weapon cancels the reload
-local function _resolve_fire(npc, requested, enemy)
-    if xcombat.is_reloading(npc) then return xcombat.READY, "reloading" end
-    if enemy and xcombat.can_see(npc, enemy) then return requested, "seen" end
-    if enemy and xcombat.fire_make_sense(npc, enemy) then return requested, "memory" end
-    return xcombat.READY, "hold"
-end
 
 --- Drive the NPC's combat state - the one command for weapon mode, posture, movement, and fire discipline.
 --- opts.fire is the caller's INTENT, resolved through _resolve_fire before any state applies; returns false untouched on an unsupported combo.
@@ -862,28 +1142,6 @@ function xcombat.is_in_sight(viewer, npc, cone_deg)
     return not xcombat.has_shot_obstacle(viewer:position(), npos, BODY_Y.STAND_EYE)
 end
 
--- Project member onto the npc->enemy firing axis; true if it sits ahead and within the lateral band.
--- axis = { npc_pos, nx, nz, dist, thresh_sqr }, precomputed once by the caller.
--- @cost O(1) | 0 luabind (pure vector field math)
-local function _is_on_line(member_pos, axis)
-    local mx = member_pos.x - axis.npc_pos.x
-    local mz = member_pos.z - axis.npc_pos.z
-    local along = mx * axis.nx + mz * axis.nz
-    if along <= 0 or along >= axis.dist then return false end
-    local perp_x = mx - along * axis.nx
-    local perp_z = mz - along * axis.nz
-    return perp_x*perp_x + perp_z*perp_z < axis.thresh_sqr
-end
-
--- One member check; lifted out so the loop body has no nested if-chain.
--- @cost O(1) | 2 luabind (level.object_by_id + alive) on hit; vector field access
-local function _is_member_lined(member_id, my_id, axis)
-    if member_id == my_id then return false end
-    local member = level_object_by_id(member_id)
-    if not member or not member:alive() then return false end
-    return _is_on_line(member:position(), axis)
-end
-
 --- True if any living squadmate sits roughly on the NPC -> enemy firing line within combat range.
 --- Projects each member onto the firing axis; used to detect a friendly line-of-fire block before firing.
 --- @safety SAFE - nil-guarded squad lookup, empty-squad returns false
@@ -937,20 +1195,6 @@ function xcombat.get_actor_dist(npc)
 end
 
 -- Engine fire-gate wrappers: each probes its bind once (a capability probe, never a version compare) and carries a defined floor fallback.
-
--- Bind availability by name, probed once and cached for the session (the bind set is a property of the exe, immutable at runtime).
-local _bind_ready = {}
-
--- True when the engine bind `name` exists on this exe's game_object.
--- @cost O(1) | 1 luabind trivial on the first probe (method lookup), 0 cached
-local function _has_bind(npc, name)
-    local ready = _bind_ready[name]
-    if ready == nil then
-        ready = type(npc[name]) == "function"
-        _bind_ready[name] = ready
-    end
-    return ready
-end
 
 --- Per-NPC aim tuning: sight swing speed, fine-tracking cap, and target lead (set_aim_params, PR #594).
 --- Negative components revert to the global ai_aim_* cvars; not serialized, re-set on npc_on_net_spawn. Floor: no-op, vanilla aim is the fallback.
@@ -1101,42 +1345,6 @@ function xcombat.apply_dispersion(temp_disp, factor)
     return true
 end
 
-local FIRE_BONE = "bip01_r_finger02"
--- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
-local INVALID_BONE_ID = 65535
--- Fire origin: the weapon-hand bone position, STAND_EYE over the feet when the skeleton lacks the bone.
--- @src xray/ai_stalker_fire.cpp:208 (the engine fires from eye_matrix.c); rx_ff.check_in_los + utils_obj.safe_bone_pos precedents
--- @cost O(1) | 2-3 luabind trivial (get_bone_id + bone_position, or position)
-local function _get_fire_origin(npc)
-    if npc:get_bone_id(FIRE_BONE) ~= INVALID_BONE_ID then
-        return npc:bone_position(FIRE_BONE)
-    end
-    local pos = npc:position()
-    return vector():set(pos.x, pos.y + BODY_Y.STAND_EYE, pos.z)
-end
-
--- Capped fire-clearance ray from origin toward the enemy chest; returns (blocker distance or nil when clear, distance to the chest).
--- Gap vs the engine ray: no transparency accumulation, so glass and bushes read as blockers the engine's own gate shoots through.
--- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query + get_distance)
-local function _compute_lane_hit(origin, enemy_pos)
-    local dx = enemy_pos.x - origin.x
-    local dy = (enemy_pos.y + BODY_Y.CHEST) - origin.y
-    local dz = enemy_pos.z - origin.z
-    local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
-    local range = dist - ENEMY_BODY_CLEARANCE_M - SELF_CLEARANCE_M
-    if range <= 0 then return nil, dist end
-    local ux, uy, uz = dx/dist, dy/dist, dz/dist
-    local ray = ray_pick()
-    ray:set_flags(RQ_BOTH)
-    ray:set_position(vector():set(origin.x + ux*SELF_CLEARANCE_M, origin.y + uy*SELF_CLEARANCE_M, origin.z + uz*SELF_CLEARANCE_M))
-    ray:set_direction(vector():set(ux, uy, uz))
-    ray:set_range(range)
-    ray:query()
-    local hit = ray:get_distance()
-    if hit > 0 and hit < range then return hit + SELF_CLEARANCE_M, dist end
-    return nil, dist
-end
-
 --- True when the NPC's fire lane reaches the enemy: the engine's posture-aware shot clearance (PR #596) or a capped clearance-ray floor.
 --- NEVER a fire gate - the engine never gates fire on this read (measured 2026-07-12: 73% blocked); a position/aim-quality question only.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
@@ -1164,32 +1372,6 @@ function xcombat.can_kill_member(npc, enemy_pos)
     if not (npc and enemy_pos) then return false end
     if _has_bind(npc, "can_kill_member") then return npc:can_kill_member() end
     return xcombat.has_friendly_lane(npc, _get_fire_origin(npc), enemy_pos, FRIENDLY_LANE_THRESH_M)
-end
-
--- Vanilla fire-gate values (ai_stalker_fire.cpp:65-68); post-floor exes expose them as the ai_fire_* cvars, probed once and read live when present.
-local FIRE_EXT_M      = 2.5
-local FIRE_HEIGHT_M   = 2.0
-local FIRE_MIN_DIST_M = 2.5
-local FIRE_UNSEEN_MS  = 10000
-
--- nil = unprobed; false = cvars absent (floor exe); true = cvars present (read live per call)
-local _fire_cvars = nil
-
--- The 4 gate values: the live ai_fire_* cvars when the exe has them, the vanilla constants otherwise.
--- @cost O(1) | 0 luabind on the floor after the first probe, 5 luabind trivial per call when cvars exist
-local function _get_gate_values()
-    if _fire_cvars == nil then
-        _fire_cvars = get_console():get_string("ai_fire_range_extension") ~= nil
-    end
-    if not _fire_cvars then
-        return FIRE_EXT_M, FIRE_HEIGHT_M, FIRE_MIN_DIST_M, FIRE_UNSEEN_MS
-    end
-    local console = get_console()
-    local ext_m = console:get_float("ai_fire_range_extension")
-    local height_m = console:get_float("ai_fire_max_height_diff")
-    local min_dist_m = console:get_float("ai_fire_min_dist")
-    local unseen_ms = console:get_integer("ai_fire_make_sense_interval")
-    return ext_m, height_m, min_dist_m, unseen_ms
 end
 
 --- The engine fire-discipline gate: should this NPC pull the trigger on this enemy right now (PR #596, floor reproduces the engine gate order).
@@ -1248,17 +1430,6 @@ function xcombat.on_cover_repick(fn)
     return true
 end
 
--- Registers fn on one engine-forwarder callback behind the functor probe (the shared body of the registrars).
--- Registers ONLY when the forwarder exists on this exe and returns whether it did, so the caller self-gates on older builds.
--- @cost O(1) | one-time registration, 2 table reads per repeat call
-local function _register_forwarded(fn, forwarder, callback_name)
-    if type(fn) ~= "function" then return false end
-    if callbacks_gameobject == nil then return false end
-    if type(rawget(_G, forwarder)) ~= "function" then return false end
-    RegisterScriptCallback(callback_name, fn)
-    return true
-end
-
 --- Register fn on the cover-band minimum ask (npc_on_get_min_combat_dist): fn(npc, base_min, flags) writing flags.ret_value.
 --- Fired on cover re-searches, never per frame; an invalid return is ignored engine-side and min > max is swapped.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path
@@ -1303,126 +1474,6 @@ function xcombat.on_reload_stop(fn)
     return _register_forwarded(fn, "CAI_Stalker__OnWeaponReloadStop", "npc_on_weapon_reload_stop")
 end
 
--- Movement targeting: the finders return a level vertex or nil, no side effects; _find_toward is the geometry primitive.
-
--- True if vid is in-range, accessible, not the NPC's own node, and free (or already ours).
--- Mirrors vanilla utils_obj.validate (the battle-tested validate+lmove pattern), reservation-aware.
--- @cost O(1) | 2 luabind (accessible medium, level_vertex_id trivial) + db read
-local function _is_free(npc, vid)
-    if not vid or vid >= INVALID_LVID then return false end
-    if not npc:accessible(vid) then return false end
-    if vid == npc:level_vertex_id() then return false end
-    local owner = db.used_level_vertex_ids[vid]
-    return owner == nil or owner == npc:id()
-end
-
--- Nearest free accessible vertex toward dir, decreasing the step until one validates (the vanilla try_to_strafe pattern).
--- vertex_in_direction returns the origin on no-progress, which is rejected like nil.
--- @cost O(s/2) steps | up to step/2 luabind (vertex_in_direction trivial + accessible medium) each
-local function _find_toward(npc, from_lvid, dir, step)
-    local step_m = step
-    while step_m >= STEP_DECREMENT_M do
-        local vid = level.vertex_in_direction(from_lvid, dir, step_m)
-        if vid and vid < INVALID_LVID and vid ~= from_lvid and _is_free(npc, vid) then return vid end
-        step_m = step_m - STEP_DECREMENT_M
-    end
-    return nil
-end
-
--- One probe: a free reachable vertex step metres from from_lvid along dir with a clear SHOT line to the enemy, or nil.
--- Object-aware: a crate between the vertex and the enemy disqualifies it, while the enemy's own body does not (the ray stops short).
--- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
-local function _find_firing_vid(npc, from_lvid, dir, step, enemy_pos)
-    local vid = level.vertex_in_direction(from_lvid, dir, step)
-    if not vid or vid >= INVALID_LVID or vid == from_lvid or not _is_free(npc, vid) then return nil end
-    if xcombat.has_shot_obstacle(level.vertex_position(vid), enemy_pos, BODY_Y.STAND_EYE) then return nil end
-    return vid
-end
-
--- One ring of probes around a centre vertex: PROBE_DIRS directions at `step`, first with a clear shot wins.
--- @cost O(d) dirs | up to PROBE_DIRS (vertex_in_direction + accessible + raycast) per ring
-local function _find_ring_vid(npc, from_lvid, step, enemy_pos)
-    local dir = vector()
-    for index = 0, PROBE_DIRS - 1 do
-        local angle = index * PROBE_ARC
-        local vid = _find_firing_vid(npc, from_lvid, dir:set(math_cos(angle), 0, math_sin(angle)), step, enemy_pos)
-        if vid then return vid end
-    end
-    return nil
-end
-
--- Sweep rings of increasing radius around a centre vertex for the nearest free vertex with a clear shot.
--- @cost O(r*d) | up to (rings*PROBE_DIRS) raycasts
-local function _find_shot_vid(npc, from_lvid, enemy_pos)
-    local step = PROBE_MIN_M
-    while step <= PROBE_MAX_M do
-        local vid = _find_ring_vid(npc, from_lvid, step, enemy_pos)
-        if vid then return vid end
-        step = step + PROBE_STEP_M
-    end
-    return nil
-end
-
--- True when the baked cover point at `vid` is walled toward `dir` - hides from an enemy in that direction.
--- @cost O(1) | 2 baked cover reads
-local function _is_concealed(vid, dir)
-    local hi = xcombat.get_stand_openness(vid, dir)
-    local lo = xcombat.get_crouch_openness(vid, dir)
-    return (hi < lo and hi or lo) < CONCEAL_THRESH
-end
-
--- True when reaching cover_pos means moving toward enemy_pos (best_cover's threat_on_the_way, cover_evaluators.cpp:172).
--- @cost O(1) | pure vector math
-local function _is_toward_enemy(npc_pos, cover_pos, enemy_pos)
-    local cx, cy, cz = cover_pos.x - npc_pos.x, cover_pos.y - npc_pos.y, cover_pos.z - npc_pos.z
-    local cover_mag = math_sqrt(cx*cx + cy*cy + cz*cz)
-    local ex, ey, ez = enemy_pos.x - npc_pos.x, enemy_pos.y - npc_pos.y, enemy_pos.z - npc_pos.z
-    local threat_mag = math_sqrt(ex*ex + ey*ey + ez*ez)
-    if cover_mag < 0.1 or threat_mag < 0.1 then return false end
-    local proj = (cx*ex + cy*ey + cz*ez) / cover_mag
-    if proj / threat_mag < COS_30 then return false end
-    return proj <= cover_mag * 1.5
-end
-
--- The fire/hide terminal check for a cover point that already passed the loop guards.
--- Returns a firing vertex beside it when shooting, the cover itself when hiding, or nil.
--- @cost O(rings) shoot / O(1) hide | _find_shot_vid or _is_concealed
-local function _resolve_cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
-    if firing then return _find_shot_vid(npc, vid, enemy_pos) end
-    dir:set(enemy_pos.x - cpos.x, enemy_pos.y - cpos.y, enemy_pos.z - cpos.z)
-    return _is_concealed(vid, dir) and vid or nil
-end
-
--- Best-hidden reachable cover (best_cover, distance-blind, with the engine's own floor/threat/distance guards).
--- firing=true sweeps for a firing vertex beside it; firing=false returns the cover point itself.
--- @cost O(covers-in-radius) + O(rings) when firing | 1 best_cover heavy, then the sweep only when firing
-local function _find_best_cover(npc, enemy_pos, radius, search_pos, firing)
-    local cover = npc:best_cover(search_pos, enemy_pos, radius, COVER_MIN_DIST, COVER_MAX_DIST)
-    if not cover then return nil end
-    local vid = cover:level_vertex_id()
-    if firing then return _find_shot_vid(npc, vid, enemy_pos) end
-    return vid
-end
-
--- Nearest reachable cover (get_nearby_covers walk), guarded to his floor and never toward the enemy.
--- firing=true keeps the nearest whose firing vertex is clear; firing=false keeps the nearest that hides him.
--- @cost O(covers-in-radius) walk | per nearer candidate: _cover_candidate
-local function _find_nearest_cover(npc, enemy_pos, radius, search_pos, firing)
-    local covers = level.get_nearby_covers(search_pos, radius)
-    local dir = vector()
-    local best_vid, best_dist_sqr = nil, radius * radius + 1
-    for vid in pairs(covers) do
-        local cpos = level.vertex_position(vid)
-        local dist_sqr = search_pos:distance_to_sqr(cpos)
-        local dy = cpos.y - search_pos.y
-        local chosen = dist_sqr < best_dist_sqr and dy < 3 and dy > -3
-            and not _is_toward_enemy(search_pos, cpos, enemy_pos) and npc:accessible(vid)
-            and _resolve_cover_vid(npc, enemy_pos, vid, cpos, firing, dir)
-        if chosen then best_vid, best_dist_sqr = chosen, dist_sqr end
-    end
-    return best_vid
-end
-
 --- Find a cover vertex, four ways from two flags: opts.selection picks the search ("nearest" walk / "best" best_cover), opts.firing the purpose.
 --- firing=true returns a vertex to SHOOT from (a positional ray check - the fire gates read only the current position), false one that HIDES.
 --- @safety SAFE - nil when nothing qualifies; asserts on a missing opt
@@ -1440,44 +1491,6 @@ function xcombat.find_cover(npc, enemy_pos, opts)
         return _find_best_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
     end
     return _find_nearest_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
-end
-
--- One flee-lane probe: a free reachable vertex the full distance_m along dir AND a clear straight run lane out to it.
--- Unlike _find_firing_vid the ray is the NPC's own run lane, it tests objects too, and the vertex must reach the full distance.
--- @cost O(1) | 1 vertex_in_direction trivial + accessible medium + 1 raycast
-local function _find_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
-    local vid = level.vertex_in_direction(own_lvid, dir, distance_m)
-    if not vid or vid >= INVALID_LVID or vid == own_lvid or not _is_free(npc, vid) then return nil end
-    if xcombat.has_obstacle_between(npc_pos, level.vertex_position(vid)) then return nil end
-    return vid
-end
-
--- The validated flee fallback: the farthest reachable partial along dir whose run lane is ALSO clear, at decreasing lengths.
--- An accessibility-only fallback could send a flee straight into a tree trunk or crate the navmesh routes around.
--- @cost O(s/2) steps | up to step/2 (vertex_in_direction + accessible + raycast) each
-local function _find_toward_clear(npc, own_lvid, npc_pos, dir, step)
-    local step_m = step
-    while step_m >= STEP_DECREMENT_M do
-        local vid = _find_flee_lane(npc, own_lvid, npc_pos, dir, step_m)
-        if vid then return vid end
-        step_m = step_m - STEP_DECREMENT_M
-    end
-    return nil
-end
-
--- Try one fan offset to both sides of away_dir (straight-away when offset is 0); the first side with a clear full-distance lane wins.
--- The XZ rotation of away_dir by +-offset is the 2D rotation matrix, no atan2.
--- @cost O(1) | up to 2 (vertex_in_direction + accessible + raycast)
-local function _find_lane_offset(npc, own_lvid, npc_pos, away_dir, offset_deg, distance_m)
-    local dir = vector()
-    for side = 1, (offset_deg == 0 and 1 or 2) do
-        local angle = (side == 1 and offset_deg or -offset_deg) * DEG_TO_RAD
-        local cos_a, sin_a = math_cos(angle), math_sin(angle)
-        dir:set(away_dir.x * cos_a - away_dir.z * sin_a, 0, away_dir.x * sin_a + away_dir.z * cos_a)
-        local vid = _find_flee_lane(npc, own_lvid, npc_pos, dir, distance_m)
-        if vid then return vid end
-    end
-    return nil
 end
 
 --- Flee destination: the heading nearest away_dir whose run lane is clear for the full distance_m.
@@ -1718,19 +1731,6 @@ xcombat.INDOOR_LEVELS = {
     l12u_control_monolith = true,
     l13u_warlab           = true,
 }
-
--- Distance to the first static-mesh hit from pos along dir within range, or nil.
--- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
-local function _get_static_dist(pos, dir, range)
-    local ray = ray_pick()
-    ray:set_flags(RQ_STATIC)
-    ray:set_position(pos)
-    ray:set_direction(dir)
-    ray:set_range(range)
-    ray:query()
-    local hit = ray:get_distance()
-    return (hit > 0 and hit <= range) and hit or nil
-end
 
 --- Measure enclosure geometry at pos: a roof up-ray plus 4 cardinal wall-rays, returning hit DISTANCES (nil = open).
 --- The caller classifies from the raw distances and MUST cache by a position cell - never call it per frame.
