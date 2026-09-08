@@ -15,6 +15,19 @@ local DEFAULT_PROBE_UP_M = 1.5
 -- Metres a ground probe searches below the start point.
 local DEFAULT_PROBE_DEPTH_M = 5.0
 
+-- Unit box corners (sign per axis) and the 24 edge + diagonal vertex pairs to probe (12 edges plus 12 diagonals cover the surface).
+local CORNERS = {
+    { -1, -1, -1 }, { 1, -1, -1 }, { -1, -1, 1 }, { 1, -1, 1 },
+    { -1, 1, -1 }, { 1, 1, -1 }, { -1, 1, 1 }, { 1, 1, 1 },
+}
+local PAIRS = {
+    { 1, 2 }, { 1, 3 }, { 2, 4 }, { 3, 4 }, { 5, 6 }, { 5, 7 }, { 6, 8 }, { 7, 8 },
+    { 1, 5 }, { 3, 7 }, { 4, 8 }, { 2, 6 },
+    { 1, 4 }, { 2, 3 }, { 6, 7 }, { 5, 8 }, { 3, 8 }, { 4, 7 }, { 1, 6 }, { 2, 5 }, { 2, 8 }, { 4, 6 }, { 1, 7 }, { 3, 5 },
+}
+-- Float the box off the ground so a flat floor is not read as a collision; only walls and objects.
+local BASE_LIFT = 0.08
+
 -- One shared ray, lazily created; the single-threaded engine finishes each cast before the next, so reuse avoids a CRayPick alloc per edge.
 local _ray
 local function _get_ray()
@@ -55,19 +68,6 @@ function find_ground(pos, opts)
     if not dist then return nil end
     return { pos = vector():set(start.x, start.y - dist, start.z), normal = normal, object = obj }
 end
-
--- Unit box corners (sign per axis) and the 24 edge + diagonal vertex pairs to probe (12 edges plus 12 diagonals cover the surface).
-local CORNERS = {
-    { -1, -1, -1 }, { 1, -1, -1 }, { -1, -1, 1 }, { 1, -1, 1 },
-    { -1, 1, -1 }, { 1, 1, -1 }, { -1, 1, 1 }, { 1, 1, 1 },
-}
-local PAIRS = {
-    { 1, 2 }, { 1, 3 }, { 2, 4 }, { 3, 4 }, { 5, 6 }, { 5, 7 }, { 6, 8 }, { 7, 8 },
-    { 1, 5 }, { 3, 7 }, { 4, 8 }, { 2, 6 },
-    { 1, 4 }, { 2, 3 }, { 6, 7 }, { 5, 8 }, { 3, 8 }, { 4, 7 }, { 1, 6 }, { 2, 5 }, { 2, 8 }, { 4, 6 }, { 1, 7 }, { 3, 5 },
-}
--- Float the box off the ground so a flat floor is not read as a collision; only walls and objects.
-local BASE_LIFT = 0.08
 
 -- Scratch reused across a clearance check (8 box corners + 2 edge directions), lazily created so module load touches no vector ctor.
 local _verts, _fwd, _rev

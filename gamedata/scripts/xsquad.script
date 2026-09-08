@@ -13,6 +13,9 @@ local CLSID_SQUAD = clsid.online_offline_group_s
 -- Squads returned when the caller sets no max_count.
 local DEFAULT_MAX_SQUADS = 3
 
+-- Static cache: story_id, trader, named_npc never change within a session (weak keys, GC-safe).
+local _static_cache = setmetatable({}, { __mode = "k" })
+
 --- Class identity check for sim_squad_scripted instances - the canonical clsid.online_offline_group_s idiom.
 --- Required wherever a saved id may resolve to a different engine class after id recycling.
 --- @safety SAFE - nil-guarded; tests for clsid method presence before calling
@@ -27,9 +30,6 @@ function is_squad(obj)
 end
 
 local function _EMPTY_ITER() return nil end
-
--- Static cache: story_id, trader, named_npc never change within a session (weak keys, GC-safe).
-local _static_cache = setmetatable({}, { __mode = "k" })
 
 -- Scan squad members against the accumulated task-giver set (task_giver_id is polymorphic: a squad id OR any member npc id).
 -- @cost O(m) members; 1 npc_count luabind + squad_members iterator

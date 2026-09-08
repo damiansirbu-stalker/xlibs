@@ -19,6 +19,22 @@ OBJECT_TYPE = {
     OBJECT = "object",
 }
 
+local SIMPLE_TYPES = {
+    ["nil"] = function() return "nil" end,
+    ["boolean"] = function(v) return v and "true" or "false" end,
+    ["number"] = function(v)
+        if v == math_floor(v) then return tostring(v) end
+        return string_format("%.4f", v)
+    end,
+    ["string"] = function(v)
+        local truncated = v:len() > 64 and (v:sub(1, 64) .. "...") or v
+        return "\"" .. truncated:gsub("\n", "\\n"):gsub("\r", "\\r"):gsub("\t", "\\t") .. "\""
+    end,
+    ["function"] = function() return "function" end,
+    ["thread"] = function() return "thread" end,
+    ["userdata"] = function(v) return format_userdata(v) end,
+}
+
 -- Get an object's type by dispatching through the IsStalker/IsMonster/IsWeapon global type checkers with clsid.
 -- @safety SAFE - returns nil for nil obj, type checkers are nil-safe
 -- @cost O(1) | 1 luabind trivial when cls is nil (clsid: enum return), 0 luabind otherwise; Is* dispatch is pure Lua clsid equality / hash lookup
@@ -92,22 +108,6 @@ function format_userdata(obj)
     local prefix = obj_type and ("@" .. obj_type) or "@obj"
     return prefix .. "{" .. table_concat(parts, ", ") .. "}"
 end
-
-local SIMPLE_TYPES = {
-    ["nil"] = function() return "nil" end,
-    ["boolean"] = function(v) return v and "true" or "false" end,
-    ["number"] = function(v)
-        if v == math_floor(v) then return tostring(v) end
-        return string_format("%.4f", v)
-    end,
-    ["string"] = function(v)
-        local truncated = v:len() > 64 and (v:sub(1, 64) .. "...") or v
-        return "\"" .. truncated:gsub("\n", "\\n"):gsub("\r", "\\r"):gsub("\t", "\\t") .. "\""
-    end,
-    ["function"] = function() return "function" end,
-    ["thread"] = function() return "thread" end,
-    ["userdata"] = function(v) return format_userdata(v) end,
-}
 
 local format_value
 

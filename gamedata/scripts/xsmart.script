@@ -15,11 +15,15 @@ local _factions_cache = {}
 local _section_faction_cache = {}
 local _npc_max_cache = {}
 local _npc_range_cache = {}
+-- Lazy per-NPC role cache { sec, roles }, storing the detect-time section so a recycled id re-detects instead of serving stale roles.
+local _npc_role = {}
 local ANOMALY_RADIUS_SQR = 2500
 -- Results returned when the caller sets no cap.
 local DEFAULT_RESULT_CAP = 5
 -- Metres around a smart terrain when the caller names no radius.
 local SMART_RADIUS_M = 60
+local OCCUPANCY_TTL_SEC = 60
+local _occupancy_cache = xttltable.create_ttl_table({ default_ttl = OCCUPANCY_TTL_SEC })
 
 JOB_TYPE_GENERIC_POINT = 0
 JOB_TYPE_CAMPFIRE_POINT = 1
@@ -132,9 +136,6 @@ function clear_npc_job(smart, npc_id)
     info.need_job = "nil"
     return true
 end
-
--- Lazy per-NPC role cache { sec, roles }, storing the detect-time section so a recycled id re-detects instead of serving stale roles.
-local _npc_role = {}
 
 --- Forget one npc's cached roles. Called on release so the cache follows live npcs, not every npc the session has seen.
 --- @safety SAFE - plain table delete
@@ -681,9 +682,6 @@ function has_enemy_squad(smart_id, community, exclude_id)
     end
     return false
 end
-
-local OCCUPANCY_TTL_SEC = 60
-local _occupancy_cache = xttltable.create_ttl_table({ default_ttl = OCCUPANCY_TTL_SEC })
 
 -- Set of communities with a stationed squad at the smart, or nil when none.
 -- @cost O(min(n,5)) stationed squads | per squad: 1 medium (alife_object)

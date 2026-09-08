@@ -6,6 +6,7 @@ local math_floor, xmath = math.floor, xmath
 local gg = nil
 local _vertex_level = {}
 local _level_id_by_name = nil
+local _neighbors_cache = {}
 
 local INVALID_LEVEL_VERTEX_ID = xconst.INVALID_LEVEL_VERTEX_ID
 local INVALID_GAME_VERTEX_ID = xconst.INVALID_GAME_VERTEX_ID
@@ -251,8 +252,6 @@ function get_danger_tier(level)
     end
     return level and DANGER_TIER[level] or nil
 end
-
-local _neighbors_cache = {}
 
 -- Walk one BFS frontier hop, marking newly-reached levels in visited.
 -- @cost O(k) k=neighbors of lvl | 0 luabind (pure Lua pairs over level_links sub-table)
