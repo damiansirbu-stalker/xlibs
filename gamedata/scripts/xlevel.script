@@ -19,6 +19,77 @@ local function get_game_graph()
     return gg
 end
 
+local _level_names = nil
+
+-- Session-lifetime set of level names (raw + translated), populated lazily on first call.
+-- @cost O(n) levels first call | 0 luabind cached, ~100 luabind medium on miss (51 level_name medium + 51 translate_string medium)
+local function _get_level_names()
+    if _level_names then return _level_names end
+    _level_names = {}
+    local sim = alife()
+    if not sim then return _level_names end
+    for i = 0, 50 do
+        local name = sim:level_name(i)
+        if not name then goto continue end
+        _level_names[name] = true
+        local translated = game.translate_string(name)
+        if translated and translated ~= name then
+            _level_names[translated] = true
+        end
+        ::continue::
+    end
+    return _level_names
+end
+
+-- Resolve a smart's level to a translated display name, nil if unresolvable.
+-- @cost O(log n) | 3 luabind: vertex + level_id trivial, level_name + translate_string medium (LEVEL_MAP / STRING_TABLE find)
+local function _resolve_level_name(smart)
+    if not smart.m_game_vertex_id then return nil end
+    local graph = get_game_graph()
+    if not graph then return nil end
+    local sim = alife()
+    if not sim then return nil end
+    local lvid = graph:vertex(smart.m_game_vertex_id):level_id()
+    local lname = sim:level_name(lvid)
+    if not lname then return nil end
+    local tr = game.translate_string(lname)
+    if tr and tr ~= lname then return tr end
+    return nil
+end
+
+-- Strip a "Level. " prefix from a smart display string (Anomaly authors smart names as "Zaton. Claw Anomaly Camp").
+-- @cost O(1) | 0 luabind pure Lua regex
+local function _get_stripped_name(text)
+    if not text then return nil end
+    local prefix, rest = text:match("^([^%.]+)%.%s+(.+)$")
+    if not prefix then return text end
+    if _get_level_names()[prefix] then return rest end
+    return text
+end
+
+-- Walk one BFS frontier hop, marking newly-reached levels in visited.
+-- @cost O(k) k=neighbors of lvl | 0 luabind (pure Lua pairs over level_links sub-table)
+local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
+    local links = level_targets and level_targets.level_links and level_targets.level_links[lvl]
+    if not links then return end
+    for neighbor in pairs(links) do
+        if visited[neighbor] then goto continue end
+        visited[neighbor] = true
+        next_frontier[neighbor] = true
+        ::continue::
+    end
+end
+
+-- Expand the frontier by one hop, returning the freshly-discovered ids only.
+-- @cost O(f * k) f=frontier size, k=avg neighbors | 0 luabind (pure Lua pairs)
+local function _get_next_frontier(frontier, visited)
+    local next_frontier = {}
+    for level_id in pairs(frontier) do
+        _collect_unvisited_neighbors(level_id, next_frontier, visited)
+    end
+    return next_frontier
+end
+
 --- True while a surge (emission) is underway. Wraps the vanilla xr_conditions.surge_started gate so callers avoid the raw module reference.
 --- level.present() guards the call so it reads false in the main menu or mid-transition instead of touching a NULL level singleton.
 --- @safety SAFE - level.present() guards; xr_conditions.surge_started is the vanilla check
@@ -82,28 +153,6 @@ function build_cell_key(level_id, position, cell_size)
     return level_id .. ":" .. math_floor(position.x / cell_size) .. ":" .. math_floor(position.z / cell_size)
 end
 
-local _level_names = nil
-
--- Session-lifetime set of level names (raw + translated), populated lazily on first call.
--- @cost O(n) levels first call | 0 luabind cached, ~100 luabind medium on miss (51 level_name medium + 51 translate_string medium)
-local function _get_level_names()
-    if _level_names then return _level_names end
-    _level_names = {}
-    local sim = alife()
-    if not sim then return _level_names end
-    for i = 0, 50 do
-        local name = sim:level_name(i)
-        if not name then goto continue end
-        _level_names[name] = true
-        local translated = game.translate_string(name)
-        if translated and translated ~= name then
-            _level_names[translated] = true
-        end
-        ::continue::
-    end
-    return _level_names
-end
-
 --- Get the translated level display name from a level_id, via alife():level_name(id) then game.translate_string.
 --- When translate_string returns the key unchanged the raw level name is used; a missing level_id or offline sim yields nil.
 --- @safety SAFE - nil guards on alife and resolved name
@@ -119,32 +168,6 @@ function get_level_name(level_id)
     if not lname then return nil end
     local translated = game.translate_string(lname)
     return (translated and translated ~= lname) and translated or lname
-end
-
--- Resolve a smart's level to a translated display name, nil if unresolvable.
--- @cost O(log n) | 3 luabind: vertex + level_id trivial, level_name + translate_string medium (LEVEL_MAP / STRING_TABLE find)
-local function _resolve_level_name(smart)
-    if not smart.m_game_vertex_id then return nil end
-    local graph = get_game_graph()
-    if not graph then return nil end
-    local sim = alife()
-    if not sim then return nil end
-    local lvid = graph:vertex(smart.m_game_vertex_id):level_id()
-    local lname = sim:level_name(lvid)
-    if not lname then return nil end
-    local tr = game.translate_string(lname)
-    if tr and tr ~= lname then return tr end
-    return nil
-end
-
--- Strip a "Level. " prefix from a smart display string (Anomaly authors smart names as "Zaton. Claw Anomaly Camp").
--- @cost O(1) | 0 luabind pure Lua regex
-local function _get_stripped_name(text)
-    if not text then return nil end
-    local prefix, rest = text:match("^([^%.]+)%.%s+(.+)$")
-    if not prefix then return text end
-    if _get_level_names()[prefix] then return rest end
-    return text
 end
 
 --- Get the translated smart terrain display name, cascading smart_names -> Warfare st_<name>_name -> level name -> cleaned raw.
@@ -251,29 +274,6 @@ function get_danger_tier(level)
         level = sim and sim:level_name(level) or nil
     end
     return level and DANGER_TIER[level] or nil
-end
-
--- Walk one BFS frontier hop, marking newly-reached levels in visited.
--- @cost O(k) k=neighbors of lvl | 0 luabind (pure Lua pairs over level_links sub-table)
-local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
-    local links = level_targets and level_targets.level_links and level_targets.level_links[lvl]
-    if not links then return end
-    for neighbor in pairs(links) do
-        if visited[neighbor] then goto continue end
-        visited[neighbor] = true
-        next_frontier[neighbor] = true
-        ::continue::
-    end
-end
-
--- Expand the frontier by one hop, returning the freshly-discovered ids only.
--- @cost O(f * k) f=frontier size, k=avg neighbors | 0 luabind (pure Lua pairs)
-local function _get_next_frontier(frontier, visited)
-    local next_frontier = {}
-    for level_id in pairs(frontier) do
-        _collect_unvisited_neighbors(level_id, next_frontier, visited)
-    end
-    return next_frontier
 end
 
 --- Get level_ids reachable within `hops` BFS hops from source_id (excluding source itself).
