@@ -15,6 +15,31 @@ ENTITY = {
 --- Stalker rank tier names low to high (ranks.get_obj_rank_name), the single owner for the rank-name set.
 RANK_TIERS = { "novice", "trainee", "experienced", "professional", "veteran", "expert", "master", "legend" }
 
+-- Mutant section prefix -> display name (inv_name often missing for mutants)
+local MUTANT_NAMES = {
+    gigant = "Pseudogiant",
+    pseudo_gigant = "Pseudogiant",
+    pseudogiant = "Pseudogiant",
+    bloodsucker = "Bloodsucker",
+    boar = "Boar",
+    burer = "Burer",
+    cat = "Cat",
+    chimera = "Chimera",
+    controller = "Controller",
+    dog = "Dog",
+    flesh = "Flesh",
+    fracture = "Fracture",
+    poltergeist = "Poltergeist",
+    pseudodog = "Pseudodog",
+    psy_dog = "Psy Dog",
+    psysucker = "Psysucker",
+    snork = "Snork",
+    tushkano = "Tushkano",
+    zombie = "Zombie",
+    lurker = "Lurker",
+    karlik = "Karlik",
+}
+
 -- Clsid to species mapping (server + client clsids, vanilla + modded exes; _g.script:2833-2866, ui_mutant_loot.script:34-54).
 local _clsid_to_species = {
     [clsid.bloodsucker_s] = "bloodsucker", [clsid.bloodsucker] = "bloodsucker",
@@ -89,6 +114,94 @@ local function get_clsid(input)
     return nil
 end
 
+-- Inner resolver: clsid -> species, with a prefix fallback for ambiguous clsids.
+-- @cost O(1) | 1-2 luabind (clsid + section_name for ambiguous)
+local function _resolve_clsid_species(se_npc)
+    local cls = se_npc:clsid()
+    local species = _clsid_to_species[cls]
+    if not species then return nil end
+    if not _ambiguous_clsids[cls] then return species end
+    local section = se_npc:section_name()
+    if not section then return species end
+    for prefix, name in pairs(_ambiguous_prefixes) do
+        if section:sub(1, #prefix) == prefix then return name end
+    end
+    return species
+end
+
+-- Cached wrapper: weak-key cache on the cse entity. Stores `false` sentinel for nil results.
+-- @cost O(1) | 0 luabind cached, 1-2 luabind on miss
+local function _resolve_npc_species(se_npc)
+    local cached = _species_cache[se_npc]
+    if cached ~= nil then return cached or nil end
+    local species = _resolve_clsid_species(se_npc)
+    _species_cache[se_npc] = species or false
+    return species
+end
+
+-- Resolve a mutant display name, handling compound names (psy_dog) by checking part pairs against the MUTANT_NAMES hash.
+local function _get_display_name(section)
+    local lower = section:lower()
+    local parts = {}
+    for part in lower:gmatch("[^_]+") do
+        parts[#parts + 1] = part
+    end
+
+    for i = 1, #parts do
+        local part = parts[i]
+        if MUTANT_NAMES[part] then return MUTANT_NAMES[part] end
+        if i < #parts then
+            local compound = part .. "_" .. parts[i + 1]
+            if MUTANT_NAMES[compound] then return MUTANT_NAMES[compound] end
+        end
+    end
+    return nil
+end
+
+-- Translate a key, returning nil when untranslatable.
+-- @cost O(log n) | 1 luabind medium (game.translate_string: std::map find on STRING_TABLE_MAP)
+local function _get_translation(key)
+    local translated = game.translate_string(key)
+    return (translated and translated ~= key) and translated or nil
+end
+
+-- Session-fixed memo: section -> resolved display name; locale is VM-fixed so entries never go stale (plain table, string keys).
+local _mutant_name_cache = {}
+
+-- Resolve a mutant name, translation first (inv_name, then the section id), the English MUTANT_NAMES hash then section cleanup as fallbacks.
+-- Translate-first keeps localized names ahead of the baked English table.
+-- @cost O(1) memo hit | 1-2 luabind heavy on miss (r_string_ex; translate_string medium)
+local function _get_mutant_name(section)
+    local cached = _mutant_name_cache[section]
+    if cached then return cached end
+
+    local inv_name = ini_sys:r_string_ex(section, "inv_name")
+    local name = (inv_name and _get_translation(inv_name))
+        or _get_translation(section)
+        or _get_display_name(section)
+    if not name then
+        local clean = section:gsub("_normal", ""):gsub("_weak", ""):gsub("_strong", "")
+        name = clean:gsub("_", " "):gsub("^%l", string.upper)
+    end
+    _mutant_name_cache[section] = name
+    return name
+end
+
+-- Check unscriptable identity: story_id, companion info, named NPC, squad story_id.
+-- @cost O(1) | 3-5 luabind (id, story_id, IsStalker, has_info medium, section heavy)
+local function _check_unscriptable(obj)
+    if not obj then return true end
+    local id = obj:id()
+    if get_object_story_id(id) then return true end
+    if IsStalker(obj) then
+        if obj:has_info("npcx_is_companion") then return true end
+        if xdata.unscriptable_npcs[obj:section()] then return true end
+    end
+    local squad = get_object_squad(obj)
+    if squad and get_object_story_id(squad.id) then return true end
+    return false
+end
+
 --- Check if an entity is a stalker (get_clsid + IsStalker(nil, cls) fast path).
 --- Passing the resolved clsid as the second arg skips IsStalker's own object lookup, leaving only the class compare.
 --- @safety SAFE - returns false for nil/invalid
@@ -132,31 +245,6 @@ function is_npc(input) return is_stalker(input) or is_mutant(input) end
 --- @return boolean True if the faction is a monster faction
 function is_monster_faction(faction)
     return faction ~= nil and _is_monster_faction[faction] == true
-end
-
--- Inner resolver: clsid -> species, with a prefix fallback for ambiguous clsids.
--- @cost O(1) | 1-2 luabind (clsid + section_name for ambiguous)
-local function _resolve_clsid_species(se_npc)
-    local cls = se_npc:clsid()
-    local species = _clsid_to_species[cls]
-    if not species then return nil end
-    if not _ambiguous_clsids[cls] then return species end
-    local section = se_npc:section_name()
-    if not section then return species end
-    for prefix, name in pairs(_ambiguous_prefixes) do
-        if section:sub(1, #prefix) == prefix then return name end
-    end
-    return species
-end
-
--- Cached wrapper: weak-key cache on the cse entity. Stores `false` sentinel for nil results.
--- @cost O(1) | 0 luabind cached, 1-2 luabind on miss
-local function _resolve_npc_species(se_npc)
-    local cached = _species_cache[se_npc]
-    if cached ~= nil then return cached or nil end
-    local species = _resolve_clsid_species(se_npc)
-    _species_cache[se_npc] = species or false
-    return species
 end
 
 -- Per-squad weak-key cache over the squad -> commander -> species chain; safe because mutant squads are species-pure.
@@ -306,79 +394,6 @@ end
 --- @return boolean
 function is_enemy(a, b)
     return relation(a, b) == xconst.RELATION.ENEMY
-end
-
--- Mutant section prefix -> display name (inv_name often missing for mutants)
-local MUTANT_NAMES = {
-    gigant = "Pseudogiant",
-    pseudo_gigant = "Pseudogiant",
-    pseudogiant = "Pseudogiant",
-    bloodsucker = "Bloodsucker",
-    boar = "Boar",
-    burer = "Burer",
-    cat = "Cat",
-    chimera = "Chimera",
-    controller = "Controller",
-    dog = "Dog",
-    flesh = "Flesh",
-    fracture = "Fracture",
-    poltergeist = "Poltergeist",
-    pseudodog = "Pseudodog",
-    psy_dog = "Psy Dog",
-    psysucker = "Psysucker",
-    snork = "Snork",
-    tushkano = "Tushkano",
-    zombie = "Zombie",
-    lurker = "Lurker",
-    karlik = "Karlik",
-}
-
--- Resolve a mutant display name, handling compound names (psy_dog) by checking part pairs against the MUTANT_NAMES hash.
-local function _get_display_name(section)
-    local lower = section:lower()
-    local parts = {}
-    for part in lower:gmatch("[^_]+") do
-        parts[#parts + 1] = part
-    end
-
-    for i = 1, #parts do
-        local part = parts[i]
-        if MUTANT_NAMES[part] then return MUTANT_NAMES[part] end
-        if i < #parts then
-            local compound = part .. "_" .. parts[i + 1]
-            if MUTANT_NAMES[compound] then return MUTANT_NAMES[compound] end
-        end
-    end
-    return nil
-end
-
--- Translate a key, returning nil when untranslatable.
--- @cost O(log n) | 1 luabind medium (game.translate_string: std::map find on STRING_TABLE_MAP)
-local function _get_translation(key)
-    local translated = game.translate_string(key)
-    return (translated and translated ~= key) and translated or nil
-end
-
--- Session-fixed memo: section -> resolved display name; locale is VM-fixed so entries never go stale (plain table, string keys).
-local _mutant_name_cache = {}
-
--- Resolve a mutant name, translation first (inv_name, then the section id), the English MUTANT_NAMES hash then section cleanup as fallbacks.
--- Translate-first keeps localized names ahead of the baked English table.
--- @cost O(1) memo hit | 1-2 luabind heavy on miss (r_string_ex; translate_string medium)
-local function _get_mutant_name(section)
-    local cached = _mutant_name_cache[section]
-    if cached then return cached end
-
-    local inv_name = ini_sys:r_string_ex(section, "inv_name")
-    local name = (inv_name and _get_translation(inv_name))
-        or _get_translation(section)
-        or _get_display_name(section)
-    if not name then
-        local clean = section:gsub("_normal", ""):gsub("_weak", ""):gsub("_strong", "")
-        name = clean:gsub("_", " "):gsub("^%l", string.upper)
-    end
-    _mutant_name_cache[section] = name
-    return name
 end
 
 --- Get the translated name for an entity: character_name() for stalkers, the memoized inv_name/section resolution for mutants.
@@ -553,21 +568,6 @@ function iterate_online_monsters()
         end
         return nil
     end
-end
-
--- Check unscriptable identity: story_id, companion info, named NPC, squad story_id.
--- @cost O(1) | 3-5 luabind (id, story_id, IsStalker, has_info medium, section heavy)
-local function _check_unscriptable(obj)
-    if not obj then return true end
-    local id = obj:id()
-    if get_object_story_id(id) then return true end
-    if IsStalker(obj) then
-        if obj:has_info("npcx_is_companion") then return true end
-        if xdata.unscriptable_npcs[obj:section()] then return true end
-    end
-    local squad = get_object_squad(obj)
-    if squad and get_object_story_id(squad.id) then return true end
-    return false
 end
 
 --- Check if a creature is unscriptable (traders, leaders, companions, story chars fixed to their role/location).
