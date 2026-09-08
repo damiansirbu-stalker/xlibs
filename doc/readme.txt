@@ -19,9 +19,11 @@ JitProfiler: https://github.com/damiansirbu-stalker/JitProfiler
 TestZone: https://github.com/damiansirbu-stalker/TestZone
 xlibs: https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001
 
-xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need: entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
+xlibs is a modder's toolbox for what Anomaly mods typically need.
+It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 
-The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in both the European and Russian STALKER modding traditions. Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.
+The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in both the European and Russian STALKER modding traditions.
+Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.
 
 Pure Lua where possible. No engine dependency unless necessary. No central loader. The engine auto-loads scripts on first access. Call xlog.get_logger() or xsquad.find_squads() and it works.
 
@@ -78,18 +80,25 @@ Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
 Performance:
-Performance comes first, ahead of any feature. A wrapper costs only the bridge call it wraps and adds no work of its own. When something cannot fit the budget it is reworked, replaced, or removed with an X-Ray engine modification rather than allowed to slow the game. The frame budget is fixed.
+Performance comes first, ahead of any feature.
+A wrapper costs only the bridge call it wraps and adds no work of its own.
+When something cannot fit the budget it is reworked or moved into an X-Ray engine modification, never left to slow the game.
+The frame budget is fixed.
 
 Compatibility:
 Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
-Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start. Everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
+Pure library. Does not modify any base scripts and adds no gameplay behavior of its own.
+xlog registers save/level-change flush callbacks and a periodic flush timer at game start.
+Everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
 
 Development:
 Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
 Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
-The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
-Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case. The optimized multithreaded build you run is always faster.
-Full report in doc/test-report.log.
+The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, and cross-file dependency resolution.
+It also runs cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, and gitleaks secret scanning.
+Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case.
+The optimized multithreaded build you run is always faster.
+The full report is in doc/test-report.log.
 
 FAQ:
 Do I need modded exes?
@@ -103,9 +112,10 @@ Usage and License:
   Modpacks: allowed and encouraged. Keep the readme and license files.
   Addons, patches, integrations: allowed. Credit "xlibs by Damian Sirbu" visibly on your mod page.
   Reproducing the implementation in other software: not allowed, even with credit.
-  Full license in LICENSE file and on GitHub.
+  The full license is in the LICENSE file and on GitHub.
 
 Reporting issues and suggestions
 Open a report at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose, or ask on the GAMMA, EFP, Anomaly, and Zona Discord servers. Read this readme first.
 
-Include: exact repro steps (new game or named save, expected vs actual), engine build, modlist, load order, and xray.log. With hundreds of mods loaded, only the log shows whether this one was involved.
+Include: exact repro steps (new game or named save, expected vs actual), engine build, modlist, load order, and xray.log.
+With hundreds of mods loaded, only the log shows whether this one was involved.
