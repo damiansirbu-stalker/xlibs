@@ -117,6 +117,151 @@ end
 
 -- ITEM ACCESSORS (game_object item in)
 
+-- Set (hash table) → flat array of keys.
+-- @cost O(n) keys, single pass
+local function _build_hand_list(s)
+    local list = {}
+    for k in pairs(s) do list[#list + 1] = k end
+    return list
+end
+
+-- Flat array from one Parse_ITM _ITM[bucket] hash. Empty array if bucket missing.
+-- @cost O(n) sections in bucket, single pass
+local function _build_bucket_list(bucket_name)
+    local list = {}
+    local bucket = _ITM and _ITM[bucket_name]
+    if not bucket then return list end
+    for sec in pairs(bucket) do list[#list + 1] = sec end
+    return list
+end
+
+-- Append unique entries from one bucket into list, tracking dedup via seen hash.
+-- @cost O(n) bucket entries, 1 hash op per entry
+local function _add_bucket_unique(bucket, list, seen)
+    for sec in pairs(bucket) do
+        if seen[sec] then goto continue end
+        seen[sec] = true
+        list[#list + 1] = sec
+        ::continue::
+    end
+end
+
+-- Union of N Parse_ITM buckets, de-duped.
+-- @cost O(total sections across buckets), single dedup hash
+local function _merge_buckets(buckets)
+    local list, seen = {}, {}
+    for i = 1, #buckets do
+        local bucket = _ITM and _ITM[buckets[i]]
+        if bucket then _add_bucket_unique(bucket, list, seen) end
+    end
+    return list
+end
+
+-- Filter _ITM["eatable"] (the combined food + drink + i_mutant_cooked bucket) by exact kind, without re-walking ini_sys.
+-- @cost O(n) eatable sections; per-section 1 cached _get_kind hit
+local function _filter_by_kind(target_kinds)
+    local list = {}
+    local bucket = _ITM and _ITM["eatable"]
+    if not bucket then return list end
+    for sec in pairs(bucket) do
+        if target_kinds[_get_kind(sec) or ""] then list[#list + 1] = sec end
+    end
+    return list
+end
+
+-- CWeaponAmmo::Load strict-reads k_ap, so an ammo section lacking it is a CTD on create; keep such sections out of the spawnable pool.
+-- @cost O(1), 1 luabind (r_float_ex, inheritance-aware)
+local function _is_ammo_spawnable(sec)
+    return ini_sys:r_float_ex(sec, "k_ap") ~= nil
+end
+
+-- @cost O(n) ammo sections in the bucket, 1 r_float_ex each; built once per session, cached
+local function _get_spawnable_ammo()
+    local list = {}
+    local bucket = _ITM and _ITM["ammo"]
+    if not bucket then return list end
+    for sec in pairs(bucket) do
+        if _is_ammo_spawnable(sec) then list[#list + 1] = sec end
+    end
+    return list
+end
+
+-- True when the actor's rank is below the floor tier named for this section or category.
+-- A missing floor entry or unresolved tier name returns false (no block).
+local function _is_below_floor(actor, floor, section, category)
+    local tier = floor and (floor[section] or floor[category])
+    if not tier then return false end
+    local interval = ranks.get_rank_interval(tier)
+    local lo = interval and interval[1]
+    local actor_rank = actor.character_rank and actor:character_rank()
+    return lo and actor_rank and actor_rank < lo or false
+end
+
+--- Gated on not is_degradable so the degradable path (including cond_r/cond_cr) is left untouched.
+--- @safety SAFE - skips nil se, table (ammo) returns without an id, and missing/zero cond
+local function _apply_cond(se, section, t)
+    if se and t and t.cond and se.id and not utils_item.is_degradable(nil, section) then
+        alife_process_item(section, se.id, { cond = t.cond })
+    end
+    return se
+end
+
+-- Parse a policy rule cell: "min, max" -> { min, max }, a bare "max" -> { min = 0, max }.
+-- Empty or malformed cells yield nil.
+local function _parse_rule(value)
+    if not value or value == "" then return nil end
+    local min_str, max_str = string_match(value, "(%S+)%s*,%s*(%S+)")
+    if min_str then
+        local min, max = tonumber(min_str), tonumber(max_str)
+        if min and max then return { min = min, max = max } end
+    end
+    local max_only = tonumber(value)
+    if max_only then return { min = 0, max = max_only } end
+    return nil
+end
+
+-- Contribution one item makes to its category count: ammo categories count rounds, others count 1 item per stack.
+local function _get_unit(category, item)
+    if category == AMMO_NOT_EQUIPPED
+        or string_sub(category, 1, 11) == AMMO_SLOT_2
+        or string_sub(category, 1, 11) == AMMO_SLOT_3 then
+        return item:ammo_get_count() or 0
+    end
+    return 1
+end
+
+-- Route one parsed LTX line into the accumulating block: numeric specials to block.specials, rows to entries + rules[key].
+-- A key is a category name or an item section name; both share one rules map, and malformed lines are skipped.
+local function _read_policy_line(key, value, specials_set, block)
+    if not key or key == "" then return end
+    if specials_set[key] then
+        block.specials[key] = tonumber(value) or 0
+        return
+    end
+    local rule = _parse_rule(value)
+    if not rule then return end
+    block.entries[#block.entries + 1] = { category = key, rule = rule }
+    block.rules[key] = rule
+end
+
+-- Load one policy block (one section). Missing section yields empty block.
+local function _load_policy_block(ini, section, specials_set)
+    local block = { entries = {}, rules = {}, specials = {} }
+    if not ini or not ini:section_exist(section) then return block end
+    local line_count = ini:line_count(section)
+    for i = 0, line_count - 1 do
+        local _, key, value = ini:r_line_ex(section, i, "", "")
+        _read_policy_line(key, value, specials_set, block)
+    end
+    return block
+end
+
+-- Tally one item's section into counts/order (order preserves first-seen for a stable line).
+local function _add_count(sec, counts, order)
+    counts[sec] = (counts[sec] or 0) + 1
+    if counts[sec] == 1 then order[#order + 1] = sec end
+end
+
 --- Get item section name. Wraps item:section() to keep mods from calling the engine method directly.
 --- The wrapper is the single seam for the shared_str-allocating section() call, so a nil item returns nil rather than crossing the bridge.
 --- @safety SAFE - nil-guarded item
@@ -317,75 +462,6 @@ end
 
 
 -- CATEGORY → SECTIONS (reverse map; used by trade BUY pass)
-
--- Set (hash table) → flat array of keys.
--- @cost O(n) keys, single pass
-local function _build_hand_list(s)
-    local list = {}
-    for k in pairs(s) do list[#list + 1] = k end
-    return list
-end
-
--- Flat array from one Parse_ITM _ITM[bucket] hash. Empty array if bucket missing.
--- @cost O(n) sections in bucket, single pass
-local function _build_bucket_list(bucket_name)
-    local list = {}
-    local bucket = _ITM and _ITM[bucket_name]
-    if not bucket then return list end
-    for sec in pairs(bucket) do list[#list + 1] = sec end
-    return list
-end
-
--- Append unique entries from one bucket into list, tracking dedup via seen hash.
--- @cost O(n) bucket entries, 1 hash op per entry
-local function _add_bucket_unique(bucket, list, seen)
-    for sec in pairs(bucket) do
-        if seen[sec] then goto continue end
-        seen[sec] = true
-        list[#list + 1] = sec
-        ::continue::
-    end
-end
-
--- Union of N Parse_ITM buckets, de-duped.
--- @cost O(total sections across buckets), single dedup hash
-local function _merge_buckets(buckets)
-    local list, seen = {}, {}
-    for i = 1, #buckets do
-        local bucket = _ITM and _ITM[buckets[i]]
-        if bucket then _add_bucket_unique(bucket, list, seen) end
-    end
-    return list
-end
-
--- Filter _ITM["eatable"] (the combined food + drink + i_mutant_cooked bucket) by exact kind, without re-walking ini_sys.
--- @cost O(n) eatable sections; per-section 1 cached _get_kind hit
-local function _filter_by_kind(target_kinds)
-    local list = {}
-    local bucket = _ITM and _ITM["eatable"]
-    if not bucket then return list end
-    for sec in pairs(bucket) do
-        if target_kinds[_get_kind(sec) or ""] then list[#list + 1] = sec end
-    end
-    return list
-end
-
--- CWeaponAmmo::Load strict-reads k_ap, so an ammo section lacking it is a CTD on create; keep such sections out of the spawnable pool.
--- @cost O(1), 1 luabind (r_float_ex, inheritance-aware)
-local function _is_ammo_spawnable(sec)
-    return ini_sys:r_float_ex(sec, "k_ap") ~= nil
-end
-
--- @cost O(n) ammo sections in the bucket, 1 r_float_ex each; built once per session, cached
-local function _get_spawnable_ammo()
-    local list = {}
-    local bucket = _ITM and _ITM["ammo"]
-    if not bucket then return list end
-    for sec in pairs(bucket) do
-        if _is_ammo_spawnable(sec) then list[#list + 1] = sec end
-    end
-    return list
-end
 
 local _SECTION_BUILDERS = {
     medkit  = function() return _build_hand_list(_medkit_set)  end,
@@ -593,17 +669,6 @@ end
 
 -- RANK GATE
 
--- True when the actor's rank is below the floor tier named for this section or category.
--- A missing floor entry or unresolved tier name returns false (no block).
-local function _is_below_floor(actor, floor, section, category)
-    local tier = floor and (floor[section] or floor[category])
-    if not tier then return false end
-    local interval = ranks.get_rank_interval(tier)
-    local lo = interval and interval[1]
-    local actor_rank = actor.character_rank and actor:character_rank()
-    return lo and actor_rank and actor_rank < lo or false
-end
-
 --- Rank-gated 0..1 appearance chance for a section under a ruleset: a hard rank floor, then the actor tier's first matching cost band.
 --- Missing floor / tier row / bands all open (chance 1), so an unconfigured ruleset never blocks; the caller rolls and fail-closes.
 --- @safety SAFE - nil-guarded section / actor / ruleset; bad tier name skips the floor
@@ -665,15 +730,6 @@ function iterate_inventory(npc_id, callback, max_items)
 end
 
 --- Force a requested condition onto a freshly created item that itms_manager silently dropped it for (no use_condition flag).
---- Gated on not is_degradable so the degradable path (including cond_r/cond_cr) is left untouched.
---- @safety SAFE - skips nil se, table (ammo) returns without an id, and missing/zero cond
-local function _apply_cond(se, section, t)
-    if se and t and t.cond and se.id and not utils_item.is_degradable(nil, section) then
-        alife_process_item(section, se.id, { cond = t.cond })
-    end
-    return se
-end
-
 --- Create an item on any NPC (online, offline, cross-map); all three branches route through alife_create_item.
 --- An offline NPC with an invalid lvid falls back to its smart terrain's position as the spawn anchor.
 --- @safety SAFE - all branches nil-guarded; smart fallback validates lvid
@@ -749,56 +805,6 @@ function release_item_id(id)
 end
 
 -- Policy primitives: one uniform LTX policy shape shared by every consumer; the values live in the consumer mods (see architecture.md).
-
--- Parse a policy rule cell: "min, max" -> { min, max }, a bare "max" -> { min = 0, max }.
--- Empty or malformed cells yield nil.
-local function _parse_rule(value)
-    if not value or value == "" then return nil end
-    local min_str, max_str = string_match(value, "(%S+)%s*,%s*(%S+)")
-    if min_str then
-        local min, max = tonumber(min_str), tonumber(max_str)
-        if min and max then return { min = min, max = max } end
-    end
-    local max_only = tonumber(value)
-    if max_only then return { min = 0, max = max_only } end
-    return nil
-end
-
--- Contribution one item makes to its category count: ammo categories count rounds, others count 1 item per stack.
-local function _get_unit(category, item)
-    if category == AMMO_NOT_EQUIPPED
-        or string_sub(category, 1, 11) == AMMO_SLOT_2
-        or string_sub(category, 1, 11) == AMMO_SLOT_3 then
-        return item:ammo_get_count() or 0
-    end
-    return 1
-end
-
--- Route one parsed LTX line into the accumulating block: numeric specials to block.specials, rows to entries + rules[key].
--- A key is a category name or an item section name; both share one rules map, and malformed lines are skipped.
-local function _read_policy_line(key, value, specials_set, block)
-    if not key or key == "" then return end
-    if specials_set[key] then
-        block.specials[key] = tonumber(value) or 0
-        return
-    end
-    local rule = _parse_rule(value)
-    if not rule then return end
-    block.entries[#block.entries + 1] = { category = key, rule = rule }
-    block.rules[key] = rule
-end
-
--- Load one policy block (one section). Missing section yields empty block.
-local function _load_policy_block(ini, section, specials_set)
-    local block = { entries = {}, rules = {}, specials = {} }
-    if not ini or not ini:section_exist(section) then return block end
-    local line_count = ini:line_count(section)
-    for i = 0, line_count - 1 do
-        local _, key, value = ini:r_line_ex(section, i, "", "")
-        _read_policy_line(key, value, specials_set, block)
-    end
-    return block
-end
 
 --- Load an LTX policy file with the uniform {min, max}-per-key shape; each named section yields { entries, rules, specials }.
 --- entries preserves declaration order (= BUY / LOOT priority), rules is the per-key hash, specials carries the specials_set numerics.
@@ -971,12 +977,6 @@ function disable_move(flags)
 end
 
 -- INVENTORY DUMP (diagnostic)
-
--- Tally one item's section into counts/order (order preserves first-seen for a stable line).
-local function _add_count(sec, counts, order)
-    counts[sec] = (counts[sec] or 0) + 1
-    if counts[sec] == 1 then order[#order + 1] = sec end
-end
 
 --- Dump an NPC's inventory to a log function as ONE aggregated per-section-counts line.
 --- Call it behind the calling mod's own debug gate; it does no gating itself.
