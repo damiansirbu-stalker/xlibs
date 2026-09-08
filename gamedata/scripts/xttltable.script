@@ -1,4 +1,4 @@
---- xttltable: TTL table, sliding-window counter, token bucket, and FIFO cache primitives
+--- xttltable: TTL table, sliding-window counter, token bucket, and FIFO cache primitives; all durations in seconds
 
 local pairs, type, setmetatable = pairs, type, setmetatable
 local clock, min = os.clock, math.min
