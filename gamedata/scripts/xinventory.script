@@ -329,10 +329,10 @@ end
 -- @cost O(n) bucket entries, 1 hash op per entry
 local function _add_bucket_unique(bucket, list, seen)
     for sec in pairs(bucket) do
-        if not seen[sec] then
-            seen[sec] = true
-            list[#list + 1] = sec
-        end
+        if seen[sec] then goto continue end
+        seen[sec] = true
+        list[#list + 1] = sec
+        ::continue::
     end
 end
 

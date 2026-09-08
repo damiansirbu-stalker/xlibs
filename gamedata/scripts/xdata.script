@@ -165,18 +165,16 @@ guides, guards, bodyguards            = {}, {}, {}
 leaders, quests                       = {}, {}
 unscriptable_npcs                     = {}
 
-do
-    local bucket = {
-        trader = traders, medic = medics, mechanic = mechanics,
-        guide  = guides,  guard = guards, bodyguard = bodyguards,
-        leader = leaders, quest = quests,
-    }
-    for section, roles in pairs(npc_roles) do
-        unscriptable_npcs[section] = true
-        for role in pairs(roles) do
-            local set = bucket[role]
-            if set then set[section] = true end
-        end
+local role_bucket = {
+    trader = traders, medic = medics, mechanic = mechanics,
+    guide  = guides,  guard = guards, bodyguard = bodyguards,
+    leader = leaders, quest = quests,
+}
+for section, roles in pairs(npc_roles) do
+    unscriptable_npcs[section] = true
+    for role in pairs(roles) do
+        local set = role_bucket[role]
+        if set then set[section] = true end
     end
 end
 

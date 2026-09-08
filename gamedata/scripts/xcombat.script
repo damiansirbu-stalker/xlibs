@@ -508,10 +508,10 @@ function xcombat.apply_takeover_block(npc)
     for i = 1, #blocked do
         local aid = blocked[i]
         local act = not done[aid] and manager:action(aid) or nil
-        if act then
-            act:add_precondition(world_property(TAKEOVER_ID, false))
-            done[aid] = true
-        end
+        if not act then goto continue end
+        act:add_precondition(world_property(TAKEOVER_ID, false))
+        done[aid] = true
+        ::continue::
     end
 end
 
