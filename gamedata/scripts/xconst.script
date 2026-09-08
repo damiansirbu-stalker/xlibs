@@ -14,3 +14,12 @@ INVALID_BONE_ID = 65535
 
 --- Actor entity ID (engine convention: actor allocated as first server slot, db.actor:id() == 0)
 ACTOR_ENTITY_ID = 0
+
+--- Per-NPC engine relation names (game_object:relation result mapped to a string by xcreature.relation)
+RELATION = { ENEMY = "enemy", NEUTRAL = "neutral", FRIEND = "friend" }
+
+--- Task status strings on task_manager task_info entries (axr_task_manager.script)
+TASK_STATUS = { FAIL = "fail", COMPLETED = "completed" }
+
+--- Faction community strings shared across queries (squad player_id / character community)
+COMMUNITY = { TRADER = "trader", ZOMBIED = "zombied" }

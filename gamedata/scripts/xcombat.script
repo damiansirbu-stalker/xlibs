@@ -19,6 +19,9 @@ xcombat.FIRE,  xcombat.SNIPE,  xcombat.READY, xcombat.STOW = "FIRE", "SNIPE", "R
 xcombat.STAND, xcombat.CROUCH = "STAND", "CROUCH"
 xcombat.STILL, xcombat.WALK,   xcombat.RUN  = "STILL", "WALK", "RUN"
 
+-- find_cover selection modes (the opts.selection contract): nearest wins on distance, best on concealment score.
+xcombat.COVER = { NEAREST = "nearest", BEST = "best" }
+
 -- Weapon classification
 
 -- The w_sniper palette classifier a consumer's doctrine weapon palette keys on.
@@ -746,7 +749,7 @@ function xcombat.set_combat(npc, opts)
         local mvt = MOVE_KEY[opts.movement]
         if mvt then npc:set_movement_type(move[mvt]) end
     end
-    if fire == "STOW" then
+    if fire == xcombat.STOW then
         npc:set_sight(look.path_dir, nil, 0)
     end
     if aim then
@@ -1431,9 +1434,9 @@ end
 --- @return number|nil cover vertex id, or nil
 function xcombat.find_cover(npc, enemy_pos, opts)
     assert(opts and opts.firing ~= nil and opts.radius and opts.search_pos
-        and (opts.selection == "nearest" or opts.selection == "best"),
+        and (opts.selection == xcombat.COVER.NEAREST or opts.selection == xcombat.COVER.BEST),
         "xcombat.find_cover requires opts.selection ('nearest'|'best'), opts.firing (boolean), opts.radius, opts.search_pos")
-    if opts.selection == "best" then
+    if opts.selection == xcombat.COVER.BEST then
         return _find_best_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)
     end
     return _find_nearest_cover(npc, enemy_pos, opts.radius, opts.search_pos, opts.firing)

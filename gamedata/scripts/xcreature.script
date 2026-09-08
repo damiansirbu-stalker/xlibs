@@ -240,7 +240,7 @@ end
 --- @param input number|userdata|table entity id or object
 --- @return boolean true for a zombied-community stalker
 function is_zombied(input)
-    return get_community(input) == "zombied"
+    return get_community(input) == xconst.COMMUNITY.ZOMBIED
 end
 
 --- Relation of an online object to the actor: "enemy" | "neutral" | "friend", or nil if unresolvable.
@@ -255,9 +255,9 @@ function get_actor_relation(obj)
     local actor = db.actor
     if not (obj and actor and obj.relation) then return nil end
     local rel = obj:relation(actor)
-    if rel >= game_object.enemy then return "enemy" end
-    if rel <= game_object.friend then return "friend" end
-    return "neutral"
+    if rel >= game_object.enemy then return xconst.RELATION.ENEMY end
+    if rel <= game_object.friend then return xconst.RELATION.FRIEND end
+    return xconst.RELATION.NEUTRAL
 end
 
 --- True if an online object is an enemy of the actor (per-NPC relation, not community). See get_actor_relation.
@@ -266,7 +266,7 @@ end
 --- @param obj game_object online object
 --- @return boolean
 function is_actor_enemy(obj)
-    return get_actor_relation(obj) == "enemy"
+    return get_actor_relation(obj) == xconst.RELATION.ENEMY
 end
 
 --- Numeric per-NPC goodwill of an online object toward the actor (engine general_goodwill), or nil.
@@ -293,9 +293,9 @@ end
 function relation(a, b)
     if not (a and b and a.relation) then return nil end
     local rel = a:relation(b)
-    if rel >= game_object.enemy then return "enemy" end
-    if rel <= game_object.friend then return "friend" end
-    return "neutral"
+    if rel >= game_object.enemy then return xconst.RELATION.ENEMY end
+    if rel <= game_object.friend then return xconst.RELATION.FRIEND end
+    return xconst.RELATION.NEUTRAL
 end
 
 --- True if object a is an enemy of object b (per-NPC relation, not community). See relation.
@@ -305,7 +305,7 @@ end
 --- @param b game_object online target
 --- @return boolean
 function is_enemy(a, b)
-    return relation(a, b) == "enemy"
+    return relation(a, b) == xconst.RELATION.ENEMY
 end
 
 -- Mutant section prefix -> display name (inv_name often missing for mutants)
@@ -618,7 +618,7 @@ function is_task_giver(obj)
     local squad = get_object_squad(obj)
     local squad_id = squad and squad.id
     for _, tsk in pairs(tm.task_info) do
-        if tsk.status == "fail" or tsk.status == "completed" then goto continue end
+        if tsk.status == xconst.TASK_STATUS.FAIL or tsk.status == xconst.TASK_STATUS.COMPLETED then goto continue end
         local gid = tsk.task_giver_id
         if not gid then goto continue end
         if gid == npc_id or gid == squad_id then return true end

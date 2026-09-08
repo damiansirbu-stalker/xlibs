@@ -12,6 +12,8 @@ local CLSID_SQUAD = clsid.online_offline_group_s
 
 -- Squads returned when the caller sets no max_count.
 local DEFAULT_MAX_SQUADS = 3
+-- Skip reason returned by _is_base_valid when a squad is protected from release.
+local FLAG_PROTECTED = "protected"
 
 -- Static cache: story_id, trader, named_npc never change within a session (weak keys, GC-safe).
 local _static_cache = setmetatable({}, { __mode = "k" })
@@ -50,7 +52,7 @@ local function _is_task_giver(squad, squad_id, cmd_id)
     if not tm or not tm.task_info then return false end
     local givers
     for _, tsk in pairs(tm.task_info) do
-        if tsk.status == "fail" or tsk.status == "completed" then goto continue end
+        if tsk.status == xconst.TASK_STATUS.FAIL or tsk.status == xconst.TASK_STATUS.COMPLETED then goto continue end
         local gid = tsk.task_giver_id
         if not gid then goto continue end
         if gid == squad_id or gid == cmd_id then return true end
@@ -146,7 +148,7 @@ end
 -- Check if the commander is a trader or named NPC (immutable within a session).
 -- @cost O(1) | 2 luabind (clsid trivial, community heavy shared_str alloc)
 local function _check_static_identity(se_cmd, sec)
-    if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == "trader" then return "trader" end
+    if IsStalker(nil, se_cmd:clsid()) and se_cmd:community() == xconst.COMMUNITY.TRADER then return "trader" end
     if sec and xdata.unscriptable_npcs[sec] then return "named_npc" end
     return nil
 end
@@ -398,7 +400,7 @@ local function _is_base_valid(squad, opts)
     local faction = squad.player_id
     if not faction then return false end
     if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then return false end
-    if is_protected(squad, opts) then return false, nil, "protected" end
+    if is_protected(squad, opts) then return false, nil, FLAG_PROTECTED end
     return true, faction
 end
 
@@ -587,7 +589,7 @@ function find_squads(pos, opts)
         local squad = sim:object(squad_id)
         local ok, comm, skip_reason = _is_base_valid(squad, opts)
         if not ok then
-            if skip_reason == "protected" then skipped_protected = skipped_protected + 1 end
+            if skip_reason == FLAG_PROTECTED then skipped_protected = skipped_protected + 1 end
             goto continue
         end
         if not _is_faction_match(comm, factions) then goto continue end

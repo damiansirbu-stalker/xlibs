@@ -175,7 +175,7 @@ end
 -- @cost O(1) | 1 community + 1 clsid + _get_section_roles + _get_trade_role, cached per NPC id after first call
 local function _get_role(npc, sec)
     local roles = _get_section_roles(sec)
-    if character_community(npc) == "trader" then roles.trader = true end
+    if character_community(npc) == xconst.COMMUNITY.TRADER then roles.trader = true end
     local cls = npc:clsid()
     if cls == clsid.script_trader or cls == clsid.trader then roles.trader = true end
     local trade_role = _get_trade_role(npc)
