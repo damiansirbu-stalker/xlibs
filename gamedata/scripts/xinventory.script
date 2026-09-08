@@ -729,9 +729,8 @@ function iterate_inventory(npc_id, callback, max_items)
     return npc_go, hit_cap
 end
 
---- Force a requested condition onto a freshly created item that itms_manager silently dropped it for (no use_condition flag).
---- Create an item on any NPC (online, offline, cross-map); all three branches route through alife_create_item.
---- An offline NPC with an invalid lvid falls back to its smart terrain's position as the spawn anchor.
+--- Create an item on any NPC, online, offline, or cross-map.
+--- Force the requested condition onto the new item, which itms_manager otherwise drops.
 --- @safety SAFE - all branches nil-guarded; smart fallback validates lvid
 --- @cost O(log n) | 2-4 luabind (alife_object medium + alife_create_item heavy)
 --- @src anomaly/_g.script(2129), anomaly/itms_manager.script(1254)
