@@ -53,6 +53,47 @@ local function get_type(obj, cls)
     return OBJECT_TYPE.OBJECT
 end
 
+local format_value
+
+local function _format_key(k)
+    local kt = type(k)
+    if kt == "string" then
+        return k:match("^[_%a][_%w]*$") and k or ("[\"" .. k .. "\"]")
+    end
+    return "[" .. (kt == "number" and k or tostring(k)) .. "]"
+end
+
+local function _format_table(v, depth, ctx)
+    ctx.seen[v] = true
+    local parts = {}
+    local count = 0
+    local max_items = 20
+
+    for k, val in pairs(v) do
+        count = count + 1
+        if count > max_items then
+            parts[#parts + 1] = "...(truncated)"
+            break
+        end
+        parts[#parts + 1] = _format_key(k) .. "=" .. format_value(val, depth + 1, ctx)
+    end
+
+    ctx.seen[v] = nil
+    return "{" .. table_concat(parts, ", ") .. "}"
+end
+
+format_value = function(v, depth, ctx)
+    local vt = type(v)
+
+    local simple = SIMPLE_TYPES[vt]
+    if simple then return simple(v) end
+
+    if vt ~= "table" then return tostring(v) end
+    if ctx.seen[v] then return string_format("<cycle:%s>", tostring(v)) end
+    if depth >= ctx.max_depth then return "{...}" end
+    return _format_table(v, depth, ctx)
+end
+
 --- Format userdata (X-Ray game object) with rich info. Extracts id/name/section/community/alive/rank via pcall; output: @type{id=N, name="x", sec="y", ...}
 --- Each field is pcall-wrapped on its own, so a released or partly-invalid object still yields a partial record instead of crashing the inspector.
 --- @safety pcall: game objects may be released/invalid, methods crash, see doc/library/modding/pcall-safety.md
@@ -107,47 +148,6 @@ function format_userdata(obj)
     end
     local prefix = obj_type and ("@" .. obj_type) or "@obj"
     return prefix .. "{" .. table_concat(parts, ", ") .. "}"
-end
-
-local format_value
-
-local function _format_key(k)
-    local kt = type(k)
-    if kt == "string" then
-        return k:match("^[_%a][_%w]*$") and k or ("[\"" .. k .. "\"]")
-    end
-    return "[" .. (kt == "number" and k or tostring(k)) .. "]"
-end
-
-local function _format_table(v, depth, ctx)
-    ctx.seen[v] = true
-    local parts = {}
-    local count = 0
-    local max_items = 20
-
-    for k, val in pairs(v) do
-        count = count + 1
-        if count > max_items then
-            parts[#parts + 1] = "...(truncated)"
-            break
-        end
-        parts[#parts + 1] = _format_key(k) .. "=" .. format_value(val, depth + 1, ctx)
-    end
-
-    ctx.seen[v] = nil
-    return "{" .. table_concat(parts, ", ") .. "}"
-end
-
-format_value = function(v, depth, ctx)
-    local vt = type(v)
-
-    local simple = SIMPLE_TYPES[vt]
-    if simple then return simple(v) end
-
-    if vt ~= "table" then return tostring(v) end
-    if ctx.seen[v] then return string_format("<cycle:%s>", tostring(v)) end
-    if depth >= ctx.max_depth then return "{...}" end
-    return _format_table(v, depth, ctx)
 end
 
 --- Format a table with cycle detection and depth limiting; returns tostring(t) for non-table input.
