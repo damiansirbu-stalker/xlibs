@@ -30,6 +30,9 @@ next
   xcreature
     - Added is_zombied(obj): the stalker community zombied read, the mindless-shambler exclusion the combat layers bail on. Not the mutant zombie species.
 
+  xsmart
+    - Removed has_jobs_for(smart, squad). An unused presence check. Per-member job reads go through get_npc_job.
+
   xsquad
     - Added is_last_man(npc_id): squadless or sole surviving member, the rout eligibility read.
     - Added squad_record(squad): the one-line per-squad diagnostic formatter (community, level, member count, current smart, target, commander role and name), now shared by dump_squads so both carry the commander name.

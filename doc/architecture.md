@@ -346,7 +346,6 @@ Service NPC resolution (online + actor-level via npc_info walk):
 Squad-smart interaction:
 - `is_arrived(squad, smart)` - Delegates to engine's am_i_reached
 - `get_proximity(squad, smart)` - Distance and arrival metadata (gvid match, same-level, threshold)
-- `has_jobs_for(smart, squad)` - True if every squad member has engine-assigned job at smart (online + actor-level only)
 
 Jobs (smart.stalker_jobs):
 - `has_stalker_jobs(smart, type_id)` - Has any (type_id nil) or specific job_type_id (e.g. JOB_TYPE_TRADER = 15)
