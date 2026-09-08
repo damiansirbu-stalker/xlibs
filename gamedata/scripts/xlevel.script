@@ -259,10 +259,10 @@ local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
     local links = level_targets and level_targets.level_links and level_targets.level_links[lvl]
     if not links then return end
     for neighbor in pairs(links) do
-        if not visited[neighbor] then
-            visited[neighbor] = true
-            next_frontier[neighbor] = true
-        end
+        if visited[neighbor] then goto continue end
+        visited[neighbor] = true
+        next_frontier[neighbor] = true
+        ::continue::
     end
 end
 
