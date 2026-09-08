@@ -43,6 +43,67 @@ SND = {
     LIGHT_HUMMING     = "ambient\\special\\light_humming",
 }
 
+-- global name (e.g. "COnAmbientBed") -> registered handler function
+local _sound_handlers = {}
+
+-- Step current toward target by smoothing per second.
+-- @cost O(1) | 0 luabind
+local function _compute_step(current, target, smoothing, dt_sec)
+    local delta = smoothing * dt_sec
+    if math_abs(target - current) <= delta then return target end
+    if current < target then return current + delta end
+    return current - delta
+end
+
+-- Per-frame volume lerp plus auto-cleanup when a releasing handle reaches 0.
+-- @cost O(n_active) | 0 luabind (sound_object.volume is property assign)
+local function _update()
+    local now = time_global()
+    if now - _last_tick < TICK_MS then return end
+    local dt_sec = (now - _last_tick) / 1000
+    _last_tick = now
+
+    for handle, entry in pairs(_active) do
+        local finished = entry.oneshot and not entry.sound:playing()
+        if not entry.oneshot and entry.volume ~= entry.target_volume then
+            entry.volume = _compute_step(entry.volume, entry.target_volume, entry.smoothing, dt_sec)
+            entry.sound.volume = entry.volume
+        end
+        if not entry.oneshot and entry.releasing and entry.volume <= 0.001 then
+            entry.sound:stop()
+            finished = true
+        end
+        if finished then _dead[#_dead + 1] = handle end
+    end
+    for i = #_dead, 1, -1 do
+        _active[_dead[i]] = nil
+        _dead[i] = nil
+    end
+
+    if next(_active) == nil and _registered then
+        UnregisterScriptCallback("actor_on_update", _update)
+        _registered = false
+    end
+end
+
+-- Install or remove one engine sound seam; the _G function re-reads _sound_handlers each call so a later detach or swap is immediate.
+-- NOT cleared on_game_start: filesystem-order on_game_start() would wipe a consumer that registered before xsound.
+-- @cost O(1) | 0 luabind
+local function _set_sound_handler(global_name, handler)
+    assert(handler == nil or type(handler) == "function",
+        "xsound: sound handler for " .. global_name .. " must be a function or nil")
+    _sound_handlers[global_name] = handler
+    if handler then
+        _G[global_name] = function(...)
+            local current = _sound_handlers[global_name]
+            if not current then return nil end
+            return current(...)
+        end
+    else
+        _G[global_name] = nil
+    end
+end
+
 --- Play a one-shot sound (fire-and-forget: no handle, no lerp) via play_no_feedback, so the GC never cuts the engine-owned emitter.
 --- For short cues that never need stopping; use play_at for a STOPPABLE one-shot, create_sound/release for loops.
 --- @safety SAFE - nil-guarded on db.actor and sound_object_t constructor
@@ -134,46 +195,6 @@ function length(snd_path)
     local snd = sound_object_t(snd_path)
     if not snd then return 0 end
     return snd:length() or 0
-end
-
--- Step current toward target by smoothing per second.
--- @cost O(1) | 0 luabind
-local function _compute_step(current, target, smoothing, dt_sec)
-    local delta = smoothing * dt_sec
-    if math_abs(target - current) <= delta then return target end
-    if current < target then return current + delta end
-    return current - delta
-end
-
--- Per-frame volume lerp plus auto-cleanup when a releasing handle reaches 0.
--- @cost O(n_active) | 0 luabind (sound_object.volume is property assign)
-local function _update()
-    local now = time_global()
-    if now - _last_tick < TICK_MS then return end
-    local dt_sec = (now - _last_tick) / 1000
-    _last_tick = now
-
-    for handle, entry in pairs(_active) do
-        local finished = entry.oneshot and not entry.sound:playing()
-        if not entry.oneshot and entry.volume ~= entry.target_volume then
-            entry.volume = _compute_step(entry.volume, entry.target_volume, entry.smoothing, dt_sec)
-            entry.sound.volume = entry.volume
-        end
-        if not entry.oneshot and entry.releasing and entry.volume <= 0.001 then
-            entry.sound:stop()
-            finished = true
-        end
-        if finished then _dead[#_dead + 1] = handle end
-    end
-    for i = #_dead, 1, -1 do
-        _active[_dead[i]] = nil
-        _dead[i] = nil
-    end
-
-    if next(_active) == nil and _registered then
-        UnregisterScriptCallback("actor_on_update", _update)
-        _registered = false
-    end
 end
 
 -- Register the actor_on_update callback on first create_sound; idempotent on later calls
@@ -276,27 +297,6 @@ function get_snapshot(handle)
 end
 
 -- Engine sound seams (trace + veto over the ambient soundscape): xlibs owns the raw _G seams and routes each to one registered handler, inert on a stock exe.
-
--- global name (e.g. "COnAmbientBed") -> registered handler function
-local _sound_handlers = {}
-
--- Install or remove one engine sound seam; the _G function re-reads _sound_handlers each call so a later detach or swap is immediate.
--- NOT cleared on_game_start: filesystem-order on_game_start() would wipe a consumer that registered before xsound.
--- @cost O(1) | 0 luabind
-local function _set_sound_handler(global_name, handler)
-    assert(handler == nil or type(handler) == "function",
-        "xsound: sound handler for " .. global_name .. " must be a function or nil")
-    _sound_handlers[global_name] = handler
-    if handler then
-        _G[global_name] = function(...)
-            local current = _sound_handlers[global_name]
-            if not current then return nil end
-            return current(...)
-        end
-    else
-        _G[global_name] = nil
-    end
-end
 
 --- Register (or clear, with nil) the System A background-bed handler: fn(section, file, pos) -> nil | { volume_mult = number }.
 --- @safety SAFE  @cost O(1) | 0 luabind
