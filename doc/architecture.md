@@ -1,16 +1,32 @@
 # xlibs Architecture
 
-Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals only.
+Shared utility library for STALKER Anomaly Lua modding. It is pure Lua and uses only game globals.
 
 ---
 
 ## Invariants
 
-- **No steady-state per-frame work.** Ongoing work runs on a throttled tick (a fixed interval) or on a discrete engine event (hit, shot, spawn, option change); it never runs continuously every frame. A per-frame engine callback (`npc_on_update`) is used only as a carrier that throttles before doing anything, and we never place our code on a path the engine runs every frame (a visibility or fire functor). Frame-spreading a bounded one-off batch (xslice, 1 item per frame) to avoid a single-frame spike is the one allowed use of the frame; it completes and stops. Full rule and rationale: `doc/standards/stalker-code.md` "No Per-Frame Work".
-- **Steady-state silence.** xlibs modules do not log during normal operation; instrumentation runs only through a consumer-created xlog logger in the consumer's own code. The one permitted logging class is a load-time caller-misuse warning (a boundary diagnostic surfacing a caller bug before it becomes silent data loss): xchange warns on a bad or duplicate changeset registration because a silently skipped migration is a data hazard nobody would hear.
-- **Passive library, no self-registration.** xlibs is a library, not a framework; the caller owns control flow. This is inversion of control: a library is called by your code, a framework calls yours. No module registers an engine callback, starts a re-arming timer, or hooks a game function on its own initiative or inside its own `on_game_start`. A module holds state (an id set, a cache) and exposes handler functions; the calling mod does the registration in its own `on_game_start` (its composition root), the way `ap_core_callbacks` registers xlibs handlers. The only engine-driven form allowed is a bounded, self-terminating job the caller explicitly starts and that then stops (xslice.start's per-frame drain, xpp.release's one-shot cleanup). A persistent or hidden self-subscription is forbidden: a per-frame handler behind a getter, or a lifecycle callback or periodic timer registered in on_game_start.
-- **Performance first.** Performance is the top priority and outranks features. A wrapper adds no overhead beyond the bridge call it wraps; one that cannot stay within budget is reworked, or its cost is moved into an engine modification, never carried in script. See `doc/standards/stalker-code.md` "Performance is the priority".
-- **Use the engine, don't work around it.** xlibs is the release-safe wrapper over the engine's and Anomaly layer's native mechanisms; it never reimplements what they already do. Callers escalate through the wrapper: use it, nudge or correct, and change the layer (an engine modification or a full-file override) only as a last resort. See `doc/standards/stalker-code.md` "Use the engine, don't work around it".
+- **No steady-state per-frame work.** Ongoing work runs on a throttled interval or on a discrete engine event (hit, shot, spawn, option change), never continuously every frame.
+  A per-frame engine callback (`npc_on_update`) is only a carrier that throttles before doing anything.
+  We never place our code on a path the engine runs every frame (a visibility or fire functor).
+  Frame-spreading a bounded one-off batch (xslice, 1 item per frame) to avoid a single-frame spike is the one allowed use of the frame. It completes and stops.
+  Full rule and rationale: `doc/standards/stalker-code.md` "No Per-Frame Work".
+- **Steady-state silence.** xlibs modules do not log during normal operation. Instrumentation runs only through a consumer-created xlog logger in the consumer's own code.
+  The one permitted logging class is a load-time caller-misuse warning, a boundary diagnostic surfacing a caller bug before it becomes silent data loss.
+  xchange warns on a bad or duplicate changeset registration because a silently skipped migration is a data hazard nobody would hear.
+- **Passive library, no self-registration.** xlibs is a library, not a framework. The caller owns control flow.
+  This is inversion of control: a library is called by your code, a framework calls yours.
+  No module registers an engine callback, starts a re-arming timer, or hooks a game function on its own initiative or inside its own `on_game_start`.
+  A module holds state (an id set, a cache) and exposes handler functions.
+  The calling mod does the registration in its own `on_game_start` (its composition root), the way `ap_core_callbacks` registers xlibs handlers.
+  The only engine-driven form allowed is a bounded, self-terminating job the caller explicitly starts and that then stops (xslice.start's per-frame drain, xpp.release's one-shot cleanup).
+  A persistent or hidden self-subscription is forbidden: a per-frame handler behind a getter, or a lifecycle callback or periodic timer registered in on_game_start.
+- **Performance first.** Performance is the top priority and outranks features.
+  A wrapper adds no overhead beyond the bridge call it wraps. One that cannot stay within budget is reworked, or its cost is moved into an engine modification, never carried in script.
+  See `doc/standards/stalker-code.md` "Performance is the priority".
+- **Use the engine, don't work around it.** xlibs is the release-safe wrapper over the engine's and Anomaly layer's native mechanisms. It never reimplements what they already do.
+  Callers escalate through the wrapper: use it, nudge or correct, and change the layer (an engine modification or a full-file override) only as a last resort.
+  See `doc/standards/stalker-code.md` "Use the engine, don't work around it".
 
 ---
 
@@ -62,7 +78,9 @@ Shared utility library for STALKER Anomaly Lua modding. Pure Lua, game globals o
 
 ### Note: Derived Events via xevent Hooks
 
-The derived event pattern uses `xevent.hook` to intercept game functions and emit synthetic callbacks: any game function that lacks a callback can be hooked, the wrapper emitting via `SendScriptCallback`. xlibs ships the `xevent` primitive only; consumers declare (`AddScriptCallback`) and fire their own events with it.
+The derived event pattern uses `xevent.hook` to intercept game functions and emit synthetic callbacks.
+Any game function that lacks a callback can be hooked, the wrapper emitting via `SendScriptCallback`.
+xlibs ships the `xevent` primitive only. Consumers declare (`AddScriptCallback`) and fire their own events with it.
 
 ### xlog.script - Logging
 
@@ -88,7 +106,7 @@ xbus.subscribe("event:name", function(data) ... end, "my_handler")
 xbus.publish("event:name", { key = value })
 ```
 
-- `subscribe(event, callback, name)` - Register handler; rejects duplicates by name
+- `subscribe(event, callback, name)` - Register handler. Rejects duplicates by name
 - `publish(event, data)` - Dispatch to all handlers, direct calls (no pcall: subscribers are internal modules, errors must be visible)
 
 ### xcreature.script - Creature/Entity Identification
@@ -100,13 +118,15 @@ local name = xcreature.get_name(entity_id)
 ```
 
 - `is_stalker(input)`, `is_mutant(input)`, `is_npc(input)` - Entity type checks
-- `is_trader(input)` - True if entity is Script_Trader CSE (clsid 37 / 36); catches Sidorovich-class
-- `make_trader(npc, cfg_path, stock_now)` - Make an online NPC a functional shopkeeper from a vanilla trade config (trade_manager.trade_init + optional immediate stock); never touches character_community, so faction-scoped trade systems keep seeing it
+- `is_trader(input)` - True if entity is Script_Trader CSE (clsid 37 / 36). Catches Sidorovich-class
+- `make_trader(npc, cfg_path, stock_now)` - Make an online NPC a functional shopkeeper from a vanilla trade config (trade_manager.trade_init + optional immediate stock).
+  Never touches character_community, so faction-scoped trade systems keep seeing it
 - `community(input)` - Get faction community
-- `get_name(input)` - Translated name; translate-first for mutants (inv_name, then section key, then the English hash), memoized per section. Returns nil for nil entities and nameless stalkers - callers pick the fallback
+- `get_name(input)` - Translated name. Translate-first for mutants (inv_name, then section key, then the English hash), memoized per section.
+  Returns nil for nil entities and nameless stalkers - callers pick the fallback
 - `get_money(obj)`, `give_money(obj, amount)`, `transfer_money(from, amount, to)` - Ruble reads and moves, u32-underflow guarded
 - `online_iter_with_id()` - Iterator over online game objects yielding (id, obj) pairs
-- `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog", etc.). Handles modded exe clsid reuse via section prefix fallback. player_id fast reject for stalkers (0 luabind).
+- `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog"). Handles modded exe clsid reuse via section prefix, with a player_id fast reject for stalkers.
 - `get_mutant_variant(input)` - Full NPC variant section ("bloodsucker_red_strong", "dog_weak_brown")
 - `is_unscriptable(obj)` - Check against xdata.unscriptable_npcs
 - `is_task_giver(obj)` - Check NPC/squad ID against active tasks
@@ -126,9 +146,10 @@ xsquad.release_squad(squad)
 - `release_squads(opts)` - Bulk release with filter
 - `create_squad(smart, section)` - Spawn a squad at a smart through the vanilla board path (roster + squad_on_npc_creation native)
 - `get_squad_smart(squad)`
-- `is_stationed(squad, smart_id)` - True when engine considers squad stationed (current_action=1). With smart_id, also requires current_target_id match. Sticky until idle_time expires or new target assigned
+- `is_stationed(squad, smart_id)` - True when engine considers squad stationed (current_action=1). With smart_id, also requires current_target_id match.
+  Sticky until idle_time expires or new target assigned
 - `get_member_squad(npc_id)` - Get squad containing NPC
-- `get_community(squad)` - Raw community id (faction key), untranslated. Use for keying/comparison; the translated `get_community_name` is display-only
+- `get_community(squad)` - Raw community id (faction key), untranslated. Use for keying/comparison. The translated `get_community_name` is display-only
 - `get_community_name(squad)` - Translated community name (safe, never nil)
 - `is_permanent_squad(squad)` - Static identity check (story, trader, named_npc, empty), cached
 - `has_active_role(squad)` - Dynamic role check (task_giver, companion)
@@ -139,11 +160,12 @@ xsquad.release_squad(squad)
 - `has_squad(pos, opts)` - Short-circuiting boolean: any squad within max_distance matches?
 - `collect_squad_ids(out)` - Fill a set with all SIMBOARD squad ids
 - `get_commander_rank(squad)`, `get_commander_name(squad)` - Commander metadata reads
-- `is_protected(squad, opts)` - Unified protection check. Runs guards in order: exclude_filter, is_scripted, is_permanent, has_active_role, is_task_target. Shares commander resolution across checks. Each guard toggled via opts flags.
+- `is_protected(squad, opts)` - Unified protection check. Runs guards in order: exclude_filter, is_scripted, is_permanent, has_active_role, is_task_target.
+  Shares commander resolution across checks. Each guard toggled via opts flags.
 - `reassert_target(squad, target)` - Restore scripted_target if cleared by another mod between scans
 - `iter_squads()` - Iterator over all SIMBOARD squads
 - `iter_member_ids(squad)` - Iterator yielding member entity IDs
-- `squad_record(squad)` - One-line diagnostic record for a squad (community, pid, level, npc count, current smart, target, commander role and name); the single per-squad formatter
+- `squad_record(squad)` - One-line per-squad diagnostic record (community, pid, level, npc count, current smart, target, commander role and name).
 - `dump_squads()` - Diagnostic string of all SIMBOARD squads (one `squad_record()` per squad)
 
 ### xcombat.script - Combat AI Primitives
@@ -154,39 +176,65 @@ xcombat.send_to(npc, xcombat.find_cover(npc, enemy_pos))
 if xcombat.fire_make_sense(npc, enemy) then ... end
 ```
 
-Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over the per-NPC combat-AI engine binds. Registers no callbacks and holds no game state; caches are transient (TTL, level-key) or session-stable exe probes.
+Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over the per-NPC combat-AI engine binds.
+Registers no callbacks and holds no game state. Caches are transient (TTL, level-key) or session-stable exe probes.
 
 - `get_weapon_kind(npc)`, `get_weapon_range(kind)` - Active weapon kind (TTL-cached) and its engagement range band
-- `get_health_frac(npc)` - NPC health as a 0..1 fraction, the maneuver need's hurt input read through xcombat; the "how low is hurt" threshold stays with the caller
-- `sees(npc, obj)`, `sees_within(npc, obj, radius)`, `get_unseen_ms(npc, enemy, tg)`, `get_track_pos(npc, enemy, sees)` - Enemy-memory reads: visible right now (the engine's accumulated visible_now), visible now AND within radius metres (distance tested first, for close-range checks where full combat-sight range is wrong), any-sense recency, live-or-last-known position
+- `get_health_frac(npc)` - NPC health as a 0..1 fraction, the maneuver need's hurt input read through xcombat. The "how low is hurt" threshold stays with the caller
+- `sees(npc, obj)`, `sees_within(npc, obj, radius)`, `get_unseen_ms(npc, enemy, tg)`, `get_track_pos(npc, enemy, sees)` - Enemy-memory reads.
+  Visible right now (the engine's accumulated visible_now).
+  Visible now AND within radius metres (distance tested first, for close-range checks where full combat-sight range is wrong).
+  Any-sense recency, and live-or-last-known position.
 - `show_enemy(npc, enemy, opts)` - Inject a known enemy into NPC memory and register in combat, relation-clean
-- `install_takeover(npc, spec)`, `release_takeover(npc)`, `release_takeover_id(id)` - Graft the GOAP gate evaluator + action per stalker; the consumer owns policy via spec { gate, on_begin }. Single-consumer: a second differing spec asserts. release_takeover_id is the id-keyed release for server-side unregister. The graft is planted on every stalker at spawn and stays dormant until the gate is raised; its evaluator and action share RESERVED GOAP id `188347` (moved off 188200, which collided with an external companion surge-shelter scheme on the shared action manager). No other GOAP scheme on the stalker manager may reuse 188347
+- `install_takeover(npc, spec)`, `release_takeover(npc)`, `release_takeover_id(id)` - Graft the GOAP gate evaluator + action per stalker. The consumer owns policy via spec { gate, on_begin }.
+  Single-consumer: a second differing spec asserts. release_takeover_id is the id-keyed release for server-side unregister.
+  The graft is planted on every stalker at spawn and stays dormant until the gate is raised.
+  Its evaluator and action share RESERVED GOAP id `188347` (moved off 188200, which collided with an external companion surge-shelter scheme on the shared action manager).
+  No other GOAP scheme on the stalker manager may reuse 188347.
 - `register_in_combat(npc)`, `unregister_in_combat(npc)` - Squad memory-sharing bookkeeping the blocked combat planner no longer performs
-- `get_blocked_planners()`, `get_operator(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Blocked planner-id list, current brain operator, body facing as a unit vector, body-facing offset in degrees
-- `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held). Engine beliefs, not concealment geometry; nil when there is no planner to ask
+- `get_blocked_planners()`, `get_operator(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Blocked planner-id list, current brain operator, body facing (unit vector), facing offset (degrees)
+- `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held).
+  These are engine beliefs (cover state the planner tracked), nil when there is no planner to ask.
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
-- `has_obstacle_between(a, b)`, `has_shot_obstacle(a, b)`, `has_friendly_lane(npc, a, b, thresh)` - Chest-height object-aware rays (movement lane, shot line capped short of the target body) and the squad firing-lane check
-- `get_crouch_openness(lvid, dir)`, `get_stand_openness(lvid, dir)` - Baked cover-graph openness toward a direction at crouch and standing height (0 walled, 1 open), the cheap posture reads - static geometry only, blind to bodies (contrast the object-aware rays); see `doc/library/modding/cover-and-los-queries.md`
-- `find_cover(npc, enemy_pos, opts)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders. find_cover is four ways from `opts.selection` (nearest walks the baked cover points closest-first, best takes best_cover) and `opts.firing` (true = a vertex to shoot from, false = a vertex that hides); `opts.radius` and `opts.search_pos` required. find_flee_lane is clear-lane fans
+- `has_obstacle_between(a, b)`, `has_shot_obstacle(a, b)`, `has_friendly_lane(npc, a, b, thresh)` - Chest-height object-aware rays.
+  Movement lane, shot line capped short of the target body, and the squad firing-lane check.
+- `get_crouch_openness(lvid, dir)`, `get_stand_openness(lvid, dir)` - Baked cover-graph openness toward a direction at crouch and standing height (0 walled, 1 open), the cheap posture reads.
+  Static geometry only, blind to bodies (contrast the object-aware rays). See `doc/library/modding/cover-and-los-queries.md`
+- `find_cover(npc, enemy_pos, opts)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders.
+  find_cover is four ways from `opts.selection` (nearest walks baked cover points closest-first, best takes best_cover) and `opts.firing` (true = shoot from, false = hide).
+  `opts.radius` and `opts.search_pos` required. find_flee_lane is clear-lane fans.
 - `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
 - `is_indoor(pos)` - Indoor-level table plus surge-shelter proximity
 - `claim_cover(lvid, owner_id)`, `release_cover(lvid, owner_id)` - Ownership-checked cover-vertex reservation over db.used_level_vertex_ids
 - `get_squad_ordinal(squad_id, npc_id)` - Stable per-member spread bucket
 
-Engine fire-gate wrappers (themrdemonized/xray-monolith PRs #594 aim+vision, #595 switch veto, #596 fire gates). Each probes its bind once on first call (`type(npc.<bind>) == "function"`, cached module-local, never a version compare) and carries a defined floor fallback, so consumers call unconditionally and the engine geometry switches on by itself when the exe has the merged PRs:
+Engine fire-gate wrappers (themrdemonized/xray-monolith PRs #594 aim+vision, #595 switch veto, #596 fire gates).
+Each probes its bind once on first call (`type(npc.<bind>) == "function"`, cached module-local) and carries a defined floor fallback.
+Consumers call unconditionally, and the engine geometry switches on by itself when the exe has the merged PRs:
 
-- `set_aim_params(npc, max_angle, min_angle, min_speed, predict_time)` - Per-NPC sight swing/lead; negative component reverts to the global ai_aim_* cvar. Floor: no-op, vanilla aim is the fallback
-- `set_vision_speed(npc, factor)` - Per-NPC vision acquisition factor composing with g_ai_vision_speed_boost. Floor: no-op by design; the only script substitute is a per-frame functor wrap, banned by code-standards "No Per-Frame Work"
-- `set_fire_queue_scale(npc, size_k, interval_k)` - Per-NPC combat-planner burst-size and inter-burst-interval scale (PR #603), applied in select_queue_params; vanilla-planner fire only (state_mgr fire states bypass it). Floor: no-op, vanilla queues are the fallback
-- `set_view_distance_factor(npc, factor)` - Per-NPC view-DISTANCE multiplier (PR #627) on object_visible_distance's return, the RANGE twin of set_vision_speed; composes with the per-state max_view_distance LTX multiplier. Floor: no-op, vanilla range is the fallback
-- `set_health_restore_boost(npc, boost)` - Per-NPC additive passive health-restore velocity (PR #628), mirroring the actor's BoostHpRestore; 0 = vanilla. Floor: no-op, vanilla restore is the fallback
-- `set_hit_redirect(npc, max, falloff)` - Per-NPC selection lever toward the last attacker (PR #636): within falloff metres up to max is subtracted from the attacker's selection cost, decaying to 0 at falloff, so a hit victim flips selection on the real hit signal - no forged sighting, fire still needs real line of sight. Floor: no-op, the vanilla -5/-100 hit step is the fallback
-- `set_visible_enemy_bias(npc, actor_bias, npc_bias)` - Per-NPC override of the baked "prefers whoever sees me" selection pull (PR #637): vanilla subtracts 900 for the actor vs 300 for an NPC; a negative argument keeps that side vanilla, 0 removes the pull. Floor: no-op, the vanilla bias is the fallback
+- `set_aim_params(npc, max_angle, min_angle, min_speed, predict_time)` - Per-NPC sight swing/lead. Negative component reverts to the global ai_aim_* cvar. Floor: no-op, vanilla aim is the fallback
+- `set_vision_speed(npc, factor)` - Per-NPC vision acquisition factor composing with g_ai_vision_speed_boost.
+  Floor: no-op by design. The only script substitute is a per-frame functor wrap, banned by code-standards "No Per-Frame Work"
+- `set_fire_queue_scale(npc, size_k, interval_k)` - Per-NPC combat-planner burst-size and inter-burst-interval scale (PR #603), applied in select_queue_params.
+  Vanilla-planner fire only (state_mgr fire states bypass it). Floor: no-op, vanilla queues are the fallback
+- `set_view_distance_factor(npc, factor)` - Per-NPC view-DISTANCE multiplier (PR #627) on object_visible_distance's return, the RANGE twin of set_vision_speed.
+  Composes with the per-state max_view_distance LTX multiplier. Floor: no-op, vanilla range is the fallback
+- `set_health_restore_boost(npc, boost)` - Per-NPC additive passive health-restore velocity (PR #628), mirroring the actor's BoostHpRestore (0 = vanilla).
+  Floor: no-op, vanilla restore is the fallback
+- `set_hit_redirect(npc, max, falloff)` - Per-NPC selection lever toward the last attacker (PR #636).
+  Within falloff metres up to max is subtracted from the attacker's selection cost, decaying to 0 at falloff.
+  A hit victim flips selection on the real hit signal - no forged sighting, and fire still needs real line of sight.
+  Floor: no-op, the vanilla -5/-100 hit step is the fallback
+- `set_visible_enemy_bias(npc, actor_bias, npc_bias)` - Per-NPC override of the baked "prefers whoever sees me" selection pull (PR #637): vanilla subtracts 900 for the actor vs 300 for an NPC.
+  A negative argument keeps that side vanilla, 0 removes the pull. Floor: no-op, the vanilla bias is the fallback
 - `can_kill_enemy(npc, enemy)` - Engine shot clearance (5-ray safety fan, frame-cached). Floor: one capped rqtBoth ray from the weapon-hand bone, stopped short of the enemy body
-- `can_kill_member(npc, enemy_pos)` - Non-enemy in the fire lane; a repositioning hint, never a hold-fire gate (the engine's CObjectActionFire hold survives a combat-planner block). Floor: living squadmates only via has_friendly_lane
+- `can_kill_member(npc, enemy_pos)` - Non-enemy in the fire lane, a repositioning hint, never a hold-fire gate (the engine's CObjectActionFire hold survives a combat-planner block).
+  Floor: living squadmates only via has_friendly_lane
 - `is_under_fire(npc, enemy, tg, window_ms)` - Danger-memory read: has the enemy hit or shot at the NPC within the window
-- `fire_make_sense(npc, enemy)` - The engine fire-discipline gate. Floor: the engine gate order from floor primitives (height gap, capped clearance ray, see-now, 10s unseen window with an automatic weapon), constants tracking the ai_fire_* cvars when the exe has them
-- `on_action_switch(fn)` - Register fn on the npc_on_combat_action_switch veto; registers only when the seam exists and returns whether it did. Enhancement-only, no floor imitation possible
+- `fire_make_sense(npc, enemy)` - The engine fire-discipline gate.
+  Floor: the engine gate order from floor primitives (height gap, capped clearance ray, see-now, 10s unseen window with an automatic weapon).
+  Constants track the ai_fire_* cvars when the exe has them.
+- `on_action_switch(fn)` - Register fn on the npc_on_combat_action_switch veto. Registers only when the seam exists and returns whether it did. Enhancement-only, no floor imitation possible
 
 ### xobject.script - Generic Object Lookup
 
@@ -199,7 +247,8 @@ local npc = xobject.go(npc_id)  -online game object or nil
 - `go(id)` - Get online game object by ID (nil if offline)
 - `is_story(se_obj)` - True when the entity carries a story id (pure Lua STORY_PAIRS lookup, 0 luabind)
 
-Inventory-domain methods (item categorization, slot accessors, item lifecycle, ammo config) live in `xinventory.script` per the boundary: xobject = generic game_object lookup; xinventory = item-as-inventory-thing semantics.
+Inventory-domain methods (item categorization, slot accessors, item lifecycle, ammo config) live in `xinventory.script` per the boundary.
+xobject covers generic game_object lookup. xinventory covers item-as-inventory-thing semantics.
 
 ### xinventory.script - Item Categorization, Slot Semantics, Item Lifecycle, Policy Primitives
 
@@ -223,18 +272,37 @@ xinventory.iterate_surplus(npc, opts, {
 local surplus = xinventory.build_surplus_map(counts, rules)  -- pure { [cat] = surplus }
 ```
 
-Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `IsHeadgear`, `IsArtefact`, `item:section/condition/ammo_get_count`, `npc:item_in_slot`, slot walks, `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `transfer_item`). Mods never call those directly — every call goes through xinventory.
+It centralizes every engine inventory helper.
+Type and field reads: `IsItem`, `IsWeapon`, `IsOutfit`, `IsHeadgear`, `IsArtefact`, `item:section/condition/ammo_get_count`, `npc:item_in_slot`, slot walks.
+Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `transfer_item`. Mods never call those directly. Every call goes through xinventory.
 
 **Category model** (symmetric forward + reverse maps):
-- `get_section_category(sec)` - sec → category name. Untouchables (quest / anim / blacklisted) gate first. Medical 5 (medkit / bandage / antirad / stim / pill) and hand grenades via hand-maintained sets (vanilla bundles all medicals under `kind=i_medical` with no field to subdivide; no `_ITM["grenade"]` bucket exists). Other categories via Parse_ITM `_ITM[bucket]` lookups (outfit / helmet / artefact / device / money / grenade_ammo / ammo). Weapons by class prefix `WP_` (per-item fallback; vanilla `IsWeapon` is clsid-only).
-- `get_category(item, opts)` - item → category name, adds per-NPC overrides on top of `get_section_category`: three runtime per-item untouchable checks (story_id via `get_object_story_id(item:id())`, companion-gifted via `axr_companions.is_assigned_item(opts.npc_id, item:id())`, player-strapped via `se_load_var(item:id(), "", "strapped_item")`); equipped check via `opts.equipped_ids`; ammo tier resolution to `ammo_slot_2_tN` / `ammo_slot_3_tN` per equipped pistol / rifle tier_map.
+- `get_section_category(sec)` - sec -> category name. Untouchables (quest / anim / blacklisted) gate first.
+  Medical 5 (medkit / bandage / antirad / stim / pill) and hand grenades via hand-maintained sets.
+  Vanilla bundles medicals under `kind=i_medical` with no subdividing field, and ships no `_ITM["grenade"]` bucket.
+  Other categories via Parse_ITM `_ITM[bucket]` lookups (outfit / helmet / artefact / device / money / grenade_ammo / ammo).
+  Weapons by class prefix `WP_` (per-item fallback, vanilla `IsWeapon` is clsid-only).
+- `get_category(item, opts)` - item -> category name, adds per-NPC overrides on top of `get_section_category`.
+  Three runtime per-item untouchable checks:
+    - story_id via `get_object_story_id(item:id())`
+    - companion-gifted via `axr_companions.is_assigned_item(opts.npc_id, item:id())`
+    - player-strapped via `se_load_var(item:id(), "", "strapped_item")`
+  Equipped check via `opts.equipped_ids`. Ammo tier resolution to `ammo_slot_2_tN` / `ammo_slot_3_tN` per equipped pistol / rifle tier_map.
 - `resolve_ammo_category(sec, opts)` - section-string variant of the ammo tier branch (no game_object required). Used by stash loot to match each stash ammo section against per-member opts.
-- `is_in_category(sec, category)` - section-based predicate (wraps `get_section_category`). Per-NPC categories (`equipped`, `ammo_slot_*`) always return false on this path. Use `get_category` for those.
-- `get_rank_chance(section, actor, ruleset)` - rank-gate kernel: a 0..1 appearance chance for a section under `ruleset = { floor = {[section|category]=tier}, bands = {[tier]={{cost,chance}, ... asc}, default} }`. Resolves the section category (`get_section_category`) + cost (`get_cost`) and the actor's rank tier (`ranks.get_obj_rank_name` / `character_rank`); a floor tier returns 0 below its rank, otherwise the first cost band whose `cost >= ` the section cost wins. Unconfigured opens (chance 1). Caller rolls and fail-closes. Used by the AlifePlus faction market.
-- `get_category_sections(category)` - reverse: category → list of sections. Builders dispatch to hand-maintained sets (medical 5 + grenade), `_ITM[bucket]` reads (Parse_ITM-derived: outfit / helmet / artefact / device / money / grenade_ammo / ammo), kind filter over `_ITM["eatable"]` (food / drink), or `_ITM` unions (crafting = tool + part + upgrade). No `ini_sys:section_for_each` walks. Per-NPC categories (equipped, ammo_slot_*) and `weapon` return empty (weapon is per-item only). Lazy per-category build, weak-keyed cache, addon-aware for Parse_ITM bucket sources; grenade addons need an entry in `_grenade_set`.
+- `is_in_category(sec, category)` - section-based predicate (wraps `get_section_category`).
+  Per-NPC categories (`equipped`, `ammo_slot_*`) always return false on this path. Use `get_category` for those.
+- `get_rank_chance(section, actor, ruleset)` - rank-gate kernel: a 0..1 appearance chance for a section under a ruleset.
+  `ruleset = { floor = {[section|category]=tier}, bands = {[tier]={{cost,chance}, ... asc}, default} }`.
+  Resolves the section category (`get_section_category`) + cost (`get_cost`) and the actor's rank tier (`ranks.get_obj_rank_name` / `character_rank`).
+  A floor tier returns 0 below its rank, otherwise the first cost band whose `cost >= ` the section cost wins.
+  Unconfigured opens (chance 1). Caller rolls and fail-closes. Used by the AlifePlus faction market.
+- `get_category_sections(category)` - reverse: category -> list of sections.
+  Builders dispatch to hand-maintained sets (medical 5 + grenade), `_ITM[bucket]` reads, an `_ITM["eatable"]` kind filter (food / drink), or `_ITM` unions (crafting = tool + part + upgrade).
+  No `ini_sys:section_for_each` walks. Per-NPC categories (equipped, ammo_slot_*) and `weapon` return empty (weapon is per-item only).
+  Lazy per-category build, weak-keyed cache, addon-aware for Parse_ITM bucket sources. grenade addons need an entry in `_grenade_set`.
 
 **Item accessors** (`game_object` item in):
-- `get_section(item)`, `get_condition(item)`, `get_cost(sec)` (vanilla `cost` field; nil if missing)
+- `get_section(item)`, `get_condition(item)`, `get_cost(sec)` (vanilla `cost` field, nil if missing)
 
 **NPC slot accessors**:
 - `get_equipped_knife(npc)`, `get_equipped_pistol(npc)`, `get_equipped_rifle(npc)`, `get_equipped_grenade(npc)`, `get_equipped_outfit(npc)`, `get_equipped_helmet(npc)`
@@ -243,7 +311,8 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 
 **Weapon config**:
 - `get_ammo_sections(weapon_sec)` - ordered array of ammo sections accepted (cached)
-- `get_ammo_tiers(weapon_sec, n_tiers)` - map `{[ammo_sec]=tier_idx}`; sorts ammo_class by k_ap asc (cost tiebreaker, cost-only fallback if all k_ap=0), splits into N tiers via median. Cached per `(weapon_sec, n_tiers)`. Default `n_tiers=2`.
+- `get_ammo_tiers(weapon_sec, n_tiers)` - map `{[ammo_sec]=tier_idx}`. Sorts ammo_class by k_ap asc (cost tiebreaker, cost-only fallback if all k_ap=0), splits into N tiers via median.
+  It caches per `(weapon_sec, n_tiers)`, and defaults to `n_tiers=2`.
 - `get_box_size(sec)` - rounds per ammo stack (cached)
 
 **Category set returned by `get_category`** (24 values):
@@ -255,16 +324,24 @@ Centralizes every engine inventory helper (`IsItem`, `IsWeapon`, `IsOutfit`, `Is
 - Consumer dispatch should short-circuit on `untouchable` and `equipped` before any policy lookup.
 
 **Item lifecycle**:
-- `iterate_inventory(npc_id, callback, max_items)` - online-only inventory walk (engine has no offline iteration API). Optional `max_items` stops the walk after that many items and returns `true` as a second value on truncation; nil = unbounded. Replaces `xobject.iterate_online_inventory`.
-- `create_item(section, npc_id, t)` - spawn item on any NPC (online / offline / cross-map via smart-terrain fallback). A requested `cond` is applied even on non-degradable sections (weapons, outfits) that itms_manager skips. Replaces `xobject.create_item`.
+- `iterate_inventory(npc_id, callback, max_items)` - online-only inventory walk (engine has no offline iteration API).
+  Optional `max_items` stops the walk after that many items and returns `true` as a second value on truncation (nil = unbounded). It replaces `xobject.iterate_online_inventory`.
+- `create_item(section, npc_id, t)` - spawn item on any NPC (online / offline / cross-map via smart-terrain fallback).
+  A requested `cond` is applied even on non-degradable sections (weapons, outfits) that itms_manager skips. It replaces `xobject.create_item`.
 - `transfer_item(from_npc, item, to_npc)` - move item between owners.
 - `release_item(item)` - alife_release_id wrapper (needs a live game_object).
-- `release_item_id(id)` - id-based release sibling; works offline (no game_object required).
+- `release_item_id(id)` - id-based release sibling. Works offline (no game_object required).
 
 **Policy primitives** (uniform shape across consumers):
-- `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`. `entries` preserves declaration order (BUY / LOOT priority); `rules` is the hash for O(1) per-category lookup; `specials` carries numeric keys named in `specials_set` (`profit_max`, `extras_max`, `fill_max`, ...).
-- `classify(npc, opts, rules, max_items)` - per-category count walker for an online NPC. Single iterate; ammo categories in rounds, others in items. Skips untouchable + equipped via `get_category`. Optional `max_items` caps the walk and is returned as a second value on truncation.
-- `iterate_surplus(npc, opts, ctx)` - surfaces items while `count > max`. `ctx = { rules, counts, on_surplus, max_items }`. Optional `ctx.max_items` caps the walk (pass the value `classify` used so both walks cover the same first-N items). Mutates `ctx.counts` in place; `ctx.on_surplus(item, cat, sec, unit)` owns the action (transfer, release, queue). Returning `true` from `on_surplus` stops iteration. Lands at exactly `max` for `unit = 1` categories; for ammo (`unit > 1`) the final count can fall short of `max` by up to `unit - 1` rounds when the boundary stack overshoots.
+- `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`.
+  `entries` preserves declaration order (BUY / LOOT priority). `rules` is the hash for O(1) per-category lookup.
+  `specials` carries numeric keys named in `specials_set` (`profit_max`, `extras_max`, `fill_max`).
+- `classify(npc, opts, rules, max_items)` - per-category count walker for an online NPC. Single iterate, ammo categories in rounds, others in items.
+  Skips untouchable + equipped via `get_category`. Optional `max_items` caps the walk and is returned as a second value on truncation.
+- `iterate_surplus(npc, opts, ctx)` - surfaces items while `count > max`. `ctx = { rules, counts, on_surplus, max_items }`.
+  Optional `ctx.max_items` caps the walk (pass the value `classify` used so both walks cover the same first-N items).
+  Mutates `ctx.counts` in place. `ctx.on_surplus(item, cat, sec, unit)` owns the action (transfer, release, queue). Returning `true` from `on_surplus` stops iteration.
+  Lands at exactly `max` for `unit = 1` categories. For ammo (`unit > 1`) the final count can fall short of `max` by up to `unit - 1` rounds when the boundary stack overshoots.
 - `build_surplus_map(counts, rules)` - pure. Derives `{ [category] = surplus_count }` from counts vs rules.
 
 LTX policy file shape (consumer mods own the values):
@@ -277,14 +354,21 @@ LTX policy file shape (consumer mods own the values):
 <special_key> = <number>      ; pulled out per specials_set
 ```
 
-Consumers: `AlifePlus/configs/alifeplus/ap_trade_policy.ltx` (per-rank, two-value rows, `profit_max`), `AlifePlus/configs/alifeplus/ap_stash_policy.ltx` (uniform, two-value rows, `extras_max` + `fill_max`), `AlifeBalance/configs/alifebalance/ab_inventory_policy.ltx` (uniform, single-value rows, no specials).
+Consumers:
+- `AlifePlus/configs/alifeplus/ap_trade_policy.ltx` (per-rank, two-value rows, `profit_max`)
+- `AlifePlus/configs/alifeplus/ap_stash_policy.ltx` (uniform, two-value rows, `extras_max` + `fill_max`)
+- `AlifeBalance/configs/alifebalance/ab_inventory_policy.ltx` (uniform, single-value rows, no specials)
 
 **Slot constants** (from `xrServerEntities/inventory_space.h`):
-- `SLOT_KNIFE=1`, `SLOT_PISTOL=2`, `SLOT_RIFLE=3`, `SLOT_GRENADE=4`, `SLOT_OUTFIT=7`, `SLOT_HELMET=12`, `BACKPACK_SLOT=13`, `LAST_MAIN_SLOT=14`. `m_slots` is sized from `system.ltx [inventory] slot_persistent_<N>` count at `Inventory.cpp:72-86`, not from the `MORE_INVENTORY_SLOTS` enum. Vanilla + GAMMA both ship 14 slots; raising `LAST_MAIN_SLOT` without a matching system.ltx is OOB UB on `ItemFromSlot` (`Inventory.cpp:658`, unbounded).
+- `SLOT_KNIFE=1`, `SLOT_PISTOL=2`, `SLOT_RIFLE=3`, `SLOT_GRENADE=4`, `SLOT_OUTFIT=7`, `SLOT_HELMET=12`, `BACKPACK_SLOT=13`, `LAST_MAIN_SLOT=14`.
+  `m_slots` is sized from the `system.ltx [inventory] slot_persistent_<N>` count at `Inventory.cpp:72-86` (the `MORE_INVENTORY_SLOTS` enum does not size it).
+  Vanilla + GAMMA both ship 14 slots. Raising `LAST_MAIN_SLOT` without a matching system.ltx is OOB UB on `ItemFromSlot` (`Inventory.cpp:658`, unbounded).
 
-**Boundary rule**: xobject = generic game_object lookup; xinventory = anything that takes an item or talks about an NPC's items.
+**Boundary rule**: xobject is generic game_object lookup, xinventory is anything that takes an item or talks about an NPC's items.
 
-**Policy values live in consumer mods**; xinventory owns the shape (`load_policy`), the predicates (`get_category` family), and the walker primitives (`classify`, `iterate_surplus`, `build_surplus_map`). Each consumer ships its own LTX file with its own numbers; the mechanics are shared.
+**Policy values live in consumer mods**.
+xinventory owns the shape (`load_policy`), the predicates (`get_category` family), and the walker primitives (`classify`, `iterate_surplus`, `build_surplus_map`).
+Each consumer ships its own LTX file with its own numbers. The mechanics are shared.
 
 ### xlevel.script - Level/Map and Time
 
@@ -312,7 +396,7 @@ local hostile = xsmart.has_enemy_squad(smart.id, "stalker")
 Smart property predicates (read from smart.props / engine fields):
 - `is_base(smart)`, `is_lair(smart)`, `is_resource(smart)`, `is_territory(smart)`
 - `has_surge_shelter(smart)` - Smart has surge shelter (emission-safe indoor)
-- `has_campfire(smart)` - Has a map-placed campfire (any distance) or a live online one; static `xdata.campfire_smarts` set, online table as fallback
+- `has_campfire(smart)` - Has a map-placed campfire (any distance) or a live online one. Static `xdata.campfire_smarts` set, online table as fallback
 - `has_anomaly(smart)` - Within 50m of any online anomaly zone
 - `has_animated_jobs(smart)` - Has any non-stub stalker job (excludes generic_point / campfire_point stubs)
 - `accepts_faction(smart, faction)` - Engine target_precondition Tier 1: props.all OR props.all_stalker/all_monster OR props[faction]
@@ -321,7 +405,7 @@ Smart property predicates (read from smart.props / engine fields):
 Smart finders:
 - `get_actor_smart()` - Nearest smart to actor (engine-maintained, O(1))
 - `find_smart(pos, opts)` - Generic nearest smart search (level_id, factions, min/max distance, exclude_id, filter, source). `factions` takes string or set
-- `find_first_smart(opts)` - Distance-free variant; first matching smart in pool iteration order
+- `find_first_smart(opts)` - Distance-free variant. First matching smart in pool iteration order
 - `find_smarts_spawning(level_id, faction)` - Array of smarts on level whose recipes produce given faction
 - `find_friendly_base(community, pos, opts)` - Nearest base-class smart friendly to the community (min_distance filter)
 - `get_named_smarts()` - Name-keyed smart lookup table (SIMBOARD.smarts_by_names read)
@@ -329,16 +413,26 @@ Smart finders:
 
 SIMBOARD roster (sim-intent membership, NOT physical occupancy):
 - `get_smart_squads(smart_id)` - Raw SIMBOARD.smarts[id].squads hash
-- `assign_squad_to_smart(squad, smart_id)` - Wrap SIMBOARD:assign_squad_to_smart; nil to detach
-- `reconcile_squad_roster(squad, from_smart_id)` - Sync SIMBOARD.smarts rosters after a squad changed smart via the roster-blind vanilla `sim_squad_scripted:assign_smart` (called from specific_update / generic_update, which never update the squads table or population). Drops the stale `from` entry, adds the current `smart_id` entry, recomputes both populations via `smart_terrain_squad_count`, fires leave/enter callbacks. Idempotent (table-state gated), so it is a no-op on a base that already syncs. Consumed by AlifePlus `ap_core_anomaly_fixes`
-- `iter_stationed_squads(smart_id, exclude_id, cap)` - Closure iterator yielding se for squads with current_action=1 AND current_target_id=smart_id (xsquad.is_stationed). Skips in-transit. Cap default 5
+- `assign_squad_to_smart(squad, smart_id)` - Wrap SIMBOARD:assign_squad_to_smart. nil to detach
+- `reconcile_squad_roster(squad, from_smart_id)` - Sync SIMBOARD.smarts rosters after a squad changed smart via the roster-blind vanilla `sim_squad_scripted:assign_smart`.
+  (assign_smart is called from specific_update / generic_update, which never update the squads table or population.)
+  It drops the stale `from` entry and adds the current `smart_id` entry.
+  It recomputes both populations via `smart_terrain_squad_count`.
+  It fires leave/enter callbacks.
+  Idempotent (table-state gated), so it is a no-op on a base that already syncs. Consumed by AlifePlus `ap_core_anomaly_fixes`.
+- `iter_stationed_squads(smart_id, exclude_id, cap)` - Closure iterator yielding se for stationed squads (current_action=1, current_target_id=smart_id). Skips in-transit. Cap default 5
 - `has_faction_squad(smart_id, faction, exclude_id)` - True if any stationed squad of given faction
 - `has_enemy_squad(smart_id, community, exclude_id)` - True if any stationed squad is faction-enemy of community
-- `get_faction_count(factions, level_id)` - Count of smarts on the level with a stationed squad of the community (string) or of any community in the set (table). Per-level snapshot of stationed communities, 60s TTL (xttltable). Consumed by AlifePlus per-faction expansion caps
+- `get_faction_count(factions, level_id)` - Count of smarts on the level with a stationed squad of the community (string) or of any community in the set (table).
+  It snapshots stationed communities per level, 60s TTL (xttltable). Consumed by AlifePlus per-faction expansion caps.
 - `is_smart_empty(smart_id)` - No squads assigned (raw roster check, includes in-transit)
 
 Service NPC resolution (online + actor-level via npc_info walk):
-- `get_npc_roles(npc)` - SET of roles `{trader=true, medic=true, mechanic=true}` (any subset, empty for non-service NPCs). Multi-role NPCs (Yar = medic+trader, mechanics with dm_init_trader = mechanic+trader) populate multiple keys. Cached per NPC id with a section verify on hit (id-recycling defense). Signals: community="trader", clsid=script_trader/trader, section substring patterns, trade= field in active logic block (Demonized-style classifier per Trader Destockifier `trader_autoinject.script:85`). level_spot is NOT used (false-positives on quest NPCs)
+- `get_npc_roles(npc)` - SET of roles `{trader=true, medic=true, mechanic=true}` (any subset, empty for non-service NPCs).
+  Multi-role NPCs (Yar = medic+trader, mechanics with dm_init_trader = mechanic+trader) populate multiple keys.
+  Cached per NPC id with a section verify on hit (id-recycling defense).
+  It reads four signals: community="trader", clsid=script_trader/trader, section substring patterns, and the trade= field in the active logic block.
+  The trade= classifier is Demonized-style, per Trader Destockifier `trader_autoinject.script:85`. level_spot is NOT used (false-positives on quest NPCs).
 - `is_trader_npc(npc)`, `is_medic_npc(npc)`, `is_mechanic_npc(npc)` - Boolean wrappers checking `get_npc_roles(npc)[role]`
 - `get_smart_trader(smart)`, `get_smart_medic(smart)`, `get_smart_mechanic(smart)` - First online live NPC at smart with role in their set, or nil
 - `has_smart_trader(smart)`, `has_smart_medic(smart)`, `has_smart_mechanic(smart)` - Boolean variants
@@ -358,11 +452,15 @@ Section metadata (LTX squad_descr):
 Diagnostic:
 - `dump_smarts(level_id)` - Per-smart faction + service role inventory (filtered by level when given)
 
-Spawn helpers (set / clear shared / exclusive spawn, set_shared_section for injecting an explicit squad_descr section rather than an identity->pool lookup, set_exclusive_section for a faction-tagged explicit section that passes the exclusive gate under an owner, reset_spawns, repopulate) extracted to `xsmart_spawn.script`.
+Spawn helpers extracted to `xsmart_spawn.script`:
+- set / clear shared / exclusive spawn
+- set_shared_section for injecting an explicit squad_descr section, bypassing the identity->pool lookup
+- set_exclusive_section for a faction-tagged explicit section that passes the exclusive gate under an owner
+- reset_spawns, repopulate
 
 ### xstash.script - Stash Operations
 
-- `find_stashes(pos, opts)` - Find revealed stashes near position (opts: max_distance, min_distance, level_id, max_count; exact-count take)
+- `find_stashes(pos, opts)` - Find revealed stashes near position (opts: max_distance, min_distance, level_id, max_count, exact-count take)
 - `is_stash_looted(id)` - caches[id] == true read
 - `get_stash_items(stash_id)` - Read-only stash contents as parsed item list
 - `loot_stash(id)` - Loot stash contents (marks looted, returns item list)
@@ -373,15 +471,31 @@ Spawn helpers (set / clear shared / exclusive spawn, set_shared_section for inje
 ```lua
 xsound.play(path, { volume = 0.8, position = vec })
 local handle = xsound.acquire(xsound.SND.MONOLITH_HUM, { smoothing = 0.5 })
-xsound.set_bed_handler(function(section, file, pos) return { volume_mult = 0 } end)
+xsound.register_ambient_listener(xsound.SEAM.BED, function(section, file, pos) return { volume_mult = 0 } end)
 ```
 
-Sound wrap: fire-and-forget one-shots (`play`, engine-owned emitter, GC-safe), stoppable retained one-shots (`play_at`, `stop_shot`, `stop_shots`), looping handles with volume lerp on a shared 100ms tick (`acquire`, `set_volume`, `release`, `is_active`, `inspect`), duration without playing (`length`), and the verified-safe path table `SND`.
+Sound wrap:
+- fire-and-forget one-shots (`play`, engine-owned emitter, GC-safe)
+- stoppable retained one-shots (`play_at`, `stop_shot`, `stop_shots`)
+- looping handles with volume lerp on a shared 100ms interval (`acquire`, `set_volume`, `release`, `is_active`, `inspect`)
+- duration without playing (`length`)
+- the verified-safe path table `SND`
 
-Engine ambient sound seams (themrdemonized/xray-monolith PR #644, pending merge): the engine calls a named `_G` global at each ambient play site when the global is set; xlibs owns those globals - a consumer never touches `_G.*` - and routes each call to one registered handler returning `{ volume_mult }` (0 vetoes/silences, below 1 attenuates, nil = vanilla). Policy-free: what to trace and when to veto lives entirely in the handler. Inert on exes without the hooks and while no handler is registered. Handlers are NOT cleared in on_game_start: axr_main calls module on_game_start() in filesystem order, so clearing would silently wipe a consumer that registered in its own on_game_start.
+Engine ambient sound seams (themrdemonized/xray-monolith PR #644 and #661, pending merge): the engine calls a named `_G` global at each ambient play site when the global is set.
+xlibs owns those globals, so a consumer never touches `_G.*`.
+It fans each call to a listener LIST via `register_ambient_listener(seam, fn)`, multiplying every listener's `{ volume_mult }` return (0 vetoes/silences, below 1 attenuates, nil = vanilla).
+Any listener returning 0 vetoes, and more than one mod can trace or veto the same seam at once.
+Policy-free: what to trace and when to veto lives in the listener. Inert on exes without the hooks and while no listener is registered.
+Listeners are NOT cleared in on_game_start: axr_main calls module on_game_start() in filesystem order, so clearing would silently wipe a consumer that registered in its own on_game_start.
 
-- `set_bed_handler(fn)` - The System A per-weather background bed play site (CGamePersistent::WeathersUpdate); fn(section, file, pos), 0 vetoes the play, the channel still reschedules on its own period
-- `set_music_handler(fn)` - The level music track (SMusicTrack::Play); fn(file), volume-only (0 silences the track)
+The seams (`xsound.SEAM.*`), each `fn(...) -> nil | { volume_mult }`:
+
+- `BED` - System A per-weather background bed (CGamePersistent::WeathersUpdate). fn(section, file, pos), 0 vetoes the play, the channel still reschedules on its own period
+- `MUSIC` - level music track (SMusicTrack::Play). fn(file), volume-only (0 silences the track)
+- `SCRIPT_SOUND` - every sound_object play (CScriptSound). fn(file, pos, obj), pos/obj nil where the call site has none
+- `EFFECT` - the weather-effect recording (WeathersUpdate effect block). fn(file, pos), the particle burst and wind blast play regardless
+- `THUNDER` - the lightning-strike clap (CEffect_Thunderbolt). fn(file, distance)
+- `RAIN` - the looped rain ambient (CEffect_Rain). fn(file), sampled at rain onset
 
 ### xtable.script - Table Utilities
 
@@ -392,7 +506,10 @@ Engine ambient sound seams (themrdemonized/xray-monolith PR #644, pending merge)
 
 ### xttltable.script - TTL Data Structures
 
-All three time-based structures support clock injection via `opts.clock`. Default is `os.clock` (zero luabind, wall time). Pass `xtime.game_sec` for game-time expiry (2 luabind per clock call). Use wall time for internal rate limiting and dedup guards. Use game time for gameplay-facing timers (decay windows, cooldowns) so they respect time acceleration, sleep, and realism mods.
+All three time-based structures support clock injection via `opts.clock`. Default is `os.clock` (0 luabind, wall time).
+Pass `xtime.game_sec` for game-time expiry (2 luabind per clock call).
+Use wall time for internal rate limiting and dedup guards.
+Use game time for gameplay-facing timers (decay windows, cooldowns) so they respect time acceleration, sleep, and realism mods.
 
 - `create_ttl_table(opts)` - TTL table with auto-expiry
   - `default_ttl` -> expiry seconds, `clock` -> clock function (default os.clock)
@@ -416,12 +533,11 @@ All three time-based structures support clock injection via `opts.clock`. Defaul
 
 ### xslice.script - Time-Sliced Iteration
 
-Spread array processing across frames. Process `step` items per frame.
-Items drained (`func` returns true) are removed between passes. Remaining items
-are revisited in the next pass (circular). Queue finishes when all items drained,
-`func` returns false (early stop), or queue is cancelled.
+Spread array processing across frames. It processes `step` items per frame.
+Items drained (`func` returns true) are removed between passes. Remaining items are revisited in the next pass (circular).
+The queue finishes when all items drained, `func` returns false (early stop), or the queue is cancelled.
 
-Pattern: time slicing -- amortize O(n) work across n/step frames.
+Pattern: time slicing, amortize O(n) work across n/step frames.
 One shared `AddUniqueCall` drives all active queues.
 
 ```lua
@@ -455,13 +571,13 @@ xslice.start("spread_releases", entities, {
 - `cancel(name, silent)` - Cancel queue. Fires `on_done` unless `silent` = true
 - `is_active(name)` - Check if queue is running
 
-Internals: deferred compaction. Survivors collected during each pass, become
-next pass's input. O(step) per frame, O(n) per pass. No per-item `table.remove`.
+Internals: deferred compaction. Survivors collected during each pass become the next pass's input.
+It runs O(step) per frame and O(n) per pass, with no per-item `table.remove`.
 
 ### xmath.script - RNG
 
 - `sample(tbl)` - Random element
-- `sample_n(tbl, n)` - Random-COUNT sample: k = random(1, min(n, #t)) elements (deliberate dispatch variability; slice partial_shuffle for an exact take)
+- `sample_n(tbl, n)` - Random-COUNT sample: k = random(1, min(n, #t)) elements (deliberate dispatch variability, slice partial_shuffle for an exact take)
 - `partial_shuffle(tbl, count)` - Shuffle first N elements
 
 ### xmcm.script - MCM Config
@@ -473,13 +589,13 @@ next pass's input. O(step) per frame, O(n) per pass. No per-item `table.remove`.
 Source: xray-monolith/src/xrServerEntities/script_engine_script.cpp:127-196
 
 - `new()`, `new_if(condition)` -> `:start()`, `:stop()`, `:get_us()`, `:get_ms()`, `:reset()`
-- `new_if(false)` returns NOOP singleton (zero overhead)
+- `new_if(false)` returns NOOP singleton (no overhead)
 - Uses `profile_timer` (CPU clock, microsecond resolution)
 
 ### xtrace.script - Tracing
 
-- `new()`, `new_if(condition)` -> `.id` (a monotonic correlation id; no path / span hierarchy)
-- `new_if(false)` returns the null singleton `{ id = 0 }` (zero allocation)
+- `new()`, `new_if(condition)` -> `.id` (a monotonic correlation id, no path / span hierarchy)
+- `new_if(false)` returns the null singleton `{ id = 0 }` (no allocation)
 
 ### xinspect.script - Debug
 
@@ -504,7 +620,7 @@ end)
 
 **Naming convention:** prefix synthetic event names by owner to avoid collision with engine callbacks (AlifePlus uses `ap_`, e.g. `ap_npc_medkit_use`).
 
-**How it works:** Lua functions are table entries. We save the original, replace with wrapper that calls original + emits callback. Zero engine modification.
+**How it works:** Lua functions are table entries. We save the original, replace with wrapper that calls original + emits callback. No engine modification.
 
 ### xpda.script - PDA/Map
 
@@ -530,7 +646,7 @@ X-Ray engine sentinel values extracted from C++ source headers.
 - `INVALID_ENTITY_ID` - u16 MAX (65535), from alife_space.h:39
 - `INVALID_LEVEL_VERTEX_ID` - u32 MAX (4294967295)
 - `INVALID_GAME_VERTEX_ID` - u16 MAX (65535), GameGraph::_GRAPH_ID(-1) at xrServer_Objects_ALife.cpp:369
-- `INVALID_BONE_ID` - u16 MAX (65535); `game_object:get_bone_id` returns it for a bone name the skeleton does not have
+- `INVALID_BONE_ID` - u16 MAX (65535). `game_object:get_bone_id` returns it for a bone name the skeleton does not have
 - `ACTOR_ENTITY_ID` - 0 (engine convention: actor allocated as the first server slot, `db.actor:id() == 0`)
 
 ### xdata.script - Static Data
@@ -556,7 +672,7 @@ MCM registration for xlibs. Banner slide, description, dynamic version text via 
 
 ## Patterns
 
-- **NOOP singleton**: `new_if(condition)` returns real or NOOP object. Zero overhead when disabled.
+- **NOOP singleton**: `new_if(condition)` returns real or NOOP object. No overhead when disabled.
 - **Lazy init**: first access creates resource, subsequent access returns cached.
 - **TTL cleanup**: expired entries pruned on access or periodic sweep.
 - **Local caching**: `local time_global = time_global` for hot paths.
@@ -567,9 +683,12 @@ MCM registration for xlibs. Banner slide, description, dynamic version text via 
 
 ## Engine Protection Reality
 
-X-Ray's `alife():release()` and `SIMBOARD:remove_squad()` have zero built-in protection. Any script call will unconditionally destroy the entity and all children (cascading through squad member cleanup, smart terrain unregistration, and server_entity_on_unregister). All NPC/squad protection is script-side -- the engine tracks story_id objects in a registry but does not block their removal.
+X-Ray's `alife():release()` and `SIMBOARD:remove_squad()` have no built-in protection.
+Any script call will unconditionally destroy the entity and all children (cascading through squad member cleanup, smart terrain unregistration, and server_entity_on_unregister).
+All NPC/squad protection is script-side. The engine tracks story_id objects in a registry but does not block their removal.
 
-This means every mod that releases or scripts squads must implement its own guard chain. xsquad provides four guards (`is_permanent_squad`, `has_active_role`, `is_task_target`, `is_scripted`) that match Anomaly's own protection layers in sim_offline_combat.
+This means every mod that releases or scripts squads must implement its own guard chain.
+xsquad provides four guards (`is_permanent_squad`, `has_active_role`, `is_task_target`, `is_scripted`) that match Anomaly's own protection layers in sim_offline_combat.
 
 ---
 
