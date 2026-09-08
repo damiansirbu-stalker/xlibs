@@ -46,6 +46,21 @@ local function _filter_existing(squads)
     return kept
 end
 
+-- Shared writer for the exclusive (faction_controlled) form: sets the gate + owner faction and installs the entry.
+local function _write_exclusive(smart, key, identity, squads, spawn_num)
+    squads = _filter_existing(squads)
+    if not squads then return false end
+    smart.faction_controlled = key
+    smart.faction = identity
+    smart.respawn_params = smart.respawn_params or {}
+    smart.already_spawned = smart.already_spawned or {}
+    smart.respawn_point = true
+    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
+    smart.respawn_params[key] = { num = condlist, squads = squads, faction = identity }
+    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
+    return true
+end
+
 --- Add a shared spawn entry to a smart's respawn_params (additive: originals keep spawning, no faction_controlled).
 --- The faction filter stays in "spawn all" mode, so both LTX and injected entries fire.
 --- @scope global - mutates server-entity fields directly; respawn evaluates in try_respawn (cse_alife_schedulable tick, runs offline)
@@ -134,21 +149,6 @@ function set_exclusive_section(smart, key, section, spawn_num)
     smart.respawn_point = true
     local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
     smart.respawn_params[key] = { num = condlist, squads = squads, faction = faction }
-    smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
-    return true
-end
-
--- Shared writer for the exclusive (faction_controlled) form: sets the gate + owner faction and installs the entry.
-local function _write_exclusive(smart, key, identity, squads, spawn_num)
-    squads = _filter_existing(squads)
-    if not squads then return false end
-    smart.faction_controlled = key
-    smart.faction = identity
-    smart.respawn_params = smart.respawn_params or {}
-    smart.already_spawned = smart.already_spawned or {}
-    smart.respawn_point = true
-    local condlist = xr_logic.parse_condlist(nil, nil, nil, tostring(spawn_num or 1))
-    smart.respawn_params[key] = { num = condlist, squads = squads, faction = identity }
     smart.already_spawned[key] = smart.already_spawned[key] or { num = 0 }
     return true
 end

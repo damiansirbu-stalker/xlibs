@@ -50,6 +50,15 @@ local function _get_ray_hit(pos, dir, range, flags)
     return dist, ray:get_normal(), ray:get_object()
 end
 
+-- Scratch reused across a clearance check (8 box corners + 2 edge directions), lazily created so module load touches no vector ctor.
+local _verts, _fwd, _rev
+local function _init_scratch()
+    if _verts then return end
+    _verts = {}
+    for i = 1, 8 do _verts[i] = vector() end
+    _fwd, _rev = vector(), vector()
+end
+
 --- Resolve the ground surface below a position: cast a ray straight down and report where it hits.
 --- @scope global - reads the loaded collision DB via ray_pick; level must be online
 --- @safety SAFE - returns nil when nothing is hit (off-navmesh, offline level, void)
@@ -67,15 +76,6 @@ function find_ground(pos, opts)
     local dist, normal, obj = _get_ray_hit(start, vector():set(0, -1, 0), up + depth, opts.flags or F_STATICS)
     if not dist then return nil end
     return { pos = vector():set(start.x, start.y - dist, start.z), normal = normal, object = obj }
-end
-
--- Scratch reused across a clearance check (8 box corners + 2 edge directions), lazily created so module load touches no vector ctor.
-local _verts, _fwd, _rev
-local function _init_scratch()
-    if _verts then return end
-    _verts = {}
-    for i = 1, 8 do _verts[i] = vector() end
-    _fwd, _rev = vector(), vector()
 end
 
 --- Report whether the volume at pos is free of geometry and objects, by ray-casting the edges and diagonals of a box resting on pos.
