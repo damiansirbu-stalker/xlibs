@@ -18,19 +18,6 @@ local FLAG_PROTECTED = "protected"
 -- Static cache: story_id, trader, named_npc never change within a session (weak keys, GC-safe).
 local _static_cache = setmetatable({}, { __mode = "k" })
 
---- Class identity check for sim_squad_scripted instances - the canonical clsid.online_offline_group_s idiom.
---- Required wherever a saved id may resolve to a different engine class after id recycling.
---- @safety SAFE - nil-guarded; tests for clsid method presence before calling
---- @cost O(1) | 2 luabind trivial (clsid field access + call)
---- @src anomaly/axr_task_manager.script:1128 (the clsid idiom), anomaly/class_registrator.script(132)
---- @param obj se_object|nil Server entity to test
---- @return boolean True if obj is a sim_squad_scripted instance
-function is_squad(obj)
-    return obj ~= nil
-       and type(obj.clsid) == "function"
-       and obj:clsid() == CLSID_SQUAD
-end
-
 local function _EMPTY_ITER() return nil end
 
 -- Scan squad members against the accumulated task-giver set (task_giver_id is polymorphic: a squad id OR any member npc id).
@@ -116,24 +103,6 @@ local function _check_member_target(squad)
     return false, nil
 end
 
---- Check if a squad is an active task target via three signals: task_squads, the current_target objective id, and the bounty/hostage registries.
---- Squad-level checks are O(1) hashes; the member-level checks share one squad_members walk in _check_member_target.
---- @safety SAFE - nil-guarded, returns true for nil (fail-safe)
---- @cost O(1) typical (task_squads or squad current_target hash hit) | O(m*(b+h)) worst case
---- @src anomaly/sim_offline_combat.script(53), anomaly/task_objects.script current_target, anomaly/axr_task_manager.script bounties_by_id hostages_by_id
---- @param squad se_squad Squad server object
---- @return boolean True if squad is a task target (nil squad returns true for safety)
---- @return string|nil Reason: "nil", "task_squads", "current_target", "bounty", "hostage"
-function is_task_target(squad)
-    if not squad then return true, "nil" end
-    if sim_offline_combat and sim_offline_combat.task_squads
-    and sim_offline_combat.task_squads[squad.id] then
-        return true, "task_squads"
-    end
-    if get_task_targets()[squad.id] then return true, "current_target" end
-    return _check_member_target(squad)
-end
-
 -- Resolve the commander entity and section from a squad.
 -- @cost O(log n) | 3 luabind (commander_id trivial, alife_object medium xr_map find, section_name heavy shared_str)
 local function _resolve_commander(squad)
@@ -187,6 +156,80 @@ local function _check_active_role(squad, cmd_id, sec)
     if _is_task_giver(squad, squad.id, cmd_id) then return true, "task_giver", sec end
     if is_companion(squad) then return true, "companion", sec end
     return false, nil, nil
+end
+
+local function _is_excluded(squad_id, exclude_squad_id, exclude_ids)
+    if squad_id == exclude_squad_id then return true end
+    if exclude_ids and exclude_ids[squad_id] then return true end
+    return false
+end
+
+local function _is_faction_match(comm, factions)
+    if not factions then return true end
+    if type(factions) == "table" then return factions[comm] end
+    return comm == factions
+end
+
+-- Validate a squad for queries, cheapest reject first: level, position, NPC count, smart exclusion, protection.
+-- The level check leads because xlevel.get_level_id is gvid-cached, so a wrong-level reject pays 0 luabind on a warm cache.
+-- @cost O(1) typical | 1-5 luabind (npc_count, get_level_id cold, is_protected)
+local function _is_base_valid(squad, opts)
+    if not squad then return false end
+    if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then return false end
+    if not squad.position then return false end
+    if squad.npc_count and squad:npc_count() == 0 then return false end
+    local faction = squad.player_id
+    if not faction then return false end
+    if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then return false end
+    if is_protected(squad, opts) then return false, nil, FLAG_PROTECTED end
+    return true, faction
+end
+
+-- Resolve a squad commander's service role from xdata.npc_roles for diagnostics; multi-role picks the most specific (mechanic > medic > trader).
+-- @cost O(1) | 1 trivial (commander_id) + 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
+local function _get_commander_role(squad)
+    if not squad or not squad.commander_id then return "?" end
+    local cmd_id = squad:commander_id()
+    if not cmd_id then return "?" end
+    local se = alife_object(cmd_id)
+    if not se then return "?" end
+    local entry = xdata.npc_roles[se:section_name()]
+    if not entry then return "none" end
+    if entry.mechanic then return "mechanic" end
+    if entry.medic    then return "medic"    end
+    if entry.trader   then return "trader"   end
+    return "none"
+end
+
+--- Class identity check for sim_squad_scripted instances - the canonical clsid.online_offline_group_s idiom.
+--- Required wherever a saved id may resolve to a different engine class after id recycling.
+--- @safety SAFE - nil-guarded; tests for clsid method presence before calling
+--- @cost O(1) | 2 luabind trivial (clsid field access + call)
+--- @src anomaly/axr_task_manager.script:1128 (the clsid idiom), anomaly/class_registrator.script(132)
+--- @param obj se_object|nil Server entity to test
+--- @return boolean True if obj is a sim_squad_scripted instance
+function is_squad(obj)
+    return obj ~= nil
+       and type(obj.clsid) == "function"
+       and obj:clsid() == CLSID_SQUAD
+end
+
+--- Check if a squad is an active task target via three signals: task_squads, the current_target objective id, and the bounty/hostage registries.
+--- Squad-level checks are O(1) hashes; the member-level checks share one squad_members walk in _check_member_target.
+--- @safety SAFE - nil-guarded, returns true for nil (fail-safe)
+--- @cost O(1) typical (task_squads or squad current_target hash hit) | O(m*(b+h)) worst case
+--- @src anomaly/sim_offline_combat.script(53), anomaly/task_objects.script current_target, anomaly/axr_task_manager.script bounties_by_id hostages_by_id
+--- @param squad se_squad Squad server object
+--- @return boolean True if squad is a task target (nil squad returns true for safety)
+--- @return string|nil Reason: "nil", "task_squads", "current_target", "bounty", "hostage"
+function is_task_target(squad)
+    if not squad then return true, "nil" end
+    if sim_offline_combat and sim_offline_combat.task_squads
+    and sim_offline_combat.task_squads[squad.id] then
+        return true, "task_squads"
+    end
+    if get_task_targets()[squad.id] then return true, "current_target" end
+    return _check_member_target(squad)
 end
 
 --- Get a squad commander's character rank as an integer: online game_object first, else the offline cse:rank().
@@ -338,18 +381,6 @@ function get_community_name(squad)
     return game.translate_string(comm)
 end
 
-local function _is_excluded(squad_id, exclude_squad_id, exclude_ids)
-    if squad_id == exclude_squad_id then return true end
-    if exclude_ids and exclude_ids[squad_id] then return true end
-    return false
-end
-
-local function _is_faction_match(comm, factions)
-    if not factions then return true end
-    if type(factions) == "table" then return factions[comm] end
-    return comm == factions
-end
-
 --- Check all protection guards with shared commander context, cheapest first: exclude_filter, scripted, permanent, active_role, task_target.
 --- Each guard is toggled by an opts flag; the commander resolution is shared across the permanent and active_role checks.
 --- @safety SAFE - nil-guarded, returns true for nil squad (fail-safe)
@@ -387,21 +418,6 @@ function is_protected(squad, opts)
         if task then return true, "is_task_target", detail end
     end
     return false
-end
-
--- Validate a squad for queries, cheapest reject first: level, position, NPC count, smart exclusion, protection.
--- The level check leads because xlevel.get_level_id is gvid-cached, so a wrong-level reject pays 0 luabind on a warm cache.
--- @cost O(1) typical | 1-5 luabind (npc_count, get_level_id cold, is_protected)
-local function _is_base_valid(squad, opts)
-    if not squad then return false end
-    if opts.level_id and xlevel.get_level_id(squad) ~= opts.level_id then return false end
-    if not squad.position then return false end
-    if squad.npc_count and squad:npc_count() == 0 then return false end
-    local faction = squad.player_id
-    if not faction then return false end
-    if opts.exclude_at_smart_id and squad.smart_id == opts.exclude_at_smart_id then return false end
-    if is_protected(squad, opts) then return false, nil, FLAG_PROTECTED end
-    return true, faction
 end
 
 --- Iterate all SIMBOARD squads as resolved server entities, skipping deleted ones (nil from alife_object).
@@ -462,22 +478,6 @@ function iterate_member_ids(squad)
         local k = iter()
         return k and k.id
     end
-end
-
--- Resolve a squad commander's service role from xdata.npc_roles for diagnostics; multi-role picks the most specific (mechanic > medic > trader).
--- @cost O(1) | 1 trivial (commander_id) + 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
-local function _get_commander_role(squad)
-    if not squad or not squad.commander_id then return "?" end
-    local cmd_id = squad:commander_id()
-    if not cmd_id then return "?" end
-    local se = alife_object(cmd_id)
-    if not se then return "?" end
-    local entry = xdata.npc_roles[se:section_name()]
-    if not entry then return "none" end
-    if entry.mechanic then return "mechanic" end
-    if entry.medic    then return "medic"    end
-    if entry.trader   then return "trader"   end
-    return "none"
 end
 
 --- Format one squad as a diagnostic record (raw engine fields, commander's service role, and name) - the single per-squad formatter.
