@@ -15,6 +15,65 @@ ENTITY = {
 --- Stalker rank tier names low to high (ranks.get_obj_rank_name), the single owner for the rank-name set.
 RANK_TIERS = { "novice", "trainee", "experienced", "professional", "veteran", "expert", "master", "legend" }
 
+-- Clsid to species mapping (server + client clsids, vanilla + modded exes; _g.script:2833-2866, ui_mutant_loot.script:34-54).
+local _clsid_to_species = {
+    [clsid.bloodsucker_s] = "bloodsucker", [clsid.bloodsucker] = "bloodsucker",
+    [clsid.boar_s] = "boar", [clsid.boar] = "boar",
+    [clsid.burer_s] = "burer", [clsid.burer] = "burer",
+    [clsid.chimera_s] = "chimera", [clsid.chimera] = "chimera",
+    [clsid.controller_s] = "controller", [clsid.controller] = "controller",
+    [clsid.dog_s] = "dog", [clsid.dog_red] = "dog",
+    [clsid.flesh_s] = "flesh", [clsid.flesh] = "flesh",
+    [clsid.gigant_s] = "gigant", [clsid.pseudo_gigant] = "gigant",
+    [clsid.psy_dog_s] = "psy_dog", [clsid.psy_dog_phantom_s] = "psy_dog",
+    [clsid.pseudodog_s] = "pseudodog", [clsid.dog_black] = "pseudodog",
+    [clsid.snork_s] = "snork", [clsid.snork] = "snork",
+    [clsid.tushkano_s] = "tushkano", [clsid.tushkano] = "tushkano",
+    [clsid.cat_s] = "cat", [clsid.cat] = "cat",
+    [clsid.fracture_s] = "fracture", [clsid.fracture] = "fracture",
+    [clsid.zombie_s] = "zombie", [clsid.zombie] = "zombie",
+    [clsid.poltergeist_s] = "poltergeist", [clsid.poltergeist] = "poltergeist",
+    [clsid.rat_s] = "rat", [clsid.rat] = "rat",
+}
+-- Modded-exe species (karlik, psysucker, lurker), guarded since they are absent in vanilla monolith.
+if clsid.karlik_s then _clsid_to_species[clsid.karlik_s] = "karlik" end
+if clsid.karlik then _clsid_to_species[clsid.karlik] = "karlik" end
+if clsid.psysucker_s then _clsid_to_species[clsid.psysucker_s] = "psysucker" end
+if clsid.psysucker then _clsid_to_species[clsid.psysucker] = "psysucker" end
+if clsid.lurker_s then _clsid_to_species[clsid.lurker_s] = "lurker" end
+if clsid.lurker then _clsid_to_species[clsid.lurker] = "lurker" end
+
+-- Monster faction lookup for the player_id fast reject (a Lua field, zero bridge cost).
+local _is_monster_faction = {
+    ["monster_predatory_day"] = true, ["monster_predatory_night"] = true,
+    ["monster_vegetarian"] = true, ["monster_special"] = true,
+    ["monster_zombied_day"] = true, ["monster_zombied_night"] = true,
+    ["monster_zombied"] = true, ["monster"] = true, ["zoo_monster"] = true,
+}
+
+-- Ambiguous clsids: modded creatures reusing a vanilla clsid when their _s clsid is unregistered; only these trigger the section_name fallback.
+local _ambiguous_clsids = {}
+local _ambiguous_prefixes = {}
+if not clsid.lurker_s then
+    _ambiguous_clsids[clsid.chimera_s] = true
+    _ambiguous_prefixes.lurker = "lurker"
+end
+if not clsid.psysucker_s then
+    _ambiguous_clsids[clsid.bloodsucker_s] = true
+    _ambiguous_prefixes.psysucker = "psysucker"
+end
+if not clsid.karlik_s then
+    _ambiguous_clsids[clsid.tushkano_s] = true
+    _ambiguous_prefixes.m_karlik = "karlik"
+    _ambiguous_prefixes.karlik = "karlik"
+end
+
+-- Per-NPC weak-key cache: clsid (and so species) is invariant for a server entity's lifetime; false sentinel for a nil result.
+local _species_cache = setmetatable({}, { __mode = "k" })
+
+-- Weak-key cache so entries drop when the object is GC'd.
+local _unscriptable_cache = setmetatable({}, { __mode = "k" })
+
 --- Get the class ID from an entity (ID, game_object, or server object), resolved via xobject.get_se + :clsid().
 --- @safety SAFE - returns nil for invalid/missing entities, :clsid() never crashes
 --- @cost O(log n) | 1 luabind medium (alife_object: xr_map find) + 1 luabind trivial (clsid: enum return)
@@ -64,42 +123,6 @@ function is_mutant(input) local cls = get_clsid(input) return cls and IsMonster(
 --- @return boolean
 function is_npc(input) return is_stalker(input) or is_mutant(input) end
 
--- Clsid to species mapping (server + client clsids, vanilla + modded exes; _g.script:2833-2866, ui_mutant_loot.script:34-54).
-local _clsid_to_species = {
-    [clsid.bloodsucker_s] = "bloodsucker", [clsid.bloodsucker] = "bloodsucker",
-    [clsid.boar_s] = "boar", [clsid.boar] = "boar",
-    [clsid.burer_s] = "burer", [clsid.burer] = "burer",
-    [clsid.chimera_s] = "chimera", [clsid.chimera] = "chimera",
-    [clsid.controller_s] = "controller", [clsid.controller] = "controller",
-    [clsid.dog_s] = "dog", [clsid.dog_red] = "dog",
-    [clsid.flesh_s] = "flesh", [clsid.flesh] = "flesh",
-    [clsid.gigant_s] = "gigant", [clsid.pseudo_gigant] = "gigant",
-    [clsid.psy_dog_s] = "psy_dog", [clsid.psy_dog_phantom_s] = "psy_dog",
-    [clsid.pseudodog_s] = "pseudodog", [clsid.dog_black] = "pseudodog",
-    [clsid.snork_s] = "snork", [clsid.snork] = "snork",
-    [clsid.tushkano_s] = "tushkano", [clsid.tushkano] = "tushkano",
-    [clsid.cat_s] = "cat", [clsid.cat] = "cat",
-    [clsid.fracture_s] = "fracture", [clsid.fracture] = "fracture",
-    [clsid.zombie_s] = "zombie", [clsid.zombie] = "zombie",
-    [clsid.poltergeist_s] = "poltergeist", [clsid.poltergeist] = "poltergeist",
-    [clsid.rat_s] = "rat", [clsid.rat] = "rat",
-}
--- Modded-exe species (karlik, psysucker, lurker), guarded since they are absent in vanilla monolith.
-if clsid.karlik_s then _clsid_to_species[clsid.karlik_s] = "karlik" end
-if clsid.karlik then _clsid_to_species[clsid.karlik] = "karlik" end
-if clsid.psysucker_s then _clsid_to_species[clsid.psysucker_s] = "psysucker" end
-if clsid.psysucker then _clsid_to_species[clsid.psysucker] = "psysucker" end
-if clsid.lurker_s then _clsid_to_species[clsid.lurker_s] = "lurker" end
-if clsid.lurker then _clsid_to_species[clsid.lurker] = "lurker" end
-
--- Monster faction lookup for the player_id fast reject (a Lua field, zero bridge cost).
-local _is_monster_faction = {
-    ["monster_predatory_day"] = true, ["monster_predatory_night"] = true,
-    ["monster_vegetarian"] = true, ["monster_special"] = true,
-    ["monster_zombied_day"] = true, ["monster_zombied_night"] = true,
-    ["monster_zombied"] = true, ["monster"] = true, ["zoo_monster"] = true,
-}
-
 --- Check if a squad_descr faction string is a monster faction; "zombied" is NOT one (those are stalker combatants).
 --- Use it to classify squad.player_id or xsmart.get_section_faction results.
 --- @safety SAFE - nil returns false
@@ -110,26 +133,6 @@ local _is_monster_faction = {
 function is_monster_faction(faction)
     return faction ~= nil and _is_monster_faction[faction] == true
 end
-
--- Ambiguous clsids: modded creatures reusing a vanilla clsid when their _s clsid is unregistered; only these trigger the section_name fallback.
-local _ambiguous_clsids = {}
-local _ambiguous_prefixes = {}
-if not clsid.lurker_s then
-    _ambiguous_clsids[clsid.chimera_s] = true
-    _ambiguous_prefixes.lurker = "lurker"
-end
-if not clsid.psysucker_s then
-    _ambiguous_clsids[clsid.bloodsucker_s] = true
-    _ambiguous_prefixes.psysucker = "psysucker"
-end
-if not clsid.karlik_s then
-    _ambiguous_clsids[clsid.tushkano_s] = true
-    _ambiguous_prefixes.m_karlik = "karlik"
-    _ambiguous_prefixes.karlik = "karlik"
-end
-
--- Per-NPC weak-key cache: clsid (and so species) is invariant for a server entity's lifetime; false sentinel for a nil result.
-local _species_cache = setmetatable({}, { __mode = "k" })
 
 -- Inner resolver: clsid -> species, with a prefix fallback for ambiguous clsids.
 -- @cost O(1) | 1-2 luabind (clsid + section_name for ambiguous)
@@ -551,9 +554,6 @@ function iterate_online_monsters()
         return nil
     end
 end
-
--- Weak-key cache so entries drop when the object is GC'd.
-local _unscriptable_cache = setmetatable({}, { __mode = "k" })
 
 -- Check unscriptable identity: story_id, companion info, named NPC, squad story_id.
 -- @cost O(1) | 3-5 luabind (id, story_id, IsStalker, has_info medium, section heavy)
