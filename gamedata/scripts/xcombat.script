@@ -45,8 +45,75 @@ local WEAPON_TTL_MS = 2000
 
 -- Sweep expired entries on an interval so an id-keyed TTL cache never grows unbounded (stalker-code.md hot path rule 5).
 local SWEEP_INTERVAL_MS = 60000
+
+-- Ray heights above npc:position() (the feet), probe-grounded (2026-08-04); every combat ray takes its height from HERE, never a literal.
+xcombat.BODY_Y = {
+    CROUCH_EYE = 0.93,
+    LANE       = 1.20,
+    CHEST      = 1.51,
+    STAND_EYE  = 1.59,
+}
+local BODY_Y = xcombat.BODY_Y
+
+-- Shared evaluator+action GOAP id; 188200 collided with an external companion surge-shelter scheme, 188347 verified unused and RESERVED.
+local TAKEOVER_ID = 188347
+
+-- Posture/movement keys into the engine move enum, looked up at call time so the module loads where move is absent (the validator stub).
+local BODY_KEY = { STAND = "standing", CROUCH = "crouch" }
+local MOVE_KEY = { STILL = "stand", WALK = "walk", RUN = "run" }
+
+-- rqtBoth (xr_collide_defs.h:72-76): baked geometry PLUS game objects; a static-only ray passes through cover a bullet cannot.
+local RQ_BOTH = 3
+-- rqtStatic (xr_collide_defs.h:72-76): baked level geometry ONLY - the pure wall test, where a body or crate must not count as a blocker.
+local RQ_STATIC = 2
+local SELF_CLEARANCE_M       = 1.0
+local ENEMY_BODY_CLEARANCE_M = 0.75
+
+-- Lateral half-width of the friendly firing lane for the can_kill_member fallback (the proven takeover doctrine value).
+local FRIENDLY_LANE_THRESH_M = 1.5
+
+-- The ef_weapon_type classes the engine's unseen suppression window accepts (ai_stalker_fire.cpp:920-930); read from ini_sys, never a bind.
+local AUTO_WEAPON_TYPES = { [6] = true, [7] = true, [8] = true, [10] = true }
+
+-- best_cover cost grows ~r^2 with the radius scanned and is worst on a no-cover result (radius 10 measured up to 2.7ms in dense cover).
+local COVER_MIN_DIST = 1
+local COVER_MAX_DIST = 30
+local CONCEAL_THRESH       = 0.3
+local COS_30               = 0.866
+local STEP_DECREMENT_M     = 2
+local PROBE_MIN_M          = 1
+local PROBE_MAX_M          = 6
+local PROBE_STEP_M         = 1
+local PROBE_DIRS           = 8
+local PROBE_ARC            = 2 * math.pi / PROBE_DIRS
+local DEG_TO_RAD           = math.pi / 180
+
+-- CWeapon::eReload = 7 (Weapon.h:183-185); NOT 5 - the vanilla actor_effects.script "== 5" compare is eFire.
+local WPN_STATE_RELOAD = 7
+
+-- Indoor raycast geometry: rqtStatic only, so a crate or passing stalker never reads as a wall; cast from chest height.
+local INDOOR_PROBE_Y     = BODY_Y.CHEST
+-- Roof within 4m and >=2 of 4 cardinals walled within 5m; MIN_WALLS 1 false-flagged a spot under a tree branch beside a single wall.
+local INDOOR_ROOF_M      = 4
+local INDOOR_WALL_M      = 5
+local INDOOR_MIN_WALLS   = 2
+-- get_enclosure reach, probe-crystallized (31 snapshots 2026-08-08): a high hall ceiling still hits, open sky/ground reads no hit.
+local ENC_ROOF_RANGE     = 18
+local ENC_WALL_RANGE     = 40
+-- a wall within this counts toward "building" (>=3) vs "tunnel" (2)
+local ENC_BUILD_M        = 8
+
 local _next_sweep = setmetatable({}, { __mode = "k" })
 local _sweep_keys = {}
+
+-- The blocked-planner id list, resolved at call time so the library never auto-loads the GOAP id modules at load.
+local _blocked_planners = nil
+local _takeover_spec = nil
+local _takeover_installed = {}
+-- npc id -> set of blocked ids already preconditioned on this NPC's manager; makes the seize-time top-up idempotent (duplicate add_condition throws).
+local _takeover_blocked = {}
+-- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
+local _operators = nil
 
 --- Delete every expired entry from an id-keyed TTL cache, at most once a minute.
 --- Keys are collected first and deleted in a second pass; _sweep_keys is reused (zero allocation) and _next_sweep is weak-keyed.
@@ -286,9 +353,6 @@ end
 
 -- GOAP takeover: the planner block list and the squad combat-mask lifecycle the blocked CStalkerCombatPlanner no longer performs.
 
--- The blocked-planner id list, resolved at call time so the library never auto-loads the GOAP id modules at load.
-local _blocked_planners = nil
-
 -- Append one id, only when it resolves to a number; a removed or renumbered scheme is skipped rather than faulting the install.
 local function _add_planner_id(list, id)
     if type(id) == "number" then list[#list + 1] = id end
@@ -355,18 +419,10 @@ end
 
 -- GOAP takeover graft: xcombat owns the mechanism, the consumer owns policy via spec { gate, on_begin }; the graft is permanent for the NPC's life.
 
--- Shared evaluator+action GOAP id; 188200 collided with an external companion surge-shelter scheme, 188347 verified unused and RESERVED.
-local TAKEOVER_ID = 188347
-
 --- The grafted action's GOAP id, exported so a consumer can declare it in vanilla's state_mgr.combat_action_ids.
 --- Read-only by convention; writing it does not move the graft, which reads the local.
 --- @src anomaly/state_mgr.script:10-18 (the table and vanilla's own note on who belongs in it)
 xcombat.TAKEOVER_ID = TAKEOVER_ID
-
-local _takeover_spec = nil
-local _takeover_installed = {}
--- npc id -> set of blocked ids already preconditioned on this NPC's manager; makes the seize-time top-up idempotent (duplicate add_condition throws).
-local _takeover_blocked = {}
 
 -- The gate evaluator: true exactly while the consumer's gate is raised for this NPC; polled every plan solve, so it is a flag read.
 class "xcombat_takeover_evaluator" (property_evaluator)
@@ -527,9 +583,6 @@ function xcombat.get_sight_target(npc)
     return obj and obj:id() or nil, params.m_sight_type
 end
 
--- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
-local _operators = nil
-
 -- Register the +1/+2/+3 sub-action labels for one numeric action id, skipping any id already mapped.
 local function _set_variants(ops, name, aid)
     if type(aid) ~= "number" then return end
@@ -632,10 +685,6 @@ local COMBAT_STATES = {
     },
 }
 
--- Posture/movement keys into the engine move enum, looked up at call time so the module loads where move is absent (the validator stub).
-local BODY_KEY = { STAND = "standing", CROUCH = "crouch" }
-local MOVE_KEY = { STILL = "stand", WALK = "walk", RUN = "run" }
-
 -- State for a (fire, posture, movement) combo, or nil when the engine ships none.
 -- @cost O(1) | 0 luabind (nested table lookup)
 local function _get_combat_state(fire, posture, movement)
@@ -707,21 +756,6 @@ function xcombat.set_combat(npc, opts)
 end
 
 -- Geometric queries
-
--- Ray heights above npc:position() (the feet), probe-grounded (2026-08-04); every combat ray takes its height from HERE, never a literal.
-xcombat.BODY_Y = {
-    CROUCH_EYE = 0.93,
-    LANE       = 1.20,
-    CHEST      = 1.51,
-    STAND_EYE  = 1.59,
-}
-local BODY_Y = xcombat.BODY_Y
--- rqtBoth (xr_collide_defs.h:72-76): baked geometry PLUS game objects; a static-only ray passes through cover a bullet cannot.
-local RQ_BOTH = 3
--- rqtStatic (xr_collide_defs.h:72-76): baked level geometry ONLY - the pure wall test, where a body or crate must not count as a blocker.
-local RQ_STATIC = 2
-local SELF_CLEARANCE_M       = 1.0
-local ENEMY_BODY_CLEARANCE_M = 0.75
 
 --- The ONE object-aware (rqtBoth) clearance ray: true when a wall or game object blocks the straight line from a to b.
 --- Heights are DATA (BODY_Y), never literals: opts.from_y / opts.to_y are required, opts.self_clear / opts.target_clear trim the ends.
@@ -1067,9 +1101,6 @@ end
 local FIRE_BONE = "bip01_r_finger02"
 -- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
 local INVALID_BONE_ID = 65535
--- Lateral half-width of the friendly firing lane for the can_kill_member fallback (the proven takeover doctrine value).
-local FRIENDLY_LANE_THRESH_M = 1.5
-
 -- Fire origin: the weapon-hand bone position, STAND_EYE over the feet when the skeleton lacks the bone.
 -- @src xray/ai_stalker_fire.cpp:208 (the engine fires from eye_matrix.c); rx_ff.check_in_los + utils_obj.safe_bone_pos precedents
 -- @cost O(1) | 2-3 luabind trivial (get_bone_id + bone_position, or position)
@@ -1137,8 +1168,6 @@ local FIRE_EXT_M      = 2.5
 local FIRE_HEIGHT_M   = 2.0
 local FIRE_MIN_DIST_M = 2.5
 local FIRE_UNSEEN_MS  = 10000
--- The ef_weapon_type classes the engine's unseen suppression window accepts (ai_stalker_fire.cpp:920-930); read from ini_sys, never a bind.
-local AUTO_WEAPON_TYPES = { [6] = true, [7] = true, [8] = true, [10] = true }
 
 -- nil = unprobed; false = cvars absent (floor exe); true = cvars present (read live per call)
 local _fire_cvars = nil
@@ -1272,19 +1301,6 @@ function xcombat.on_reload_stop(fn)
 end
 
 -- Movement targeting: the finders return a level vertex or nil, no side effects; _find_toward is the geometry primitive.
-
--- best_cover cost grows ~r^2 with the radius scanned and is worst on a no-cover result (radius 10 measured up to 2.7ms in dense cover).
-local COVER_MIN_DIST = 1
-local COVER_MAX_DIST = 30
-local CONCEAL_THRESH       = 0.3
-local COS_30               = 0.866
-local STEP_DECREMENT_M     = 2
-local PROBE_MIN_M          = 1
-local PROBE_MAX_M          = 6
-local PROBE_STEP_M         = 1
-local PROBE_DIRS           = 8
-local PROBE_ARC            = 2 * math.pi / PROBE_DIRS
-local DEG_TO_RAD           = math.pi / 180
 
 -- True if vid is in-range, accessible, not the NPC's own node, and free (or already ours).
 -- Mirrors vanilla utils_obj.validate (the battle-tested validate+lmove pattern), reservation-aware.
@@ -1612,9 +1628,6 @@ function xcombat.is_body_busy(npc)
     return false
 end
 
--- CWeapon::eReload = 7 (Weapon.h:183-185); NOT 5 - the vanilla actor_effects.script "== 5" compare is eFire.
-local WPN_STATE_RELOAD = 7
-
 --- True while the NPC's active weapon is in the reload state - the authoritative reload read.
 --- Polls the weapon state machine, so it works on every exe (the reload edge events are the cheap signal this truth bounds).
 --- @safety SAFE - nil-guarded active item, IsWeapon-typed before get_state
@@ -1702,18 +1715,6 @@ xcombat.INDOOR_LEVELS = {
     l12u_control_monolith = true,
     l13u_warlab           = true,
 }
-
--- Indoor raycast geometry: rqtStatic only, so a crate or passing stalker never reads as a wall; cast from chest height.
-local INDOOR_PROBE_Y     = BODY_Y.CHEST
--- Roof within 4m and >=2 of 4 cardinals walled within 5m; MIN_WALLS 1 false-flagged a spot under a tree branch beside a single wall.
-local INDOOR_ROOF_M      = 4
-local INDOOR_WALL_M      = 5
-local INDOOR_MIN_WALLS   = 2
--- get_enclosure reach, probe-crystallized (31 snapshots 2026-08-08): a high hall ceiling still hits, open sky/ground reads no hit.
-local ENC_ROOF_RANGE     = 18
-local ENC_WALL_RANGE     = 40
--- a wall within this counts toward "building" (>=3) vs "tunnel" (2)
-local ENC_BUILD_M        = 8
 
 -- Distance to the first static-mesh hit from pos along dir within range, or nil.
 -- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
