@@ -876,11 +876,7 @@ function find_smart(pos, opts)
     local best, best_dist = nil, max_dist_sqr
 
     for _, smart in pairs(pool) do
-        if not smart or not smart.position then goto continue end
-        if exclude_id and smart.id == exclude_id then goto continue end
-        if factions_check and not factions_check(smart, factions) then goto continue end
-        if level_id and xlevel.get_level_id(smart) ~= level_id then goto continue end
-        if filter and not filter(smart) then goto continue end
+        if not (smart and smart.position and _is_smart_match(smart, exclude_id, factions, factions_check, level_id, filter)) then goto continue end
         local dist_sqr = pos:distance_to_sqr(smart.position)
         if dist_sqr > min_dist_sqr and dist_sqr < best_dist then
             best, best_dist = smart, dist_sqr
