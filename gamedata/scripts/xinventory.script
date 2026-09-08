@@ -8,6 +8,17 @@ local level, ini_sys, ini_file, xlevel = level, ini_sys, ini_file, xlevel
 local get_object_story_id, se_load_var = get_object_story_id, se_load_var
 local table_concat = table.concat
 
+-- Item categorization vocabulary: produced by get_section_category / resolve_ammo_category, compared by consumers.
+local WEAPON_PREFIX = "WP_"
+local FOOD_SECTIONS = { ["i_food"] = true, ["i_mutant_cooked"] = true }
+local DRINK_SECTION = "i_drink"
+local FLAG_UNTOUCHABLE = "untouchable"
+local FLAG_EQUIPPED = "equipped"
+local AMMO_NOT_EQUIPPED = "ammo_not_equipped"
+local AMMO_SLOT_2 = "ammo_slot_2"
+local AMMO_SLOT_3 = "ammo_slot_3"
+local MODE_LOOT = "loot"
+
 -- Engine slot constants (inventory_space.h:7-43); m_slots is sized from system.ltx slot_persistent_<N>, so slots 15..18 are OOB UB.
 
 SLOT_KNIFE     = 1
@@ -482,9 +493,9 @@ end
 function get_section_category(sec)
     if not sec then return "other" end
 
-    if IsItem("quest", sec) or IsItem("anim", sec) then return "untouchable" end
+    if IsItem("quest", sec) or IsItem("anim", sec) then return FLAG_UNTOUCHABLE end
     _build_blacklist()
-    if _blacklist_set[sec] then return "untouchable" end
+    if _blacklist_set[sec] then return FLAG_UNTOUCHABLE end
 
     if _medkit_set[sec]   then return "medkit"  end
     if _bandage_set[sec]  then return "bandage" end
@@ -494,11 +505,11 @@ function get_section_category(sec)
     if _grenade_set[sec]  then return "grenade" end
 
     local kind = _get_kind(sec)
-    if kind == "i_food" or kind == "i_mutant_cooked" then return "food"  end
-    if kind == "i_drink"                              then return "drink" end
+    if FOOD_SECTIONS[kind]    then return "food"  end
+    if kind == DRINK_SECTION  then return "drink" end
 
     if IsItem("grenade_ammo", sec) then return "grenade_ammo"      end
-    if IsItem("ammo",         sec) then return "ammo_not_equipped" end
+    if IsItem("ammo",         sec) then return AMMO_NOT_EQUIPPED   end
     if IsItem("artefact",     sec) then return "artefact" end
     if IsItem("outfit",       sec) then return "outfit"   end
     if IsItem("helmet",       sec) then return "helmet"   end
@@ -507,7 +518,7 @@ function get_section_category(sec)
     if IsItem("tool", sec) or IsItem("part", sec) or IsItem("upgrade", sec) then return "crafting" end
 
     local cls = _get_class(sec)
-    if cls and cls:sub(1, 3) == "WP_" then return "weapon" end
+    if cls and cls:sub(1, 3) == WEAPON_PREFIX then return "weapon" end
 
     return "other"
 end
@@ -522,16 +533,16 @@ end
 --- @return string|nil "ammo_slot_2_tN" / "ammo_slot_3_tN" / "ammo_not_equipped" / nil (not ammo)
 function resolve_ammo_category(sec, opts)
     if not sec or not IsItem("ammo", sec) then return nil end
-    if not opts then return "ammo_not_equipped" end
+    if not opts then return AMMO_NOT_EQUIPPED end
     if opts.equipped_pistol_sec then
         local tier = get_ammo_tiers(opts.equipped_pistol_sec, 2)[sec]
-        if tier then return "ammo_slot_2_t" .. tier end
+        if tier then return AMMO_SLOT_2 .. "_t" .. tier end
     end
     if opts.equipped_rifle_sec then
         local tier = get_ammo_tiers(opts.equipped_rifle_sec, 2)[sec]
-        if tier then return "ammo_slot_3_t" .. tier end
+        if tier then return AMMO_SLOT_3 .. "_t" .. tier end
     end
-    return "ammo_not_equipped"
+    return AMMO_NOT_EQUIPPED
 end
 
 --- Resolve the category for a live item with per-NPC opts: three runtime untouchable checks (story_id, companion-gifted, strapped) apply.
@@ -551,17 +562,17 @@ function get_category(item, opts)
 
     local base = get_section_category(sec)
 
-    if base == "untouchable" then return base, sec end
+    if base == FLAG_UNTOUCHABLE then return base, sec end
 
     local item_id = item:id()
-    if get_object_story_id and get_object_story_id(item_id) then return "untouchable", sec end
+    if get_object_story_id and get_object_story_id(item_id) then return FLAG_UNTOUCHABLE, sec end
     if opts and opts.npc_id and axr_companions and axr_companions.is_assigned_item
-        and axr_companions.is_assigned_item(opts.npc_id, item_id) then return "untouchable", sec end
-    if se_load_var and se_load_var(item_id, "", "strapped_item") then return "untouchable", sec end
+        and axr_companions.is_assigned_item(opts.npc_id, item_id) then return FLAG_UNTOUCHABLE, sec end
+    if se_load_var and se_load_var(item_id, "", "strapped_item") then return FLAG_UNTOUCHABLE, sec end
 
-    if opts and opts.equipped_ids and opts.equipped_ids[item_id] then return "equipped", sec end
+    if opts and opts.equipped_ids and opts.equipped_ids[item_id] then return FLAG_EQUIPPED, sec end
 
-    if base == "ammo_not_equipped" then
+    if base == AMMO_NOT_EQUIPPED then
         local resolved = resolve_ammo_category(sec, opts)
         if resolved then return resolved, sec end
     end
@@ -755,9 +766,9 @@ end
 
 -- Contribution one item makes to its category count: ammo categories count rounds, others count 1 item per stack.
 local function _get_unit(category, item)
-    if category == "ammo_not_equipped"
-        or string_sub(category, 1, 11) == "ammo_slot_2"
-        or string_sub(category, 1, 11) == "ammo_slot_3" then
+    if category == AMMO_NOT_EQUIPPED
+        or string_sub(category, 1, 11) == AMMO_SLOT_2
+        or string_sub(category, 1, 11) == AMMO_SLOT_3 then
         return item:ammo_get_count() or 0
     end
     return 1
@@ -822,7 +833,7 @@ end
 --- @return string|nil item section
 function get_policy_key(item, opts, rules)
     local cat, sec = get_category(item, opts)
-    if cat == "untouchable" or cat == "equipped" then return nil, cat end
+    if cat == FLAG_UNTOUCHABLE or cat == FLAG_EQUIPPED then return nil, cat end
     return (rules and rules[sec]) and sec or cat, cat, sec
 end
 
@@ -948,7 +959,7 @@ end
 --- @param bag number source list type, an EDDListType value (the callback's 5th arg)
 --- @return boolean
 function is_corpse_take(mode, bag)
-    return mode == "loot" and bag == EDDListType.iDeadBodyBag
+    return mode == MODE_LOOT and bag == EDDListType.iDeadBodyBag
 end
 
 --- Veto an actor-menu move from a before_move handler; Cond_Move aborts the move when ret_value is cleared (ui_inventory.script:915-917).
