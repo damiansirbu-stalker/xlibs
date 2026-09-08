@@ -80,6 +80,87 @@ local function get_stack_trace(max_frames)
     return #lines > 0 and table.concat(lines, "\n") or nil
 end
 
+local function _check_deadband(self, msg, lvl)
+    if msg == self._last_msg and lvl == self._last_lvl then
+        self._repeat_count = self._repeat_count + 1
+        return true
+    end
+    self:_flush_repeat()
+    self._last_msg = msg
+    self._last_lvl = lvl
+    return false
+end
+
+--- Format the log line via protected string.format when fmt holds a spec and args follow, else fall through to format_args.
+--- @safety pcall: string.format throws on a bad format string, recovers and returns the original fmt (doc/library/modding/pcall-safety.md)
+--- @cost O(n) args | 0 luabind (pure Lua string.format / table.concat, ~2-3x overhead on format error path)
+local function _format_msg(fmt, ...)
+    if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then
+        local ok, result = pcall(string.format, fmt, ...)
+        return ok and result or fmt
+    end
+    return format_args(fmt, ...)
+end
+
+local function create_facade(logger)
+    return {
+        fatal = function(fmt, ...) if LEVELS.FATAL > logger.level then return end logger:write(LEVELS.FATAL, fmt, ...) end,
+        error = function(fmt, ...) if LEVELS.ERROR > logger.level then return end logger:write(LEVELS.ERROR, fmt, ...) end,
+        warn  = function(fmt, ...) if LEVELS.WARN  > logger.level then return end logger:write(LEVELS.WARN, fmt, ...) end,
+        info  = function(fmt, ...) if LEVELS.INFO  > logger.level then return end logger:write(LEVELS.INFO, fmt, ...) end,
+        debug = function(fmt, ...) if LEVELS.DEBUG > logger.level then return end logger:write(LEVELS.DEBUG, fmt, ...) end,
+        trace = function(fmt, ...) if LEVELS.TRACE > logger.level then return end logger:write(LEVELS.TRACE, fmt, ...) end,
+
+        flush = function() logger:flush_buffer() end,
+        set_level = function(lvl) logger:set_level(lvl) end,
+        get_level = function() return logger:get_level() end,
+        get_level_name = function() return logger:get_level_name() end,
+
+        _logger = logger,
+    }
+end
+
+local function flush_all_loggers()
+    for _, entry in pairs(loggers) do
+        entry.logger:flush_buffer()
+    end
+end
+
+-- Re-arm BEFORE flushing and return nil so the event stays queued with the new deadline.
+-- Without reset_timer in the bindings, fall back to the one-shot (return true) rather than spin per-frame on a nil-returner.
+local function _run_periodic_flush()
+    local rearmed = false
+    if platform and platform.reset_timer then
+        platform.reset_timer("xlog", "flush", defaults.flush_interval)
+        rearmed = true
+    end
+    _rotation_checked = {}
+    flush_all_loggers()
+    if not rearmed then return true end
+end
+
+local function start_periodic_flush()
+    if timer_active then return end
+    if not platform or not platform.create_timer then return end
+
+    platform.create_timer("xlog", "flush", defaults.flush_interval, _run_periodic_flush)
+    timer_active = true
+end
+
+--- @safety SAFE - all callbacks are standard Anomaly (axr_main.script:52)
+local function register_callbacks()
+    if not platform or not platform.register_callback then return end
+
+    platform.register_callback("save_state", flush_all_loggers)
+    platform.register_callback("actor_on_net_destroy", flush_all_loggers)
+    platform.register_callback("on_before_level_changing", flush_all_loggers)
+
+    platform.register_callback("on_game_load", function()
+        session_logged = {}
+        _reset_session()
+    end)
+end
+
 local Logger = {}
 Logger.__index = Logger
 
@@ -178,28 +259,6 @@ function Logger:_flush_repeat()
     self._repeat_count = 0
 end
 
-local function _check_deadband(self, msg, lvl)
-    if msg == self._last_msg and lvl == self._last_lvl then
-        self._repeat_count = self._repeat_count + 1
-        return true
-    end
-    self:_flush_repeat()
-    self._last_msg = msg
-    self._last_lvl = lvl
-    return false
-end
-
---- Format the log line via protected string.format when fmt holds a spec and args follow, else fall through to format_args.
---- @safety pcall: string.format throws on a bad format string, recovers and returns the original fmt (doc/library/modding/pcall-safety.md)
---- @cost O(n) args | 0 luabind (pure Lua string.format / table.concat, ~2-3x overhead on format error path)
-local function _format_msg(fmt, ...)
-    if type(fmt) == "string" and fmt:find("%%") and select("#", ...) > 0 then
-        local ok, result = pcall(string.format, fmt, ...)
-        return ok and result or fmt
-    end
-    return format_args(fmt, ...)
-end
-
 function Logger:write(lvl, fmt, ...)
     if lvl > self.level then return end
 
@@ -253,65 +312,6 @@ end
 
 function Logger:get_level_name()
     return LEVEL_NAMES[self.level] or "???"
-end
-
-local function create_facade(logger)
-    return {
-        fatal = function(fmt, ...) if LEVELS.FATAL > logger.level then return end logger:write(LEVELS.FATAL, fmt, ...) end,
-        error = function(fmt, ...) if LEVELS.ERROR > logger.level then return end logger:write(LEVELS.ERROR, fmt, ...) end,
-        warn  = function(fmt, ...) if LEVELS.WARN  > logger.level then return end logger:write(LEVELS.WARN, fmt, ...) end,
-        info  = function(fmt, ...) if LEVELS.INFO  > logger.level then return end logger:write(LEVELS.INFO, fmt, ...) end,
-        debug = function(fmt, ...) if LEVELS.DEBUG > logger.level then return end logger:write(LEVELS.DEBUG, fmt, ...) end,
-        trace = function(fmt, ...) if LEVELS.TRACE > logger.level then return end logger:write(LEVELS.TRACE, fmt, ...) end,
-
-        flush = function() logger:flush_buffer() end,
-        set_level = function(lvl) logger:set_level(lvl) end,
-        get_level = function() return logger:get_level() end,
-        get_level_name = function() return logger:get_level_name() end,
-
-        _logger = logger,
-    }
-end
-
-local function flush_all_loggers()
-    for _, entry in pairs(loggers) do
-        entry.logger:flush_buffer()
-    end
-end
-
--- Re-arm BEFORE flushing and return nil so the event stays queued with the new deadline.
--- Without reset_timer in the bindings, fall back to the one-shot (return true) rather than spin per-frame on a nil-returner.
-local function _run_periodic_flush()
-    local rearmed = false
-    if platform and platform.reset_timer then
-        platform.reset_timer("xlog", "flush", defaults.flush_interval)
-        rearmed = true
-    end
-    _rotation_checked = {}
-    flush_all_loggers()
-    if not rearmed then return true end
-end
-
-local function start_periodic_flush()
-    if timer_active then return end
-    if not platform or not platform.create_timer then return end
-
-    platform.create_timer("xlog", "flush", defaults.flush_interval, _run_periodic_flush)
-    timer_active = true
-end
-
---- @safety SAFE - all callbacks are standard Anomaly (axr_main.script:52)
-local function register_callbacks()
-    if not platform or not platform.register_callback then return end
-
-    platform.register_callback("save_state", flush_all_loggers)
-    platform.register_callback("actor_on_net_destroy", flush_all_loggers)
-    platform.register_callback("on_before_level_changing", flush_all_loggers)
-
-    platform.register_callback("on_game_load", function()
-        session_logged = {}
-        _reset_session()
-    end)
 end
 
 --- Initialize with platform bindings. Stores bindings table, starts periodic flush timer, registers lifecycle callbacks.
