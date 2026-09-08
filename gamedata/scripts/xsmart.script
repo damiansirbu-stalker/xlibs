@@ -789,7 +789,7 @@ end
 
 -- Any-of acceptance check used by find_smart / find_first_smart when opts.factions is a set.
 -- @cost O(k) factions | 0 luabind (pure Lua pairs); short-circuits on first accept
-local function _accepts_any_faction(smart, fset)
+local function _can_accept_any(smart, fset)
     for f in pairs(fset) do
         if can_accept_faction(smart, f) then return true end
     end
@@ -816,7 +816,7 @@ function find_smart(pos, opts)
     local filter = opts.filter
     local factions_check
     if factions then
-        if type(factions) == "table" then factions_check = _accepts_any_faction else factions_check = can_accept_faction end
+        if type(factions) == "table" then factions_check = _can_accept_any else factions_check = can_accept_faction end
     end
     local min_dist_sqr = -1
     if opts.min_distance then min_dist_sqr = opts.min_distance * opts.min_distance end
@@ -866,7 +866,7 @@ function find_first_smart(opts)
     local factions = opts.factions
     local factions_check
     if factions then
-        if type(factions) == "table" then factions_check = _accepts_any_faction else factions_check = can_accept_faction end
+        if type(factions) == "table" then factions_check = _can_accept_any else factions_check = can_accept_faction end
     end
     for _, smart in pairs(pool) do
         if _is_smart_match(smart, opts.exclude_id, factions, factions_check, opts.level_id, opts.filter) then

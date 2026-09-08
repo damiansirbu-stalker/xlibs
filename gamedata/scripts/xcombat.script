@@ -874,7 +874,7 @@ end
 
 -- One member check; lifted out so the loop body has no nested if-chain.
 -- @cost O(1) | 2 luabind (level.object_by_id + alive) on hit; vector field access
-local function _member_on_line(member_id, my_id, axis)
+local function _is_member_lined(member_id, my_id, axis)
     if member_id == my_id then return false end
     local member = level_object_by_id(member_id)
     if not member or not member:alive() then return false end
@@ -904,7 +904,7 @@ function xcombat.has_friendly_lane(npc, npc_pos, ene_pos, lateral_thresh_m)
     }
     local my_id = npc:id()
     for member_id in xsquad.iterate_member_ids(squad) do
-        if _member_on_line(member_id, my_id, axis) then return true end
+        if _is_member_lined(member_id, my_id, axis) then return true end
     end
     return false
 end
@@ -1115,7 +1115,7 @@ end
 -- Capped fire-clearance ray from origin toward the enemy chest; returns (blocker distance or nil when clear, distance to the chest).
 -- Gap vs the engine ray: no transparency accumulation, so glass and bushes read as blockers the engine's own gate shoots through.
 -- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query + get_distance)
-local function _fire_lane_hit(origin, enemy_pos)
+local function _compute_lane_hit(origin, enemy_pos)
     local dx = enemy_pos.x - origin.x
     local dy = (enemy_pos.y + BODY_Y.CHEST) - origin.y
     local dz = enemy_pos.z - origin.z
@@ -1145,7 +1145,7 @@ end
 function xcombat.can_kill_enemy(npc, enemy)
     if not (npc and enemy) then return false end
     if _has_bind(npc, "can_kill_enemy") then return npc:can_kill_enemy() end
-    local hit_m = _fire_lane_hit(_get_fire_origin(npc), enemy:position())
+    local hit_m = _compute_lane_hit(_get_fire_origin(npc), enemy:position())
     return hit_m == nil
 end
 
@@ -1174,7 +1174,7 @@ local _fire_cvars = nil
 
 -- The 4 gate values: the live ai_fire_* cvars when the exe has them, the vanilla constants otherwise.
 -- @cost O(1) | 0 luabind on the floor after the first probe, 5 luabind trivial per call when cvars exist
-local function _fire_gate_values()
+local function _get_gate_values()
     if _fire_cvars == nil then
         _fire_cvars = get_console():get_string("ai_fire_range_extension") ~= nil
     end
@@ -1201,10 +1201,10 @@ end
 function xcombat.fire_make_sense(npc, enemy)
     if not (npc and enemy) then return false end
     if _has_bind(npc, "fire_make_sense") then return npc:fire_make_sense() end
-    local ext_m, height_m, min_dist_m, unseen_ms = _fire_gate_values()
+    local ext_m, height_m, min_dist_m, unseen_ms = _get_gate_values()
     local enemy_pos = enemy:position()
     if math_abs(npc:position().y - enemy_pos.y) > height_m then return false end
-    local hit_m, dist_m = _fire_lane_hit(_get_fire_origin(npc), enemy_pos)
+    local hit_m, dist_m = _compute_lane_hit(_get_fire_origin(npc), enemy_pos)
     local pick_m = hit_m or dist_m
     if pick_m + ext_m < dist_m then return false end
     if pick_m < min_dist_m then return false end
