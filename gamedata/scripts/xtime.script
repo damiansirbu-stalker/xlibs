@@ -3,6 +3,7 @@
 local _start_time = nil
 
 --- Get game-seconds since epoch (level start time), caching level.get_start_time() per save (reset on on_game_start).
+--- The start time is fixed for the save so it is fetched once, leaving each call the current-time read plus a diffSec subtraction.
 --- @safety SAFE - level.present()-guarded; level.get_start_time AVs before on_game_load, so never call this in load_state or on_game_start
 --- @cost O(1) | 2 luabind (get_game_time medium: xrTime ctor; diffSec trivial), first call adds 1 luabind medium (get_start_time)
 --- @src xray/xrGame/level_script.cpp(2079) get_start_time, xray/xrGame/xr_time.cpp(76) diffSec, level_script.cpp(2733) get_game_time

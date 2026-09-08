@@ -392,6 +392,7 @@ function is_near_campfire(smart, position, radius)
 end
 
 --- Check if a smart terrain is within 50m of any online anomaly zone (against db.anomaly_by_name, switch_distance scope).
+--- Only online zone binders populate db.anomaly_by_name, so an offline smart reads false; the squared-distance compare avoids a per-zone sqrt.
 --- @scope online - db.anomaly_by_name populated by zone binders at net_spawn; binder.object is the online physics object; same distance hysteresis as campfires
 --- @safety SAFE - nil-guarded, no pcall. binder.object guarded for net_destroy transition edge case
 --- @cost O(k) k=online anomaly zones (5-15) | per zone: binder.object:position() 1 luabind trivial + distance_to_sqr 1 luabind trivial (inline math)
@@ -432,6 +433,7 @@ function is_anomaly_near(pos, radius)
 end
 
 --- Get the nearest smart terrain to the actor from the engine-maintained nearest_to_actor_smart table (zero search cost).
+--- The smart tick keeps that table current for online smarts, so this is a single alife_object resolve of the stored id, not a spatial scan.
 --- @scope online - smart_terrain.nearest_to_actor_smart updated by smart tick when self.online (smart_terrain.script:1256); only online smarts compete
 --- @safety SAFE - nil-guarded, alife_object returns nil for invalid IDs
 --- @cost O(log n) | 1 luabind medium (alife_object: xr_map find)
@@ -588,6 +590,7 @@ function is_smart_empty(smart_id)
 end
 
 --- Get the squads table for a smart terrain by ID: the raw SIMBOARD.smarts[id].squads hash ({[squad_id]=true}).
+--- It hands back the live table by reference (no copy), so a caller iterates it read-only and treats a nil return as an unregistered or empty smart.
 --- @scope global - SIMBOARD.smarts populated at register
 --- @safety SAFE - pure Lua, nil-guarded at every level
 --- @cost O(1) | 0 luabind (pure Lua field/table reads)
@@ -663,6 +666,7 @@ function has_faction_squad(smart_id, faction, exclude_id)
 end
 
 --- Test if any squad physically stationed at a smart is enemy of the asking community (per-squad is_factions_enemies), cross-level safe.
+--- It short-circuits on the first hostile squad and gates on faction relation, not per-NPC relation, because the question is about the place's owners.
 --- @safety SAFE - delegates to iterate_stationed_squads
 --- @cost O(min(n,5)) squads, short-circuits on first enemy | per squad: 1 medium (alife_object) + 0 luabind + game_relations cached hash
 --- @src anomaly/sim_board.script(96,258), anomaly/sim_squad_scripted.script(295-323), anomaly/game_relations.script(603)
@@ -960,6 +964,7 @@ function is_arrived(squad, smart)
 end
 
 --- Get the spatial proximity between a squad and a smart terrain - the diagnostic form of am_i_reached (distance, threshold, gvid match).
+--- A matching game vertex returns distance 0 and a different level returns -1, so a caller reads arrival state and the raw gap without calling am_i_reached.
 --- @scope global - reads game_graph + server-entity position; cross-level safe (returns dist=-1 on level mismatch)
 --- @safety pcall: game_graph() is NULL singleton during transitions, see doc/library/modding/pcall-safety.md
 --- @cost O(1) | gvid match: 0 luabind; cross-vertex: 2 luabind trivial (vertex + distance_to_sqr) + game_graph singleton lookup (pcall-guarded, cached)
@@ -1060,6 +1065,7 @@ function format_smarts(level_id)
 end
 
 --- Iterator over all smart terrains in SIMBOARD (a stateful next() on SIMBOARD.smarts, skipping entries without a valid smrt).
+--- It yields the smrt server object per entry and skips half-registered slots, so a caller walks only live smarts across every level.
 --- @scope global - iterates SIMBOARD.smarts (all levels)
 --- @safety SAFE - nil-guarded, returns empty iterator when SIMBOARD unavailable
 --- @cost O(n) smarts | 0 luabind (pure Lua table iteration)

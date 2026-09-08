@@ -38,6 +38,7 @@ local function get_type(obj, cls)
 end
 
 --- Format userdata (X-Ray game object) with rich info. Extracts id/name/section/community/alive/rank via pcall; output: @type{id=N, name="x", sec="y", ...}
+--- Each field is pcall-wrapped on its own, so a released or partly-invalid object still yields a partial record instead of crashing the inspector.
 --- @safety pcall: game objects may be released/invalid, methods crash, see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 5-10 luabind: id/alive/parent_id/group_id/clsid trivial; name/section heavy (shared_str alloc); character_community medium (anomaly resolve)
 --- @src xray/xrGame/script_game_object_script.cpp, anomaly/_g.script(2820)

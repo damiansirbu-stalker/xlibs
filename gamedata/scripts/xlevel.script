@@ -19,6 +19,7 @@ local function get_game_graph()
 end
 
 --- True while a surge (emission) is underway. Wraps the vanilla xr_conditions.surge_started gate so callers avoid the raw module reference.
+--- level.present() guards the call so it reads false in the main menu or mid-transition instead of touching a NULL level singleton.
 --- @safety SAFE - level.present() guards; xr_conditions.surge_started is the vanilla check
 --- @cost O(1) | 1 luabind trivial (level.present); surge_started is pure Lua module reads (xr_conditions.script:1792)
 --- @src anomaly/xr_conditions.script(1792) surge_started, anomaly/surge_manager.script
@@ -29,6 +30,7 @@ function is_surge()
 end
 
 --- Get the level_id from a server entity; the vertex-to-level mapping is immutable, cached after the first lookup per gvid.
+--- Memoized in _vertex_level because the game graph never remaps a vertex within a session, so repeat reads skip the bridge.
 --- @safety SAFE - nil guard on se_obj + game_graph (pcall cached in module-level gg)
 --- @cost O(1) | 0 luabind cached, 3 luabind trivial on miss (m_game_vertex_id field read on userdata, vertex(): ptr+offset, level_id(): field read)
 --- @src xray/xrGame/game_graph_inline.h, xray/xrGame/game_graph_script.cpp
@@ -48,6 +50,7 @@ function get_level_id(se_obj)
 end
 
 --- Get the actor's current level_id, resolving the actor via alife():actor() then chaining game_graph for the level_id.
+--- Resolved live each call because the actor moves between levels; sim, actor, gvid, and graph are nil-guarded so a transition reads nil.
 --- @safety SAFE - nil guards on sim, actor, gvid, game_graph (NULL singleton via get_game_graph pcall)
 --- @cost O(1) | 4 luabind trivial (alife: ptr return, actor: ptr return, vertex: ptr+offset, level_id: field read)
 --- @src xray/xrGame/alife_simulator_script.cpp(35) alife, xray/xrGame/game_graph_inline.h
@@ -101,6 +104,7 @@ local function _get_level_names()
 end
 
 --- Get the translated level display name from a level_id, via alife():level_name(id) then game.translate_string.
+--- When translate_string returns the key unchanged the raw level name is used; a missing level_id or offline sim yields nil.
 --- @safety SAFE - nil guards on alife and resolved name
 --- @cost O(log n) | 2 luabind medium (alife:level_name: std::map find on game_graph LEVEL_MAP, translate_string: std::map find on STRING_TABLE_MAP)
 --- @src xray/xrGame/alife_simulator_script.cpp(313) level_name, xray/xrGame/string_table.cpp(226) translate

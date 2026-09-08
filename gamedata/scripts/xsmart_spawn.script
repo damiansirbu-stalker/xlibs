@@ -232,6 +232,7 @@ function clear_exclusive_spawn(smart, key)
 end
 
 --- Reset all smart terrain spawn counters to zero (already_spawned[k].num and last_respawn_update) on every respawn-capable smart.
+--- Zeroing the counters lets each smart respawn its full quota on the next tick; smarts without an already_spawned table are skipped as non-spawning.
 --- @scope global - iterates SIMBOARD.smarts and mutates server-entity fields
 --- @safety SAFE - pure Lua field writes on smart terrain objects, nil-guarded
 --- @cost O(n) smarts * O(k) spawn sections | 0 luabind (SIMBOARD.smarts holds direct refs to server entities; field writes via pairs are pure Lua)
@@ -257,6 +258,7 @@ function reset_spawns()
 end
 
 --- Reset population and re-seed the world from the simulation preset: reset counters, clear start_position_filled, call fill_start_position.
+--- Clearing start_position_filled lets the engine's fill_start_position run again, so the standard new-game spawn injection repopulates every smart.
 --- @scope global - mutates SIMBOARD and triggers fill_start_position
 --- @safety SAFE - delegates to engine's fill_start_position (runs on every new game start)
 --- @cost O(n) smarts reset + fill_start_position | 0 luabind for reset_spawns; fill_start_position is engine spawn injection (heavy per smart)

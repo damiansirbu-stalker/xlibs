@@ -285,6 +285,7 @@ function is_scripted(squad)
 end
 
 --- Get the squad containing an NPC by member ID (se_npc -> group_id -> squad, via alife_object).
+--- A group_id at or past INVALID_ENTITY_ID means the NPC is squadless and reads nil, so the second alife_object resolve only runs for a real membership.
 --- @safety SAFE - returns nil for invalid IDs, group_id >= INVALID_ENTITY_ID means no squad
 --- @cost O(log n) | 2 luabind medium (alife_object for NPC + alife_object for squad, both xr_map finds) + 1 trivial (group_id field read on cse userdata)
 --- @src anomaly/_g.script(2062), xray/xrGame/alife_simulator_script.cpp(40)
@@ -324,6 +325,7 @@ function get_community(squad)
 end
 
 --- Get the translated squad community name (get_squad_community + game.translate_string, "stalker" fallback).
+--- Always returns a printable string, using the translated "stalker" key when the squad or community is missing; get_community is the raw-id sibling.
 --- @safety SAFE - nil-guarded, falls back to "stalker" translation key
 --- @cost O(log n) | 2 luabind (get_squad_community heavy shared_str return, translate_string medium std::map find on STRING_TABLE_MAP)
 --- @src anomaly/sim_squad_scripted.script(105), anomaly/_g.script(2273), xray/xrGame/string_table.cpp(226)
@@ -427,6 +429,7 @@ end
 --- Pass the previous array back in to reuse it (cleared past the new count, no allocation steady-state).
 --- @safety SAFE - pure Lua table iteration, nil-guarded
 --- @cost O(n) squads | 0 luabind
+--- @src anomaly/sim_board.script(84)
 --- @param out table|nil Reused output array; allocated when nil
 --- @return table ids, number count
 function collect_squad_ids(out)
@@ -443,6 +446,7 @@ function collect_squad_ids(out)
 end
 
 --- Iterate a squad's member IDs as plain numbers (the engine member iterator, nil/empty-guarded, yielding k.id).
+--- It yields only the numeric id per member, hiding the engine iterator's key object, so a caller loops ids without touching squad_members directly.
 --- @safety SAFE - nil-guarded, engine iterator yields nil on empty squad
 --- @cost O(n) members | 0-1 luabind per member (squad_members C++ iterator + .id field read trivial)
 --- @src xray/xrServerEntities/xrServer_Objects_ALife_script.cpp, anomaly/sim_squad_scripted.script(413)
@@ -640,6 +644,7 @@ end
 
 
 --- Get a squad's current smart terrain (smart_id or assigned_target_id, resolved via alife_object, non-smart rejected by clsid).
+--- smart_id is preferred over assigned_target_id, and the clsid check drops a resolved entity that is not a smart so the caller never gets a wrong target.
 --- @safety SAFE - returns nil for nil squad, missing entity, or non-smart entity
 --- @cost O(log n) | 2 luabind (alife_object medium + clsid trivial)
 --- @src anomaly/sim_squad_scripted.script(102,288), anomaly/_g.script(2062), xray/xrGame/alife_object_registry_inline.h(36)
@@ -709,6 +714,7 @@ end
 --- Returns false (no-op) when scripted_target already matches; callers use the return for debug logging.
 --- @safety SAFE - pure field writes, nil-guarded
 --- @cost O(1) | 1 luabind trivial (read scripted_target) + 2 luabind trivial on mismatch (write scripted_target, __lock)
+--- @src anomaly/sim_squad_scripted.script(258)
 --- @param squad table Squad server object
 --- @param target string Expected scripted_target value
 --- @return boolean True if target was overwritten and restored
@@ -738,6 +744,7 @@ function set_target_actor(squad, rush)
 end
 
 --- Release squads from SIMBOARD, ids collected first to avoid mutating SIMBOARD.squads mid-iteration, then remove_squad on each.
+--- Permanent, role-holding, and task-target squads are skipped so only disposable ones are removed; common_only narrows it further to common squads.
 --- @safety SAFE - iterate_squads handles nil SIMBOARD; remove_squad is engine standard cleanup
 --- @cost O(n) squads | per squad: 1 luabind medium (sim:object xr_map find via iterate_squads); protection guards add 4-5 luabind on commander resolve
 --- @src anomaly/debug_cmd_list.script(2146), anomaly/sim_squad_scripted.script(413), anomaly/sim_board.script SIMBOARD:remove_squad

@@ -3,6 +3,7 @@
 local db = db
 
 --- Give info portion to actor. Wraps db.actor:give_info_portion with nil guard on info_id and db.actor (NULL during boot/transitions).
+--- The engine call is fire-and-forget, so the boolean only reports whether the actor and info_id were present to make it.
 --- @safety SAFE - nil-guarded on actor and info_id; engine smart_casts to CInventoryOwner before TransferInfo
 --- @cost O(1) | 1 luabind heavy (give_info_portion: smart_cast + NET_Packet GE_INFO_TRANSFER, EventSend, CInfoPortion::Load + OnReceiveInfo)
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(69), xray/xrGame/inventory_owner_info.cpp(96)

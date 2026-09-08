@@ -31,6 +31,7 @@ local function get_clsid(input)
 end
 
 --- Check if an entity is a stalker (get_clsid + IsStalker(nil, cls) fast path).
+--- Passing the resolved clsid as the second arg skips IsStalker's own object lookup, leaving only the class compare.
 --- @safety SAFE - returns false for nil/invalid
 --- @cost O(log n) | 1 luabind medium (alife_object) + 1 luabind trivial (clsid); IsStalker is pure Lua compare
 --- @src anomaly/_g.script(2820) IsStalker
@@ -48,6 +49,7 @@ function is_stalker(input) local cls = get_clsid(input) return cls and IsStalker
 function is_trader(input) local cls = get_clsid(input) return cls and IsTrader(nil, cls) or false end
 
 --- Check if an entity is a mutant (get_clsid + IsMonster(nil, cls) fast path).
+--- Passing the resolved clsid as the second arg skips IsMonster's own object lookup, leaving only the monster-class hash check.
 --- @safety SAFE - returns false for nil/invalid
 --- @cost O(log n) | 1 luabind medium (alife_object) + 1 luabind trivial (clsid); IsMonster is pure Lua hash lookup on lazy-cached monster_classes
 --- @src anomaly/_g.script(2827) IsMonster
@@ -212,6 +214,7 @@ function get_mutant_variant(input)
 end
 
 --- Get the faction community from an entity: get_squad_community for squads, alife_character_community for NPCs.
+--- The squad path is tried first because a squad server object carries the authoritative community; a lone NPC falls through to its character community.
 --- @safety SAFE - returns nil for invalid entities
 --- @cost O(log n) | 2-3 luabind: alife_object medium + get_squad_community heavy (shared_str return) OR alife_character_community heavy (community shared_str)
 --- @src anomaly/_g.script(2273), anomaly/_g.script(2437)
@@ -600,6 +603,7 @@ function is_unscriptable_se(se_obj)
 end
 
 --- Check if a creature is an active task giver: scans task_manager.task_info for an active task whose task_giver_id matches its NPC or squad id.
+--- Failed and completed tasks are skipped so only a live giver reads true; the squad id is matched too because story givers are addressed by squad.
 --- @safety SAFE - returns false for nil, task_manager nil-guarded
 --- @cost O(t) where t = active tasks (typically 3-10) | 1 luabind trivial (id) + get_object_squad 0 luabind (anomaly Lua); per-task pure Lua hash compare
 --- @src anomaly/axr_task_manager.script(793)

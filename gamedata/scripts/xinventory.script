@@ -107,6 +107,7 @@ end
 -- ITEM ACCESSORS (game_object item in)
 
 --- Get item section name. Wraps item:section() to keep mods from calling the engine method directly.
+--- The wrapper is the single seam for the shared_str-allocating section() call, so a nil item returns nil rather than crossing the bridge.
 --- @safety SAFE - nil-guarded item
 --- @cost O(1) | 1 luabind heavy (section: shared_str alloc across bridge)
 --- @src xray/xrGame/script_game_object_script.cpp
@@ -237,6 +238,7 @@ end
 local _ammo_sections_cache = {}
 
 --- Get ordered list of ammo sections accepted by a weapon section; array form of parse_list (declaration order), cached per weapon section.
+--- The first read parses the weapon LTX ammo_class once and stores the array, so repeat lookups over a hot weapon are pure Lua table reads.
 --- @safety SAFE - nil-guarded sec; empty list when ammo_class missing
 --- @cost O(1) cached, 1 luabind heavy on miss (parse_list ini parse, array form)
 --- @src anomaly/_g.script parse_list, vanilla weapon LTX ammo_class field

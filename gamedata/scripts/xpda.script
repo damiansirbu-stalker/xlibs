@@ -47,6 +47,7 @@ function add_squad_marker(squad_id, opts)
 end
 
 --- Clear all squad markers. Removes each stored spot (level.present()-guarded) and empties the ledger; used on a full reset.
+--- The ledger is reset even when no level is present, so a menu-time reset still drops the stale entries the next add would otherwise leak.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) markers | 1 luabind medium per marker (map_remove_object_spot)
 --- @src xray/xrGame/level_script.cpp(459,535)
@@ -79,6 +80,7 @@ function add_entity_marker(id, opts)
 end
 
 --- Remove entity marker. Guards level.present() then removes the object's spot of this type (no ledger; caller owns lifetime).
+--- It is a bare pass-through with no bookkeeping, so a caller tracking its own markers drops one without touching the squad ledger.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot)
 --- @src xray/xrGame/level_script.cpp(459,535)
@@ -91,6 +93,7 @@ function remove_entity_marker(id, marker_type)
 end
 
 --- Send PDA message (dumb pipe, no sound, no color). Calls db.actor:give_game_news which is the engine notification API.
+--- It returns false when db.actor is absent (main menu, loading) so news is never queued against a missing actor; the caller owns any color prefix.
 --- @safety SAFE - returns false if db.actor unavailable (main menu, loading)
 --- @cost O(1) | 1 luabind heavy (give_game_news: GAME_NEWS_DATA construction + shared_str copies for caption/news/texture + AddGameNews append)
 --- @src xray/xrGame/script_game_object_inventory_owner.cpp(106,117) _give_news, xray/xrGame/script_game_object_script3.cpp(208)

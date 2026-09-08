@@ -59,6 +59,7 @@ function find_stashes(pos, opts)
 end
 
 --- Check if a stash was looted (treasure_manager.caches[id] == true, boolean true means looted).
+--- A string value in caches is unlooted contents and true is the looted marker, so the strict == true tells the two apart without touching the world.
 --- @safety SAFE - pure Lua table read, nil-guarded
 --- @cost O(1) | 0 luabind (pure Lua hash read + equality check)
 --- @src anomaly/treasure_manager.script(33)
@@ -71,6 +72,7 @@ function is_stash_looted(stash_id)
 end
 
 --- Return the stash contents as a parsed item list without modifying state (splits the comma-separated string from treasure_manager.caches).
+--- A non-string cache value (nil or the looted marker) returns nil, so a read never mutates the ledger and a looted stash is distinct from a full one.
 --- @safety SAFE - pure Lua table read + str_explode is anomaly Lua, nil-guarded
 --- @cost O(n) items | 0 luabind (str_explode is pure Lua string.gmatch)
 --- @src anomaly/treasure_manager.script(33), anomaly/_g.script str_explode
@@ -85,6 +87,7 @@ function get_stash_items(stash_id)
 end
 
 --- Loot a stash's contents: split the contents string, mark it looted, and remove the map spot.
+--- The contents are parsed before the cache entry is overwritten with the looted marker, so the returned items are the last read of a stash now emptied.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) items (str_explode) | 1 luabind medium (map_remove_object_spot)
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(459,535)
@@ -106,6 +109,7 @@ function collect_stash_items(stash_id)
 end
 
 --- Fill a stash with items (always safe to call): append to the existing contents string or create it, optionally adding a "treasure" map spot.
+--- Appending to an existing string merges into a stash already present, so repeated calls accumulate loot rather than replacing it; the marker is opt-in.
 --- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
 --- @cost O(n) items (table_concat) | 0-1 luabind heavy (map_add_object_spot if add_marker: CMapLocation construction + insert)
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(434,535)
