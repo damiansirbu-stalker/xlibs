@@ -43,8 +43,19 @@ SND = {
     LIGHT_HUMMING     = "ambient\\special\\light_humming",
 }
 
--- global name (e.g. "COnAmbientBed") -> registered handler function
-local _sound_handlers = {}
+-- callback name (e.g. "on_before_play_ambient_bed") -> array of registered listener functions
+local _sound_listeners = {}
+-- callback name -> the single fan-out subscriber registered with the engine, kept for UnregisterScriptCallback
+local _dispatchers = {}
+-- callback name -> the _G relay global the engine defines with it; absent = this exe lacks the hooks, stay inert
+local SEAM_PROBE = {
+    on_before_play_ambient_bed    = "COnAmbientBed",
+    on_before_play_level_music    = "COnLevelMusic",
+    on_before_play_script_sound   = "COnBeforePlayScriptSound",
+    on_before_play_ambient_effect = "COnAmbientEffectSound",
+    on_before_play_thunderbolt    = "COnThunderboltSound",
+    on_before_play_rain           = "COnRainSound",
+}
 
 -- Step current toward target by smoothing per second.
 -- @cost O(1) | 0 luabind
@@ -86,21 +97,58 @@ local function _update()
     end
 end
 
--- Install or remove one engine sound seam; the _G function re-reads _sound_handlers each call so a later detach or swap is immediate.
--- NOT cleared on_game_start: filesystem-order on_game_start() would wipe a consumer that registered before xsound.
--- @cost O(1) | 0 luabind
-local function _set_sound_handler(global_name, handler)
-    assert(handler == nil or type(handler) == "function",
-        "xsound: sound handler for " .. global_name .. " must be a function or nil")
-    _sound_handlers[global_name] = handler
-    if handler then
-        _G[global_name] = function(...)
-            local current = _sound_handlers[global_name]
-            if not current then return nil end
-            return current(...)
+-- Fan a fired seam to its listener list, multiplying each listener's { volume_mult } into the relay's shared result table.
+-- Any listener returning 0 vetoes; an unwritten result leaves vanilla.
+-- @cost O(n_listeners) per play | 0 luabind
+local function _create_dispatcher(list)
+    return function(...)
+        local arg_count = select("#", ...)
+        local result = select(arg_count, ...)
+        if type(result) ~= "table" then return end
+        local mult = 1.0
+        for i = 1, #list do
+            local ret = list[i](...)
+            if ret and ret.volume_mult then mult = mult * ret.volume_mult end
         end
-    else
-        _G[global_name] = nil
+        if mult < 1.0 then result.volume_mult = (result.volume_mult or 1.0) * mult end
+    end
+end
+
+-- Enter a listener into a seam's registry; the first subscribes the fan-out to the engine callback.
+-- Inert when the exe lacks the hook; not cleared on_game_start, since filesystem order would wipe a consumer.
+-- @cost O(1) | 0 luabind
+local function _register_listener(callback_name, fn)
+    assert(type(fn) == "function", "xsound: ambient listener for " .. callback_name .. " must be a function")
+    local probe = SEAM_PROBE[callback_name]
+    if not (probe and type(_G[probe]) == "function") then return false end
+    local list = _sound_listeners[callback_name]
+    if not list then
+        list = {}
+        _sound_listeners[callback_name] = list
+        local dispatcher = _create_dispatcher(list)
+        _dispatchers[callback_name] = dispatcher
+        RegisterScriptCallback(callback_name, dispatcher)
+    end
+    list[#list + 1] = fn
+    return true
+end
+
+-- Remove a listener, unsubscribing the fan-out when the last one leaves.
+-- @cost O(n_listeners) | 0 luabind
+local function _unregister_listener(callback_name, fn)
+    local list = _sound_listeners[callback_name]
+    if not list then return end
+    for i = #list, 1, -1 do
+        if list[i] == fn then
+            list[i] = list[#list]
+            list[#list] = nil
+        end
+    end
+    if #list == 0 then
+        local dispatcher = _dispatchers[callback_name]
+        if dispatcher then UnregisterScriptCallback(callback_name, dispatcher) end
+        _dispatchers[callback_name] = nil
+        _sound_listeners[callback_name] = nil
     end
 end
 
@@ -296,22 +344,34 @@ function get_snapshot(handle)
     }
 end
 
--- Engine sound seams (trace + veto over the ambient soundscape): xlibs owns the raw _G seams and routes each to one registered handler, inert on a stock exe.
+-- Engine sound seams: xlibs subscribes to each engine callback and fans it to a listener list, inert without the hook.
 
---- Register (or clear, with nil) the System A background-bed handler: fn(section, file, pos) -> nil | { volume_mult = number }.
+--- The engine ambient-sound callbacks for register_ambient_listener, with per-seam args in doc/architecture.md.
+SEAM = {
+    BED          = "on_before_play_ambient_bed",
+    MUSIC        = "on_before_play_level_music",
+    SCRIPT_SOUND = "on_before_play_script_sound",
+    EFFECT       = "on_before_play_ambient_effect",
+    THUNDER      = "on_before_play_thunderbolt",
+    RAIN         = "on_before_play_rain",
+}
+
+--- Enter a listener into a seam's registry: fn(seam args) -> nil | { volume_mult = number }, any 0 vetoes the play.
+--- Many listeners may register one seam, and xlibs multiplies their volume_mult returns into the shared result.
 --- @safety SAFE  @cost O(1) | 0 luabind
---- @src xray/xrGame/GamePersistent.cpp (WeathersUpdate bed play site; fires _G.COnAmbientBed)
---- @param handler function|nil
-function set_bed_handler(handler)
-    _set_sound_handler("COnAmbientBed", handler)
+--- @param seam string An xsound.SEAM value
+--- @param fn function
+--- @return boolean true when the seam is live on this exe and the listener was added, false when inert
+function register_ambient_listener(seam, fn)
+    return _register_listener(seam, fn)
 end
 
---- Register (or clear) the level-music handler. handler: function(file) -> nil | { volume_mult = number } (0 silences the track).
---- @safety SAFE  @cost O(1) | 0 luabind
---- @src xray/xrGame/level_sounds.cpp (SMusicTrack::Play; fires _G.COnLevelMusic)
---- @param handler function|nil
-function set_music_handler(handler)
-    _set_sound_handler("COnLevelMusic", handler)
+--- Remove a listener from a seam's registry. Clears the _G seam when the last one leaves.
+--- @safety SAFE  @cost O(n_listeners) | 0 luabind
+--- @param seam string An xsound.SEAM value
+--- @param fn function
+function unregister_ambient_listener(seam, fn)
+    _unregister_listener(seam, fn)
 end
 
 --- Reset all state on save load, stopping any playing sounds still held.
