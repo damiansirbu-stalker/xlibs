@@ -39,7 +39,7 @@ next
 
   xsound
     - Added register_ambient_listener(seam, fn) / unregister_ambient_listener(seam, fn) and the xsound.SEAM table: the engine ambient sound seams (engine PR #644 and #661, pending merge).
-      xlibs owns the _G callbacks the engine fires at each ambient play site (SEAM.BED, MUSIC, SCRIPT_SOUND, EFFECT, THUNDER, RAIN) and fans each to a listener list,
+      xlibs subscribes to the engine callback at each ambient play site (SEAM.BED, MUSIC, SCRIPT_SOUND, EFFECT, THUNDER, RAIN) and fans each to a listener list,
       multiplying every listener's { volume_mult } return: 0 silences, and a value below 1 attenuates (nil stays vanilla). More than one mod can trace or veto a seam at once.
       Inert on builds without the hooks and while no listener is registered.
 
