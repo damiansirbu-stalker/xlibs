@@ -57,7 +57,7 @@ Diagnostics:
 
 Effects:
   xpp          Post-process effector wrap (slot allocator, engine-smoothed factor, handle API, 35 verified-safe .ppe paths)
-  xsound       Sound wrap (one-shots, looping handles, volume lerp) plus the engine ambient-bed and level-music trace/veto seams (engine PR #644)
+  xsound       Sound wrap (single sounds, looping handles, volume lerp) plus the engine ambient-bed and level-music trace/veto seams (engine PR #644)
 
 Integration:
   xbus         Pub/sub event bus (direct delivery, errors stay visible)
