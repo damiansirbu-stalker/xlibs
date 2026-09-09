@@ -32,20 +32,20 @@ function find_stashes(pos, opts)
 
     for stash_id in pairs(pool) do
         local state = caches[stash_id]
-        if state == nil then goto next_stash end
-        if player_stashes and player_stashes[stash_id] then goto next_stash end
+        if state == nil then goto continue end
+        if player_stashes and player_stashes[stash_id] then goto continue end
         local is_filled = type(state) == "string"
-        if filter_filled ~= nil and is_filled ~= filter_filled then goto next_stash end
+        if filter_filled ~= nil and is_filled ~= filter_filled then goto continue end
 
         local se = xobject.get_se(stash_id)
-        if not se or not se.position then goto next_stash end
-        if opts.level_id and xlevel.get_level_id(se) ~= opts.level_id then goto next_stash end
+        if not se or not se.position then goto continue end
+        if opts.level_id and xlevel.get_level_id(se) ~= opts.level_id then goto continue end
 
         local dist_sqr = pos:distance_to_sqr(se.position)
-        if dist_sqr >= max_dist_sqr or dist_sqr < min_dist_sqr then goto next_stash end
+        if dist_sqr >= max_dist_sqr or dist_sqr < min_dist_sqr then goto continue end
 
         candidates[#candidates + 1] = { id = stash_id, position = se.position, filled = is_filled }
-        ::next_stash::
+        ::continue::
     end
 
     if #candidates == 0 then return candidates end

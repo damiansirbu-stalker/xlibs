@@ -156,11 +156,11 @@ function _ttl_counter_mt:get_count(key)
     local valid_count, valid_entries, aggregated = 0, {}, {}
     for idx = 1, #entries do
         local event = entries[idx]
-        if now - event.time >= self._ttl then goto next_event end
+        if now - event.time >= self._ttl then goto continue end
         valid_count = valid_count + 1
         valid_entries[valid_count] = event
         _collect_event(aggregated, event)
-        ::next_event::
+        ::continue::
     end
     if valid_count < #entries then self._buckets[key] = valid_entries end
     return valid_count, aggregated
