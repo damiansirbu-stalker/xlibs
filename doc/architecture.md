@@ -480,6 +480,15 @@ Sound wrap:
 - looping handles with volume lerp on a shared 100ms interval (`acquire`, `set_volume`, `release`, `is_active`, `inspect`)
 - duration without playing (`length`)
 - the verified-safe path table `SND`
+- a per-sound metadata registry plus a delivered-loudness model (`load_meta`, `get_meta`, `compute_delivered_loudness`)
+
+Sound metadata - a write-once registry feeding a pure loudness model. A mod's build emits a generated table of
+per-sound measured facts; the mod loads it once with `load_meta(rows)` (path -> `{ lufs, crest, peak, bv, mn, mx }`,
+keys normalized to lowercase/backslash/no-.ogg), and any consumer reads a profile with `get_meta(path)` (pure
+table lookup, zero bridge). `compute_delivered_loudness(profile, dist)` returns the delivered dB at a distance
+(nil = at-ear): content LUFS attenuated by the blob's linear band fade and an inverse-distance rolloff, the
+runtime twin of the build-time loudness floor. AlifeAmbience and AlifeSpooks both feed it, and their review
+players render the est. dB readout from it.
 
 Engine ambient sound seams (themrdemonized/xray-monolith PR #644 and #661, pending merge): the engine calls a named `_G` global at each ambient play site when the global is set.
 xlibs owns those globals, so a consumer never touches `_G.*`.
