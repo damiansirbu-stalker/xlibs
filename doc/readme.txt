@@ -80,14 +80,14 @@ Disable or remove in MO2. Any mod depending on xlibs will stop working.
 Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
+Compatibility:
+Coexists with everything. A pure library with no gameplay of its own; only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
+
 Performance:
 Performance comes first, ahead of any feature.
 A wrapper costs only the bridge call it wraps and adds no work of its own.
 When something cannot fit the budget it is reworked or moved into an X-Ray engine modification, never left to slow the game.
 The frame budget is fixed.
-
-Compatibility:
-Coexists with everything. A pure library with no gameplay of its own; only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
 
 Development:
 Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
@@ -108,8 +108,5 @@ Usage and License:
   Reproducing the implementation in other software: not allowed, even with credit.
   The full license is in the LICENSE file and on GitHub.
 
-Reporting issues and suggestions
-Open a report at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose, or ask on the EFP, Anomaly, and Zona Discord servers. Read this readme first.
-
-Include: exact repro steps (new game or named save, expected vs actual), engine build, modlist, load order, and xray.log.
-With hundreds of mods loaded, only the log shows whether this one was involved.
+Diagnostics and reporting:
+Report at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose or the EFP, Anomaly, and Zona Discord. Include repro steps, engine build, modlist, load order, and xray.log.
