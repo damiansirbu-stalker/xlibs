@@ -6,6 +6,8 @@ local _dead = {}
 local _registered = false
 local _last_tick = 0
 local TICK_MS = 100
+local _meta = {}
+local LOUDNESS_ROLLOFF = 0.75
 
 -- Forward declaration: play_at/create_sound call _register (defined below _update), so the name resolves at those earlier call sites.
 local _register
@@ -13,7 +15,7 @@ local _register
 local sound_object_t = sound_object
 local time_global = time_global
 local pairs, next = pairs, next
-local math_abs = math.abs
+local math_abs, math_log10 = math.abs, math.log10
 local assert, type = assert, type
 
 --- Verified-safe sound paths, sourced from vanilla scripts and configs/misc/sound/*.ltx.
@@ -150,6 +152,16 @@ local function _unregister_listener(callback_name, fn)
         _dispatchers[callback_name] = nil
         _sound_listeners[callback_name] = nil
     end
+end
+
+--- Canonical sound-path key so the config, disk, and code forms of one path resolve to the same entry.
+--- Lowercase, backslashes, no .ogg, trimmed.
+--- @cost O(1) | 0 luabind
+local function _format_meta_key(path)
+    if type(path) ~= "string" then return "" end
+    local key = path:lower():gsub("/", "\\")
+    key = key:gsub("%.ogg$", "")
+    return key:match("^%s*(.-)%s*$")
 end
 
 --- Play a one-shot sound (fire-and-forget: no handle, no lerp) via play_no_feedback, so the GC never cuts the engine-owned emitter.
@@ -372,6 +384,50 @@ end
 --- @param fn function
 function unregister_ambient_listener(seam, fn)
     _unregister_listener(seam, fn)
+end
+
+--- Load a mod's generated per-sound profile table into the shared registry, once at load.
+--- Keys normalize on the way in; a later load overwrites a shared key (mods use disjoint path namespaces).
+--- @safety SAFE - no-op on a nil or non-table arg
+--- @cost O(n_rows) once | 0 luabind
+--- @param rows table Map of sound path to its profile table
+function load_meta(rows)
+    if type(rows) ~= "table" then return end
+    for path, profile in pairs(rows) do
+        _meta[_format_meta_key(path)] = profile
+    end
+end
+
+--- The per-sound profile for a path, or nil. Pure table lookup, safe on any path form (hot-path safe).
+--- @safety SAFE  @cost O(1) | 0 luabind
+--- @param path string A sound path in any form
+--- @return table|nil The profile table, or nil when unknown
+function get_meta(path)
+    return _meta[_format_meta_key(path)]
+end
+
+--- The delivered loudness in dB at a distance: content LUFS attenuated by the profile's rolloff curves.
+--- Mirrors the pipeline _loudness_floor model; a nil distance means at-ear (no distance attenuation).
+--- @safety SAFE - nil when the profile has no lufs
+--- @cost O(1) | 0 luabind
+--- @param profile table A per-sound profile { lufs, bv, mn, mx } from get_meta
+--- @param dist number|nil Distance in metres, or nil for at-ear
+--- @return number|nil Delivered loudness in dB, or nil when lufs is unknown
+function compute_delivered_loudness(profile, dist)
+    if not (profile and profile.lufs) then return nil end
+    local bv = profile.bv or 1.0
+    local gain = bv
+    local mn, mx = profile.mn, profile.mx
+    if dist and mn and mx and mx > mn then
+        local clamped = dist
+        if clamped < mn then clamped = mn elseif clamped > mx then clamped = mx end
+        local va = (mx - clamped) / (mx - mn)
+        if va < 0 then va = 0 elseif va > 1 then va = 1 end
+        local al = clamped > mn and (mn / (mn + LOUDNESS_ROLLOFF * (clamped - mn))) or 1.0
+        gain = bv * va * al
+    end
+    if gain <= 1e-6 then return -120.0 end
+    return profile.lufs + 20.0 * math_log10(gain)
 end
 
 --- Reset all state on save load, stopping any playing sounds still held.
