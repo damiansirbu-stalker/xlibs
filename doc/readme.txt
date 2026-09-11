@@ -68,6 +68,7 @@ Integration:
 
 Requirements:
 Anomaly 1.5.3
+Modded exes: themrdemonized 2025.9.10 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
 
 Install (MO2):
 1. Install xlibs
@@ -86,23 +87,16 @@ When something cannot fit the budget it is reworked or moved into an X-Ray engin
 The frame budget is fixed.
 
 Compatibility:
-Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.
-Pure library. Does not modify any base scripts and adds no gameplay behavior of its own.
-xlog registers save/level-change flush callbacks and a periodic flush timer at game start.
-Everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
+Coexists with everything. A pure library with no gameplay of its own; only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
 
 Development:
 Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
-Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
+Code patterns and engine usage validated against established work by reputable Anomaly modders (Demonized, Vintar0, RavenAscendant, xcvb).
 The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, and cross-file dependency resolution.
 It also runs cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, and gitleaks secret scanning.
 Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case.
 The optimized multithreaded build you run is always faster.
 The full report is in doc/test-report.log.
-
-FAQ:
-Do I need modded exes?
-  Yes. xlibs needs themrdemonized modded exes (2025.9.10 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.
 
 Credits:
 Altogolik: support, ideas, source materials
@@ -115,7 +109,7 @@ Usage and License:
   The full license is in the LICENSE file and on GitHub.
 
 Reporting issues and suggestions
-Open a report at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose, or ask on the GAMMA, EFP, Anomaly, and Zona Discord servers. Read this readme first.
+Open a report at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose, or ask on the EFP, Anomaly, and Zona Discord servers. Read this readme first.
 
 Include: exact repro steps (new game or named save, expected vs actual), engine build, modlist, load order, and xray.log.
 With hundreds of mods loaded, only the log shows whether this one was involved.
