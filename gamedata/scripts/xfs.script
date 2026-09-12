@@ -41,3 +41,35 @@ function read_files(mount, dir, ext)
     end
     return out
 end
+
+--- Read a whole text file from disk (libc io on a real path, not the engine VFS), or nil if unreadable.
+--- The sanctioned filesystem home: consumers route here instead of raw io so the fs surface stays in one place.
+--- @safety SAFE - nil on a missing or unreadable file, never raises.
+--- @novalidate(security.fs_access, reason:"xfs is the single sanctioned filesystem home; consumers route here instead of raw io")
+--- @cost 1 libc open + O(bytes)
+--- @param path string The file path
+--- @return string|nil The file contents, or nil
+function read_file(path)
+    local file = io.open(path, "r")
+    if not file then return nil end
+    local data = file:read("*a")
+    file:close()
+    return data
+end
+
+--- Write text to a file on disk (libc io on a real path). append=true adds to the end, else overwrites.
+--- The sanctioned filesystem home: consumers route here instead of raw io so the fs surface stays in one place.
+--- @safety SAFE - false on an open failure, never raises.
+--- @novalidate(security.fs_access, reason:"xfs is the single sanctioned filesystem home; consumers route here instead of raw io")
+--- @cost 1 libc open + O(bytes)
+--- @param path string The file path
+--- @param text string The content to write
+--- @param append boolean|nil True to append, else overwrite
+--- @return boolean True on success
+function write_file(path, text, append)
+    local file = io.open(path, append and "a" or "w")
+    if not file then return false end
+    file:write(text)
+    file:close()
+    return true
+end

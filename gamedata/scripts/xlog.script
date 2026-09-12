@@ -209,6 +209,7 @@ function Logger:get_outfile()
 end
 
 --- @safety pcall: os.rename may fail on locked files, see doc/library/modding/pcall-safety.md
+--- @novalidate(security.fs_access, reason:"xlog is the logging primitive; its own log io + rotation is the sanctioned fs exception")
 function Logger:check_rotation()
     local path = self:get_outfile()
     if not path then return end
@@ -225,6 +226,7 @@ function Logger:check_rotation()
     end
 end
 
+--- @novalidate(security.fs_access, reason:"xlog is the logging primitive; its own buffered log write is the sanctioned fs exception")
 function Logger:flush_buffer()
     self:_flush_repeat()
     if #self.buffer == 0 then return end
