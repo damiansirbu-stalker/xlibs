@@ -386,6 +386,10 @@ function unregister_ambient_listener(seam, fn)
     _unregister_listener(seam, fn)
 end
 
+-- Per-sound metadata primitives: a mod loads its build-generated profile table (load_meta), and
+-- callers read a profile (get_meta) or its delivered loudness at distance (compute_delivered_loudness).
+-- Backs the ambience player readout today; kept as the base for future per-sound runtime decisions.
+
 --- Load a mod's generated per-sound profile table into the shared registry, once at load.
 --- Keys normalize on the way in; a later load overwrites a shared key (mods use disjoint path namespaces).
 --- @safety SAFE - no-op on a nil or non-table arg
