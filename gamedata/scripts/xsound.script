@@ -356,8 +356,6 @@ function get_snapshot(handle)
     }
 end
 
--- Engine sound seams: xlibs subscribes to each engine callback and fans it to a listener list, inert without the hook.
-
 --- The engine ambient-sound callbacks for register_ambient_listener, with per-seam args in doc/architecture.md.
 SEAM = {
     BED          = "on_before_play_ambient_bed",
@@ -385,10 +383,6 @@ end
 function unregister_ambient_listener(seam, fn)
     _unregister_listener(seam, fn)
 end
-
--- Per-sound metadata primitives: a mod loads its build-generated profile table (load_meta), and
--- callers read a profile (get_meta) or its delivered loudness at distance (compute_delivered_loudness).
--- Backs the ambience player readout today; kept as the base for future per-sound runtime decisions.
 
 --- Load a mod's generated per-sound profile table into the shared registry, once at load.
 --- Keys normalize on the way in; a later load overwrites a shared key (mods use disjoint path namespaces).

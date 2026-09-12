@@ -20,7 +20,6 @@ local AMMO_SLOT_3 = "ammo_slot_3"
 local MODE_LOOT = "loot"
 
 -- Engine slot constants (inventory_space.h:7-43); m_slots is sized from system.ltx slot_persistent_<N>, so slots 15..18 are OOB UB.
-
 SLOT_KNIFE     = 1
 SLOT_PISTOL    = 2
 SLOT_RIFLE     = 3
@@ -31,7 +30,6 @@ BACKPACK_SLOT  = 13
 LAST_MAIN_SLOT = 14
 
 -- Granular consumable section sets, hand-maintained (vanilla bundles all under kind=i_medical); extend when addons ship new sections.
-
 local _medkit_set = {
     medkit         = true, medkit_army    = true, medkit_scientic = true,
     medkit_ai1     = true, medkit_ai2     = true, medkit_ai3      = true,
@@ -69,7 +67,6 @@ local _grenade_set = {
 }
 
 -- Untouchable blacklist from xr_corpse_detection.ltx [ignore_sections], loaded once at first call.
-
 local CORPSE_DETECTION_LTX = "ai_tweaks\\xr_corpse_detection.ltx"
 local IGNORE_SECTIONS      = "ignore_sections"
 -- Two tiers covers the common ammo split, standard and armour-piercing.
@@ -114,8 +111,6 @@ local function _get_class(sec)
     _class_cache[sec] = cls or false
     return cls
 end
-
--- ITEM ACCESSORS (game_object item in)
 
 -- Set (hash table) → flat array of keys.
 -- @cost O(n) keys, single pass
@@ -285,8 +280,6 @@ function get_condition(item)
     return item:condition()
 end
 
--- NPC SLOT ACCESSORS
-
 --- Get the item in the NPC's knife slot (slot 1).
 --- @safety SAFE - nil-guarded npc; item_in_slot returns nil for empty slot
 --- @cost O(1) | 1 luabind trivial (item_in_slot: CInventory::ItemFromSlot)
@@ -389,8 +382,6 @@ function get_category_opts(npc)
     }
 end
 
--- WEAPON CONFIG
-
 local _ammo_sections_cache = {}
 
 --- Get ordered list of ammo sections accepted by a weapon section; array form of parse_list (declaration order), cached per weapon section.
@@ -462,7 +453,6 @@ end
 
 
 -- CATEGORY → SECTIONS (reverse map; used by trade BUY pass)
-
 local _SECTION_BUILDERS = {
     medkit  = function() return _build_hand_list(_medkit_set)  end,
     bandage = function() return _build_hand_list(_bandage_set) end,
@@ -557,8 +547,6 @@ function get_box_size(sec)
     if v then _box_size_cache[sec] = v end
     return v
 end
-
--- CATEGORY RESOLVER
 
 --- Resolve the category from a section name (no item required); untouchables (quest / anim / blacklisted) gate first.
 --- Ammo always returns "ammo_not_equipped" (per-NPC tiers live in get_category); weapons detect by class prefix "WP_".
@@ -667,8 +655,6 @@ function is_in_category(sec, category)
     return sec ~= nil and category ~= nil and get_section_category(sec) == category
 end
 
--- RANK GATE
-
 --- Rank-gated 0..1 appearance chance for a section under a ruleset: a hard rank floor, then the actor tier's first matching cost band.
 --- Missing floor / tier row / bands all open (chance 1), so an unconfigured ruleset never blocks; the caller rolls and fail-closes.
 --- @safety SAFE - nil-guarded section / actor / ruleset; bad tier name skips the floor
@@ -694,8 +680,6 @@ function get_rank_chance(section, actor, ruleset)
     end
     return row[#row] and row[#row].chance or 0
 end
-
--- ITEM LIFECYCLE (moved from xobject per item-domain boundary)
 
 --- Iterate an NPC's inventory iff the NPC is online (the engine exposes no offline server-inventory walk); nil-returns otherwise.
 --- The callback returns true to stop early; max_items caps the walk and reports the truncation as a second return value.
@@ -802,8 +786,6 @@ function release_item_id(id)
     alife_release_id(id)
     return true
 end
-
--- Policy primitives: one uniform LTX policy shape shared by every consumer; the values live in the consumer mods (see architecture.md).
 
 --- Load an LTX policy file with the uniform {min, max}-per-key shape; each named section yields { entries, rules, specials }.
 --- entries preserves declaration order (= BUY / LOOT priority), rules is the per-key hash, specials carries the specials_set numerics.
@@ -974,8 +956,6 @@ end
 function disable_move(flags)
     if flags then flags.ret_value = false end
 end
-
--- INVENTORY DUMP (diagnostic)
 
 --- Dump an NPC's inventory to a log function as ONE aggregated per-section-counts line.
 --- Call it behind the calling mod's own debug gate; it does no gating itself.

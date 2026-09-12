@@ -627,8 +627,6 @@ function is_task_giver(obj)
     return false
 end
 
--- Particles: safe attach / detach for creature-bound effects
-
 -- u16 bone sentinel; obj:get_bone_id returns it when the skeleton lacks the bone.
 local BI_NONE = 65535
 
@@ -647,4 +645,3 @@ function start_particle(obj, name, bone)
     return true
 end
 
--- No detach_particle exists: stop_particles trips the bone assert whenever the bone is not renderable (constant); attach once, let it die with the object.
