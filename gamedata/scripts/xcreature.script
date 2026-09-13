@@ -372,14 +372,15 @@ end
 
 --- Relation between two online objects: "enemy" | "neutral" | "friend", or nil if unresolvable.
 --- The general form of get_actor_relation: the per-NPC engine relation, honouring individual overrides, NOT community.
---- @safety SAFE - nil-guarded on both objects and the method
---- @cost O(1) | 1 luabind (game_object:relation)
---- @src xray/script_game_object_script2.cpp:133 (game_object:relation = CScriptGameObject::GetRelationType)
+--- @safety SAFE - nil-guarded on both objects, the method, and aliveness
+--- @cost O(1) | 3 luabind (2 alive + relation)
+--- @src xray/script_game_object_use.cpp:137-151 (GetRelationType smart_casts both objects to CEntityAlive; a non-creature raises "non-alive object")
 --- @param a game_object online object whose view is taken
 --- @param b game_object online target object
 --- @return string|nil "enemy" | "neutral" | "friend", or nil
 function relation(a, b)
-    if not (a and b and a.relation) then return nil end
+    if not (a and b and a.relation and b.alive) then return nil end
+    if not (a:alive() and b:alive()) then return nil end
     local rel = a:relation(b)
     if rel >= game_object.enemy then return xconst.RELATION.ENEMY end
     if rel <= game_object.friend then return xconst.RELATION.FRIEND end
