@@ -29,9 +29,9 @@ next
 
   xcreature
     - Added is_zombied(obj): the stalker community zombied read, the mindless-shambler exclusion the combat layers bail on. Not the mutant zombie species.
-    - Fixed relation(a, b) to nil-guard aliveness on both objects. The engine GetRelationType smart_casts each object to CEntityAlive and raises a Lua error
-      on a non-creature (a grenade projectile, an item), which reached is_enemy callers on a projectile hit. The wrapper now returns nil for a non-alive object,
-      matching the vanilla combat-ignore idiom.
+    - Fixed relation(a, b) and get_actor_relation(obj) to nil-guard aliveness before the engine call. GetRelationType smart_casts each object to CEntityAlive
+      and raises a Lua error on a non-creature (a grenade projectile, an item), which reached is_enemy callers on a projectile hit. The wrappers now return nil
+      for a non-alive object, matching the vanilla combat-ignore idiom.
 
   xsmart
     - Removed has_jobs_for(smart, squad). An unused presence check. Per-member job reads go through get_npc_job.
