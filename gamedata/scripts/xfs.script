@@ -42,6 +42,29 @@ function read_files(mount, dir, ext)
     return out
 end
 
+--- List the file names under a directory in a mount, recursing into subfolders because FS_RootOnly is omitted.
+--- With ext only matching files return and the extension is stripped; without ext every name is verbatim and subpath-qualified.
+--- @safety SAFE - nil-guarded (empty list on a missing dir)
+--- @cost 1 luabind (file_list_open) + O(entries in the subtree)
+--- @param mount string The FS mount point (e.g. "$game_scripts$")
+--- @param dir string The directory under the mount (trailing separator expected)
+--- @param ext string|nil Optional extension filter (e.g. ".script"); stripped from returned names
+--- @return table The array of subpath-qualified file names
+function read_files_deep(mount, dir, ext)
+    local out = {}
+    local fl = getFS():file_list_open(mount, dir, FS.FS_ListFiles)
+    local ext_len = ext and #ext
+    for i = 1, (fl and fl:Size() or 0) do
+        local fname = fl:GetAt(i - 1)
+        if not ext then
+            out[#out + 1] = fname
+        elseif fname:sub(-ext_len) == ext then
+            out[#out + 1] = fname:sub(1, -ext_len - 1)
+        end
+    end
+    return out
+end
+
 --- Read a whole text file from disk (libc io on a real path, not the engine VFS), or nil if unreadable.
 --- The sanctioned filesystem home: consumers route here instead of raw io so the fs surface stays in one place.
 --- @safety SAFE - nil on a missing or unreadable file, never raises.
@@ -72,4 +95,15 @@ function write_file(path, text, append)
     file:write(text)
     file:close()
     return true
+end
+
+--- Resolve a mount-relative path to its full VFS path (wraps getFS():update_path).
+--- The sanctioned filesystem home: consumers route here instead of a raw getFS() call.
+--- @safety SAFE - a pure path resolve, never raises.
+--- @cost 1 luabind (update_path)
+--- @param mount string The FS mount point (e.g. "$game_scripts$")
+--- @param rel string The path relative to the mount ("" for the mount root)
+--- @return string The full VFS path
+function resolve_path(mount, rel)
+    return getFS():update_path(mount, rel)
 end
