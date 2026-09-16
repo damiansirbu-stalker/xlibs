@@ -1,5 +1,5 @@
 next
-  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter
+  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter, performance and infrastructure
 
   xcombat
     - Added on_get_min_combat_dist(fn) and on_get_max_combat_dist(fn): registrars for the engine's cover-band asks (npc_on_get_min_combat_dist / _max),
@@ -45,6 +45,12 @@ next
       xlibs subscribes to the engine callback at each ambient play site (SEAM.BED, MUSIC, SCRIPT_SOUND, EFFECT, THUNDER, RAIN) and fans each to a listener list,
       multiplying every listener's { volume_mult } return: 0 silences, and a value below 1 attenuates (nil stays vanilla). More than one mod can trace or veto a seam at once.
       Inert on builds without the hooks and while no listener is registered.
+
+  Performance and Infrastructure
+    - Rebuilt the validator into layered rules for crashes, unsafe engine usage, performance, best practices, smoke load, and secret leaks.
+    - The validator runs on every change, locally and in CI, and a grade gate fails the build on any finding.
+    - Profiled and tuned with JitProfiler, an engine-native, scientific profiler.
+    - Unified the module layout and naming across the library.
 
 1.8.5
   Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover id, creature particle attach
