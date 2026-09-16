@@ -68,7 +68,7 @@ Integration:
 
 Requirements:
 Anomaly 1.5.3
-Modded exes: themrdemonized 2025.9.10 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
+Modded exes: themrdemonized or AOEngine v0.55 or newer. The full feature set needs the latest demonized build; a feature that needs a newer one stays inactive on older exes.
 
 Install (MO2):
 1. Install xlibs
@@ -83,20 +83,18 @@ No configuration needed. xlibs is a passive library loaded on demand by other mo
 Compatibility:
 Coexists with everything. A pure library with no gameplay of its own; only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
 
-Performance:
+Performance and Infrastructure:
 Performance comes first, ahead of any feature.
 A wrapper costs only the bridge call it wraps and adds no work of its own.
 When something cannot fit the budget it is reworked or moved into an X-Ray engine modification, never left to slow the game.
 The frame budget is fixed.
-
-Development:
-Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
-Code patterns and engine usage validated against established work by reputable Anomaly modders (Demonized, Vintar0, RavenAscendant, xcvb).
-The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, and cross-file dependency resolution.
-It also runs cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, and gitleaks secret scanning.
-Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case.
-The optimized multithreaded build you run is always faster.
-The full report is in doc/test-report.log.
+Built from the X-Ray engine source by reverse engineering, with targeted engine changes of my own for performance, precision, and accuracy.
+Heavy work spreads across frames, paced by rate limiters and staggered, deferred queues, with the math to keep cost bounded at any entity count.
+A layered validator runs on every change, locally and in CI, and blocks the build on any crash, unsafe engine call, performance regression, style break, failed smoke load, or leaked secret.
+Profiled with JitProfiler, an engine-native, scientific profiler.
+Timings are worst-case, from a build with no multithreading or optimizations, so yours runs faster.
+Project Health: https://damiansirbu-stalker.github.io/xlibs/
+[JitProfiler: xlibs under CPU and allocation capture]
 
 Credits:
 Altogolik: support, ideas, source materials
