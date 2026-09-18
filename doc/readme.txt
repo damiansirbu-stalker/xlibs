@@ -104,7 +104,7 @@ Usage and License:
   Modpacks: allowed and encouraged. Keep the readme and license files.
   Addons, patches, integrations: allowed. Credit "xlibs by Damian Sirbu" visibly on your mod page.
   Reproducing the implementation in other software: not allowed, even with credit.
-  The full license is in the LICENSE file and on GitHub.
+  Full license in LICENSE file and on GitHub.
 
 Diagnostics and reporting:
 Report at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose or the EFP, Anomaly, and Zona Discord. Include repro steps, engine build, modlist, load order, and xray.log.
