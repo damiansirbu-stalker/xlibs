@@ -1,36 +1,28 @@
 --- xlibs: Package metadata
-local tonumber = tonumber
-local _VERSION = "next"
-
--- The unreleased development build; every mod's version reads this between releases so a log shows whether a tester runs a release or dev build.
-local DEV_VERSION = "next"
-
--- Major of the API this build speaks: what is_compatible compares against in dev (where "next" carries no number), bumped on any breaking change.
-local API_MAJOR = 1
+local tonumber, assert, type = tonumber, assert, type
+local _VERSION = "1.9.0-snapshot"
 
 --- Get the xlibs package version string (the module-local _VERSION literal set at file load).
 --- @safety SAFE - returns a constant string literal
 --- @cost O(1) | 0 luabind (return local)
---- @return string Version string (e.g. "1.5.0", or "next" between releases)
+--- @return string Version string (e.g. "1.9.0" at a tag, or "1.9.0-snapshot" between releases)
 function get_version()
     return _VERSION
 end
 
 --- Check if the xlibs version satisfies a required minimum (semver: same major, actual >= required).
---- "next" is the dev build: it satisfies any numeric requirement on API_MAJOR (enforced), and no release satisfies a required "next".
---- @safety SAFE - tonumber returns nil for malformed patches (defaulted to 0); required must match "^%d+%.%d+" or tonumber crashes (caller passes valid semver)
+--- The x.y.z-snapshot suffix is ignored, so a snapshot compares equal to its release number.
+--- @safety SAFE - asserts required is a full x.y.z string, so a malformed pin errors loudly at the gate
 --- @cost O(1) | 0 luabind (pure Lua string.match + tonumber + integer compares)
---- @param required string Minimum version ("1.2" or "1.2.2", or "next")
+--- @param required string Minimum version, full x.y.z (e.g. "1.8.5")
 --- @return boolean True if compatible
 function is_compatible(required)
-    if _VERSION == DEV_VERSION then return tonumber(required:match("^(%d+)")) == API_MAJOR end
-    if required == DEV_VERSION then return false end
-    local req_maj, req_min, req_patch = required:match("^(%d+)%.(%d+)%.?(%d*)")
-    local act_maj, act_min, act_patch = _VERSION:match("^(%d+)%.(%d+)%.?(%d*)")
-    req_maj, req_min = tonumber(req_maj), tonumber(req_min)
-    act_maj, act_min = tonumber(act_maj), tonumber(act_min)
-    req_patch = tonumber(req_patch) or 0
-    act_patch = tonumber(act_patch) or 0
+    assert(type(required) == "string" and required:match("^%d+%.%d+%.%d+$"),
+        "xlibs.is_compatible: required must be a full x.y.z version")
+    local req_maj, req_min, req_patch = required:match("^(%d+)%.(%d+)%.(%d+)")
+    local act_maj, act_min, act_patch = _VERSION:match("^(%d+)%.(%d+)%.(%d+)")
+    req_maj, req_min, req_patch = tonumber(req_maj), tonumber(req_min), tonumber(req_patch)
+    act_maj, act_min, act_patch = tonumber(act_maj), tonumber(act_min), tonumber(act_patch)
     if act_maj ~= req_maj then return false end
     if act_min ~= req_min then return act_min > req_min end
     return act_patch >= req_patch

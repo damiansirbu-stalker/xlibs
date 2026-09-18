@@ -1,4 +1,4 @@
-next
+1.9.0-snapshot
   Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter, performance and infrastructure
 
   xcombat
