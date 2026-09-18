@@ -295,7 +295,7 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
   `ruleset = { floor = {[section|category]=tier}, bands = {[tier]={{cost,chance}, ... asc}, default} }`.
   Resolves the section category (`get_section_category`) + cost (`get_cost`) and the actor's rank tier (`ranks.get_obj_rank_name` / `character_rank`).
   A floor tier returns 0 below its rank, otherwise the first cost band whose `cost >= ` the section cost wins.
-  Unconfigured opens (chance 1). Caller rolls and fail-closes. Used by the AlifePlus faction market.
+  Unconfigured opens (chance 1). Caller rolls and fail-closes.
 - `get_category_sections(category)` - reverse: category -> list of sections.
   Builders dispatch to hand-maintained sets (medical 5 + grenade), `_ITM[bucket]` reads, an `_ITM["eatable"]` kind filter (food / drink), or `_ITM` unions (crafting = tool + part + upgrade).
   No `ini_sys:section_for_each` walks. Per-NPC categories (equipped, ammo_slot_*) and `weapon` return empty (weapon is per-item only).
@@ -354,15 +354,15 @@ LTX policy file shape (consumer mods own the values):
 <special_key> = <number>      ; pulled out per specials_set
 ```
 
-Consumers:
-- `AlifePlus/configs/alifeplus/ap_trade_policy.ltx` (per-rank, two-value rows, `profit_max`)
-- `AlifePlus/configs/alifeplus/ap_stash_policy.ltx` (uniform, two-value rows, `extras_max` + `fill_max`)
-- `AlifeBalance/configs/alifebalance/ab_inventory_policy.ltx` (uniform, single-value rows, no specials)
+Consumer policy shapes:
+- per-rank, two-value rows, `profit_max`
+- uniform, two-value rows, `extras_max` + `fill_max`
+- uniform, single-value rows, no specials
 
 **Slot constants** (from `xrServerEntities/inventory_space.h`):
 - `SLOT_KNIFE=1`, `SLOT_PISTOL=2`, `SLOT_RIFLE=3`, `SLOT_GRENADE=4`, `SLOT_OUTFIT=7`, `SLOT_HELMET=12`, `BACKPACK_SLOT=13`, `LAST_MAIN_SLOT=14`.
   `m_slots` is sized from the `system.ltx [inventory] slot_persistent_<N>` count at `Inventory.cpp:72-86` (the `MORE_INVENTORY_SLOTS` enum does not size it).
-  Vanilla + GAMMA both ship 14 slots. Raising `LAST_MAIN_SLOT` without a matching system.ltx is OOB UB on `ItemFromSlot` (`Inventory.cpp:658`, unbounded).
+  Standard installs ship 14 slots. Raising `LAST_MAIN_SLOT` without a matching system.ltx is OOB UB on `ItemFromSlot` (`Inventory.cpp:658`, unbounded).
 
 **Boundary rule**: xobject is generic game_object lookup, xinventory is anything that takes an item or talks about an NPC's items.
 
@@ -419,12 +419,12 @@ SIMBOARD roster (sim-intent membership, NOT physical occupancy):
   It drops the stale `from` entry and adds the current `smart_id` entry.
   It recomputes both populations via `smart_terrain_squad_count`.
   It fires leave/enter callbacks.
-  Idempotent (table-state gated), so it is a no-op on a base that already syncs. Consumed by AlifePlus `ap_core_anomaly_fixes`.
+  Idempotent (table-state gated), so it is a no-op on a base that already syncs.
 - `iter_stationed_squads(smart_id, exclude_id, cap)` - Closure iterator yielding se for stationed squads (current_action=1, current_target_id=smart_id). Skips in-transit. Cap default 5
 - `has_faction_squad(smart_id, faction, exclude_id)` - True if any stationed squad of given faction
 - `has_enemy_squad(smart_id, community, exclude_id)` - True if any stationed squad is faction-enemy of community
 - `get_faction_count(factions, level_id)` - Count of smarts on the level with a stationed squad of the community (string) or of any community in the set (table).
-  It snapshots stationed communities per level, 60s TTL (xttltable). Consumed by AlifePlus per-faction expansion caps.
+  It snapshots stationed communities per level, 60s TTL (xttltable).
 - `is_smart_empty(smart_id)` - No squads assigned (raw roster check, includes in-transit)
 
 Service NPC resolution (online + actor-level via npc_info walk):
@@ -487,7 +487,7 @@ per-sound measured facts; the mod loads it once with `load_meta(rows)` (path -> 
 keys normalized to lowercase/backslash/no-.ogg), and any consumer reads a profile with `get_meta(path)` (pure
 table lookup, zero bridge). `compute_delivered_loudness(profile, dist)` returns the delivered dB at a distance
 (nil = at-ear): content LUFS attenuated by the blob's linear band fade and an inverse-distance rolloff, the
-runtime twin of the build-time loudness floor. AlifeAmbience and AlifeSpooks both feed it, and their review
+runtime twin of the build-time loudness floor. Audio consumers feed it, and their review
 players render the est. dB readout from it.
 
 Engine ambient sound seams (themrdemonized/xray-monolith PR #644 and #661, pending merge): the engine calls a named `_G` global at each ambient play site when the global is set.
@@ -627,7 +627,7 @@ end)
 - `hook(module, func, wrapper)` - Wrap function, returns success
 - `is_hooked(module, func)` - Check if hooked
 
-**Naming convention:** prefix synthetic event names by owner to avoid collision with engine callbacks (AlifePlus uses `ap_`, e.g. `ap_npc_medkit_use`).
+**Naming convention:** prefix synthetic event names by the owner's namespace to avoid collision with engine callbacks (for example `<prefix>_npc_medkit_use`).
 
 **How it works:** Lua functions are table entries. We save the original, replace with wrapper that calls original + emits callback. No engine modification.
 
