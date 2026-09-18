@@ -6,24 +6,17 @@ Pure Lua where possible, with no central loader. Call the function and it works.
 
 [ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) | [Releases](https://github.com/damiansirbu-stalker/xlibs/releases) | [Bugs, suggestions](https://github.com/damiansirbu-stalker/xlibs/issues)
 
-[![Grade](https://img.shields.io/endpoint?url=https%3A%2F%2Fdamiansirbu-stalker.github.io%2Fxlibs%2Fbadge.json)](https://damiansirbu-stalker.github.io/xlibs/) [![validate](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/validate.yml/badge.svg)](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/validate.yml) [![Project Health](https://img.shields.io/badge/project_health-dashboard-00ced1)](https://damiansirbu-stalker.github.io/xlibs/)
+[![validate](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/validate.yml/badge.svg)](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/validate.yml) [![Project Health](https://img.shields.io/badge/project_health-dashboard-00ced1)](https://damiansirbu-stalker.github.io/xlibs/)
 
 Requires: Anomaly 1.5.3, modded exes (themrdemonized or AOEngine). Exact versions in [readme.txt](doc/readme.txt).
 
-## Alife Collection
+## My work
 
-- [AlifeAmbience](https://github.com/damiansirbu-stalker/AlifeAmbience)
-- [AlifeBalance](https://www.moddb.com/mods/stalker-anomaly/addons/alifebalance)
-- [AlifeCompanions](https://github.com/damiansirbu-stalker/AlifeCompanions)
-- [AlifeDiegetic](https://www.moddb.com/mods/stalker-anomaly/addons/diegetic-audio-control-100)
-- [AlifeGuard](https://www.moddb.com/mods/stalker-anomaly/addons/alifeguard-1001)
-- [AlifePlus](https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01)
-- [AlifeSpooks](https://github.com/damiansirbu-stalker/AlifeSpooks)
-- [AlifeTactics](https://www.moddb.com/mods/stalker-anomaly/addons/alifetactics)
-- [FurnitureFuel](https://github.com/damiansirbu-stalker/FurnitureFuel)
-- [JitProfiler](https://github.com/damiansirbu-stalker/JitProfiler)
-- [TestZone](https://github.com/damiansirbu-stalker/TestZone)
-- [xlibs](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001)
+- [GitHub](https://github.com/orgs/damiansirbu-stalker/repositories)
+- [ModDB](https://www.moddb.com/members/damian-sirbu/addons)
+- [Nexus](https://www.nexusmods.com/profile/damiansirbu/mods)
+
+My contributions to the engine: [X-Ray Monolith](https://github.com/themrdemonized/xray-monolith)
 
 ## Documentation
 
