@@ -6,7 +6,7 @@ Pure Lua where possible, with no central loader. Call the function and it works.
 
 [ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) | [Releases](https://github.com/damiansirbu-stalker/xlibs/releases) | [Bugs, suggestions](https://github.com/damiansirbu-stalker/xlibs/issues)
 
-[![validate](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/validate.yml/badge.svg)](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/validate.yml) [![Project Health](https://img.shields.io/badge/project_health-dashboard-00ced1)](https://damiansirbu-stalker.github.io/xlibs/)
+[![ci](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/ci.yml/badge.svg)](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/ci.yml) [![Project Health](https://img.shields.io/badge/project_health-dashboard-00ced1)](https://damiansirbu-stalker.github.io/xlibs/)
 
 Requires: Anomaly 1.5.3, modded exes (themrdemonized or AOEngine). Exact versions in [readme.txt](doc/readme.txt).
 
