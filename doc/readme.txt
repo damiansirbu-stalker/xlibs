@@ -111,3 +111,5 @@ Usage and License:
 
 Diagnostics and reporting:
 Report at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose or the EFP, Anomaly, and Zona Discord. Include repro steps, engine build, modlist, load order, and xray.log.
+
+Tags: engine-native, performance, save-safe, reverse-engineered, lua-library, systems-library, xray-bridge, modder-api, data-structures, design-patterns, best-practices, logging, profiling, tracing, event-bus

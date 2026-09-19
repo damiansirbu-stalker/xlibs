@@ -1,0 +1,1 @@
+Reverse-engineered X-Ray Lua systems library for STALKER Anomaly modders. Bridge helpers for A-Life, combat, inventory, smart terrains; data structures, collections, rate limiters, schedulers, mathematical constructs, design patterns, best practices; diagnostics: logging, profiling, tracing, event bus. Engine-native, performant, save-safe.
