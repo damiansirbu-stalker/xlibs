@@ -1719,7 +1719,7 @@ xcombat.INDOOR_LEVELS = {
 --- The caller classifies from the raw distances and MUST cache by a position cell - never call it per frame.
 --- @safety SAFE - world positions only, nil on a bad position
 --- @cost O(1) | up to 5 ray_pick queries
---- @src AlifeSpooks probe 2026-08-08 (31 snapshots) - the ranges and thresholds
+--- @src DiegeticDread probe 2026-08-08 (31 snapshots) - the ranges and thresholds
 --- @param pos vector world position
 --- @return table|nil { roof=dist|nil, walls={4 dists|nil}, nearest_wall=dist|nil, wall_count=int }
 function xcombat.get_enclosure(pos)
