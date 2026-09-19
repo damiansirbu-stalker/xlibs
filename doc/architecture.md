@@ -33,43 +33,16 @@ Shared utility library for STALKER Anomaly Lua modding. It is pure Lua and uses 
 ## Module Overview
 
 ```
-+-------------------------------------------------------------------+
-|                           xlibs                                    |
-+-------------------------------------------------------------------+
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  |   xlog    |  |   xbus    |  | xcreature |  |  xsquad   |       |
-|  | Logging   |  | Event Bus |  | Entity    |  | Squad Ops |       |
-|  | File I/O  |  | Pub/Sub   |  | Identity  |  | & Query   |       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  |  xlevel   |  |  xsmart   |  |  xstash   |  |  xobject  |       |
-|  | Level/Map |  | SmartTrn  |  | Stash Ops |  | SrvEntity |       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+                                                     |
-|  | xinventory|                                                     |
-|  | Item Cats |                                                     |
-|  +-----------+                                                     |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  |  xtable   |  | xttltable |  |  xslice   |  |   xmath   |       |
-|  | Table Ops |  | TTL Table |  | TimeSlice |  | RNG       |       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  |   xmcm    |  | xprofiler |  |  xtrace   |  | xinspect  |       |
-|  | MCM Cfg   |  | Profiling |  | Trace IDs |  | Deep Dbg  |       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  |  xevent   |  |   xpda    |  | xstring   |  |  xtime    |       |
-|  | Fn Hooks  |  | PDA/Map   |  | Interp.   |  | Game Time |       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  |  xconst   |  |  xdata    |  |  xlibs    |  | xlibs_mcm |       |
-|  | Sentinels |  | Static    |  | Metadata  |  | MCM Page  |       |
-|  +-----------+  +-----------+  +-----------+  +-----------+       |
-|  +-----------+  +-----------+                                      |
-|  |  xactor   |  |  xsound   |                                      |
-|  | Actor Ops |  | Sound Ops |                                      |
-|  +-----------+  +-----------+                                      |
-+-------------------------------------------------------------------+
+xlibs
+|
++- A-Life           xsquad  xsmart  xstash  xlevel  xdata
++- Combat           xcombat
++- Entity & Items   xcreature  xobject  xactor  xinventory
++- Util             xtable  xttltable  xmath  xslice  xstring  xtime  xconst
++- Diagnostics      xlog  xprofiler  xtrace  xinspect
++- Effects          xpp  xsound
++- Framework        xbus  xevent  xpda  xmcm  xchange
++- Package          xlibs  xlibs_mcm
 ```
 
 ---

@@ -11,7 +11,7 @@ Nexus: https://www.nexusmods.com/profile/damiansirbu/mods
 My contributions:
 X-Ray Monolith: https://github.com/themrdemonized/xray-monolith
 
-[ HERO IMAGE: readme_pic_1.jpg — xlibs module tree ]
+[ HERO IMAGE: xlibs-hero.gif — with vs without xlibs ]
 
 xlibs is a modder's toolbox for what Anomaly mods typically need.
 It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
@@ -23,25 +23,30 @@ Pure Lua where possible. No engine dependency unless necessary. No central loade
 
 Features:
 
-Entity and World:
-  xactor       Actor info portions, talking/trading partner, state queries
-  xcreature    Creature identification, type checks, translated names, money primitives
+A-Life:
   xsquad       Squad search, scripted control, release, chase, iteration
   xsmart       Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
-  xlevel       Level/map queries, game time, location names, vertex validation
-  xobject      Server object and online game object resolution from any input type
-  xinventory   Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
   xstash       Stash discovery, looting, filling, item filtering
+  xlevel       Level/map queries, game time, location names, vertex validation
   xdata        Unscriptable NPC/squad tables (traders, mechanics, story characters)
-  xconst       X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
 
-Data Structures:
+Combat:
+  xcombat      Combat-AI primitives: GOAP takeover, per-NPC aim/vision/fire engine binds, cover and LOS reads
+
+Entity & Items:
+  xcreature    Creature identification, type checks, translated names, money primitives
+  xobject      Server object and online game object resolution from any input type
+  xactor       Actor info portions, talking/trading partner, state queries
+  xinventory   Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
+
+Util:
   xtable       Count, shuffle, sort, set merge and subtract
   xttltable    TTL key-value store, sliding window counter, token bucket, FIFO cache
   xmath        Random sampling and partial shuffle
   xslice       Time-sliced array iteration across frames
   xstring      String interpolation with {key} placeholders
   xtime        Game-time seconds accumulator (wraps engine game_time())
+  xconst       X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
 
 Diagnostics:
   xlog         Buffered file logging with session management and rotation
@@ -53,7 +58,7 @@ Effects:
   xpp          Post-process effector wrap (slot allocator, engine-smoothed factor, handle API, 35 verified-safe .ppe paths)
   xsound       Sound wrap (single sounds, looping handles, volume lerp) plus the engine ambient-bed and level-music trace/veto seams (engine PR #644)
 
-Integration:
+Framework:
   xbus         Pub/sub event bus (direct delivery, errors stay visible)
   xevent       Runtime function hooking for synthetic callbacks
   xpda         PDA messages and map markers (squad and entity)

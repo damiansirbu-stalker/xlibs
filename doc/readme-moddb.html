@@ -1,30 +1,37 @@
-<p>[ HERO IMAGE: readme_pic_1.jpg — xlibs module tree ]</p>
+<p>[ HERO IMAGE: xlibs-hero.gif — with vs without xlibs ]</p>
 <h3>Version: next</h3>
 <h3>GitHub: <a href="https://github.com/damiansirbu-stalker/xlibs">https://github.com/damiansirbu-stalker/xlibs</a></h3>
 <h3>Changelog: <a href="https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog">doc/changelog</a> | <a href="https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt">На русском</a> | <a href="https://github.com/damiansirbu-stalker/xlibs/issues">Bugs, suggestions</a></h3>
 <p>xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need: entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.<br /><br />The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in both the European and Russian STALKER modding traditions. Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.<br /><br />Pure Lua where possible. No engine dependency unless necessary. No central loader. The engine auto-loads scripts on first access. Call xlog.get_logger() or xsquad.find_squads() and it works.<br /><br /></p>
 <h2>Features</h2>
-<h3>Entity and World</h3>
+<h3>A-Life</h3>
 <ul>
-<li><b>xactor</b>: Actor info portions, talking/trading partner, state queries</li>
-<li><b>xcreature</b>: Creature identification, type checks, translated names, money primitives</li>
 <li><b>xsquad</b>: Squad search, scripted control, release, chase, iteration</li>
 <li><b>xsmart</b>: Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation</li>
-<li><b>xlevel</b>: Level/map queries, game time, location names, vertex validation</li>
-<li><b>xobject</b>: Server object and online game object resolution from any input type</li>
-<li><b>xinventory</b>: Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)</li>
 <li><b>xstash</b>: Stash discovery, looting, filling, item filtering</li>
+<li><b>xlevel</b>: Level/map queries, game time, location names, vertex validation</li>
 <li><b>xdata</b>: Unscriptable NPC/squad tables (traders, mechanics, story characters)</li>
-<li><b>xconst</b>: X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)</li>
 </ul>
-<h3>Data Structures</h3>
+<h3>Combat</h3>
+<ul>
+<li><b>xcombat</b>: Combat-AI primitives: GOAP takeover, per-NPC aim/vision/fire engine binds, cover and LOS reads</li>
+</ul>
+<h3>Entity &amp; Items</h3>
+<ul>
+<li><b>xcreature</b>: Creature identification, type checks, translated names, money primitives</li>
+<li><b>xobject</b>: Server object and online game object resolution from any input type</li>
+<li><b>xactor</b>: Actor info portions, talking/trading partner, state queries</li>
+<li><b>xinventory</b>: Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)</li>
+</ul>
+<h3>Util</h3>
 <ul>
 <li><b>xtable</b>: Count, shuffle, sort, set merge and subtract</li>
 <li><b>xttltable</b>: TTL key-value store, sliding window counter, token bucket, FIFO cache</li>
-<li><b>xslice</b>: Time-sliced array iteration across frames</li>
 <li><b>xmath</b>: Random sampling and partial shuffle</li>
+<li><b>xslice</b>: Time-sliced array iteration across frames</li>
 <li><b>xstring</b>: String interpolation with {key} placeholders</li>
 <li><b>xtime</b>: Game-time seconds accumulator (wraps engine game_time())</li>
+<li><b>xconst</b>: X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)</li>
 </ul>
 <h3>Diagnostics</h3>
 <ul>
@@ -38,7 +45,7 @@
 <li><b>xpp</b>: Post-process effector wrap (slot allocator, engine-smoothed factor, handle API, 35 verified-safe .ppe paths)</li>
 <li><b>xsound</b>: Looping sound wrap (handle API, Lua-side volume lerp, lazy actor_on_update tick)</li>
 </ul>
-<h3>Integration</h3>
+<h3>Framework</h3>
 <ul>
 <li><b>xbus</b>: Pub/sub event bus (direct delivery, errors stay visible)</li>
 <li><b>xevent</b>: Runtime function hooking for synthetic callbacks</li>
