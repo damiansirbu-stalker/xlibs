@@ -112,6 +112,37 @@ jobs:
           fi
           exit $rc
 
+      - name: Compatibility check (all consumers vs this xlibs)
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          ws="${GITHUB_WORKSPACE//\\//}"
+          # Consumers = every dev_mod except xlibs, from the committed dev.yaml (auto-tracks add/remove).
+          consumers=$(git -C pipeline show HEAD:stalker-manager/dev.yaml \
+            | sed -n '/^dev_mods:/,/^[^[:space:]#]/p' \
+            | sed -n 's/^  - name: "\(.*\)"$/\1/p' | grep -vx xlibs)
+          # No consumers derived means the read broke; fail loud instead of a vacuous green.
+          [ -n "$consumers" ] || { echo "compat-check: no consumers derived from dev.yaml"; exit 1; }
+          # Clone each (public; full clone brings the tags the shipped-release check reads).
+          for m in $consumers; do
+            git clone --quiet "https://github.com/damiansirbu-stalker/$m.git" "$ws/$m"
+          done
+          # Point the pipeline at this xlibs checkout plus every consumer clone.
+          {
+            echo "repo_path: \"$ws\""
+            echo "mods_path: \"$ws\""
+            echo "dev_mods:"
+            echo "  - name: \"xlibs\""
+            echo "    repo: \"$ws/xlibs\""
+            for m in $consumers; do
+              echo "  - name: \"$m\""
+              echo "    repo: \"$ws/$m\""
+            done
+          } > pipeline/stalker-manager/dev.yaml
+          bash pipeline/stalker-manager/stalker-manager.sh compat-check
       # The findings become clickable file:line alerts in the repo Security tab. always() so a red
       # validate still publishes them (the alerts are the point).
       - name: Upload SARIF to Code Scanning
