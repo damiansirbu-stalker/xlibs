@@ -35,6 +35,7 @@ concurrency:
 jobs:
   validate:
     runs-on: windows-latest
+    timeout-minutes: 25
     permissions:
       contents: read
       security-events: write
@@ -100,23 +101,9 @@ jobs:
           } > pipeline/stalker-manager/dev.yaml
           cat pipeline/stalker-manager/dev.yaml
 
-      - name: Validate
-        shell: bash
-        run: |
-          set +e
-          bash pipeline/stalker-manager/stalker-manager.sh validate xlibs --full --emit out
-          rc=$?
-          [ -f out/summary.md ] && cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
-          if grep -qE '[0-9]+ findings /' out/summary.md 2>/dev/null; then
-            echo "::warning::redlint prose findings present (advisory, not gated); see the run summary"
-          fi
-          exit $rc
-
-      - name: Compatibility check (all consumers vs this xlibs)
+      - name: Compat prep (clone consumers, point the pipeline at them)
         if: github.event_name == 'push'
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           ws="${GITHUB_WORKSPACE//\\//}"
@@ -125,12 +112,12 @@ jobs:
             | sed -n '/^dev_mods:/,/^[^[:space:]#]/p' \
             | sed -n 's/^  - name: "\(.*\)"$/\1/p' | grep -vx xlibs)
           # No consumers derived means the read broke; fail loud instead of a vacuous green.
-          [ -n "$consumers" ] || { echo "compat-check: no consumers derived from dev.yaml"; exit 1; }
+          [ -n "$consumers" ] || { echo "compat prep: no consumers derived from dev.yaml"; exit 1; }
           # Clone each (public; full clone brings the tags the shipped-release check reads).
           for m in $consumers; do
             git clone --quiet "https://github.com/damiansirbu-stalker/$m.git" "$ws/$m"
           done
-          # Point the pipeline at this xlibs checkout plus every consumer clone.
+          # Overwrite the one-mod dev.yaml with this xlibs checkout plus every consumer clone.
           {
             echo "repo_path: \"$ws\""
             echo "mods_path: \"$ws\""
@@ -142,23 +129,43 @@ jobs:
               echo "    repo: \"$ws/$m\""
             done
           } > pipeline/stalker-manager/dev.yaml
-          bash pipeline/stalker-manager/stalker-manager.sh compat-check
-      # The findings become clickable file:line alerts in the repo Security tab. always() so a red
-      # validate still publishes them (the alerts are the point).
+      - name: Validate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          set +e
+          bash pipeline/stalker-manager/stalker-manager.sh validate xlibs --full --emit out
+          echo $? > out/rc
+          [ -f out/summary.md ] && cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
+          if grep -qE '[0-9]+ findings /' out/summary.md 2>/dev/null; then
+            echo "::warning::redlint prose findings present (advisory, not gated); see the run summary"
+          fi
+
+      # Publish-then-gate: SARIF, the Pages artifact, and the dashboard deploy all run unconditionally,
+      # so a red run still shows the report that names what failed. The Grade gate, last, reds the check.
       - name: Upload SARIF to Code Scanning
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: out/results.sarif
           category: quality
 
       - name: Upload Pages artifact
+        if: always()
         uses: actions/upload-pages-artifact@v5
         with:
           path: out
 
+      - name: Grade gate
+        if: always()
+        shell: bash
+        run: exit "$(cat out/rc 2>/dev/null || echo 1)"
+
   deploy-pages:
     needs: validate
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       pages: write
