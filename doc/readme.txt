@@ -11,6 +11,8 @@ Nexus: https://www.nexusmods.com/profile/damiansirbu/mods
 My contributions:
 X-Ray Monolith: https://github.com/themrdemonized/xray-monolith
 
+[ HERO IMAGE: readme_pic_1.jpg — xlibs module tree ]
+
 xlibs is a modder's toolbox for what Anomaly mods typically need.
 It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 

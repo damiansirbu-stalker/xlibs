@@ -1,3 +1,4 @@
+<p>[ HERO IMAGE: readme_pic_1.jpg — xlibs module tree ]</p>
 <h3>Version: next</h3>
 <h3>GitHub: <a href="https://github.com/damiansirbu-stalker/xlibs">https://github.com/damiansirbu-stalker/xlibs</a></h3>
 <h3>Changelog: <a href="https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog">doc/changelog</a> | <a href="https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt">На русском</a> | <a href="https://github.com/damiansirbu-stalker/xlibs/issues">Bugs, suggestions</a></h3>
@@ -56,11 +57,11 @@
 <h2>Performance</h2>
 <p>Performance comes first, ahead of any feature. A wrapper costs only the bridge call it wraps and adds no work of its own. When something cannot fit the budget it is reworked, replaced, or removed with an X-Ray engine modification rather than allowed to slow the game. The frame budget is fixed.<br /><br /></p>
 <h2>Compatibility</h2>
-<p>Runs on themrdemonized modded exes 2025.9.10 or newer, or AOEngine v0.55 or newer.<br />Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start. Everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.<br /><br /></p>
+<p>Runs on themrdemonized modded exes 20250908 or newer, or AOEngine v0.55 or newer.<br />Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start. Everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.<br /><br /></p>
 <h2>Development</h2>
 <p>Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.<br />Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).<br />The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.<br />Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case. The optimized multithreaded build you run is always faster.<br />Full report in doc/test-report.log.<br /><br /></p>
 <h2>FAQ</h2>
-<p><b>Do I need modded exes?</b><br />Yes. xlibs needs themrdemonized modded exes (2025.9.10 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.</p>
+<p><b>Do I need modded exes?</b><br />Yes. xlibs needs themrdemonized modded exes (20250908 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.</p>
 <h2>Credits</h2>
 <p>Altogolik: support, ideas, source materials</p>
 <h2>Reporting issues and suggestions</h2>
