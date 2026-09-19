@@ -83,6 +83,7 @@ It runs on proper data structures: a token-bucket rate limiter, a ring-buffer ca
 The raycasting and range math are hand-written and tested live, and the engine sentinels come straight from the X-Ray C++ headers.
 The combat primitives run on my own engine changes: per-NPC aim, vision, fire, and selection gates written into xray-monolith and merged into the demonized exes.
 It uses the engine and never reimplements it. A wrapper costs only the bridge call it wraps, and no code runs every frame.
+It is the family's one rulebook. Every rule, policy, and check the mods share is implemented once, here, the same protection, distances, faction logic, and combat reads for all of them.
 Profiled continuously with JitProfiler, an engine-native scientific tool. Manual tests run on unoptimized, single-threaded exes.
 Every commit runs the full pipeline locally and in CI: luacheck, a Selene build compiled for STALKER with flags the public build lacks, and a load test that runs every script against engine stubs.
 Rule layers then check crash safety, hotpath cost, engine correctness, complexity, architecture contracts, security, and the docs.
