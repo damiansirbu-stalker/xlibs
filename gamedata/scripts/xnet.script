@@ -108,3 +108,20 @@ function run_request(opts)
     if not ok then return { ok = false } end
     return { ok = code == 0, code = code }
 end
+
+--- Commit one file to a GitHub repo through xnet.exe, creating or updating it. The token stays in a file.
+--- @safety SAFE - pcall contains a spawn failure; a bad path or FFI error returns { ok = false }, never raises.
+--- @cost 1 process spawn + wait, blocking until the GitHub calls return or the timeout
+--- @param opts table { repo, path, file, token_file (all required), branch, message } - local paths real, not VFS
+--- @return table { ok = boolean, code = number|nil } - ok on a 2xx (exit 0); nil code means the launch failed
+function push_github(opts)
+    local exe = resolve_exe_path()
+    if not (exe and opts and opts.repo and opts.path and opts.file and opts.token_file) then return { ok = false } end
+    local parts = { '"' .. exe .. '"', "github-put", "-repo", opts.repo, "-path", opts.path,
+        "-file", '"' .. opts.file .. '"', "-token-file", '"' .. opts.token_file .. '"' }
+    if opts.branch then parts[#parts + 1] = "-branch"; parts[#parts + 1] = opts.branch end
+    if opts.message then parts[#parts + 1] = "-message"; parts[#parts + 1] = '"' .. opts.message .. '"' end
+    local ok, code = pcall(run_process, table.concat(parts, " "))
+    if not ok then return { ok = false } end
+    return { ok = code == 0, code = code }
+end
