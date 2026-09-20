@@ -5,3 +5,5 @@ meta.ini
 *.bak
 *~
 tmp/
+# Build artifact: xnet.exe is compiled from tool/xnet by CI and bundled at release, never committed.
+gamedata/scripts/*.exe

@@ -5,14 +5,17 @@ local table = table
 
 local CREATE_NO_WINDOW = 0x08000000
 local WAIT_TIMEOUT_MS  = 30000
+local PATH_BUFFER      = 1024
 
--- The real on-disk path of xnet.exe (never a VFS path), set by set_config; xnet is inert until then.
+-- The real on-disk path of xnet.exe, resolved from the shipped copy on first use; set_config overrides it.
 local exe_path
 -- FFI handles, built once on first use; absent FFI or a blocked kernel32 leaves xnet inert.
 local ffi, k32
+-- The shipped exe, resolved to its real backing path (past MO2's VFS) so a spawn launches the file on disk.
+local EXE_VFS = "xnet.exe"
 
 --- @safety SAFE - every FFI step runs under pcall; any failure leaves k32 nil and xnet inert.
---- @cost 1 struct cdef + 4 function cdefs + 1 dll load, once
+--- @cost 1 struct cdef + 6 function cdefs + 1 dll load, once
 local function init_ffi()
     if k32 then return true end
     local ok_ffi, module = pcall(require, "ffi")
@@ -31,9 +34,28 @@ local function init_ffi()
     pcall(module.cdef, "unsigned long __stdcall WaitForSingleObject(void*, unsigned long);")
     pcall(module.cdef, "int __stdcall GetExitCodeProcess(void*, unsigned long*);")
     pcall(module.cdef, "int __stdcall CloseHandle(void*);")
+    pcall(module.cdef, "void* __stdcall CreateFileA(const char*, unsigned long, unsigned long, void*, unsigned long, unsigned long, void*);")
+    pcall(module.cdef, "unsigned long __stdcall GetFinalPathNameByHandleA(void*, char*, unsigned long, unsigned long);")
     local ok_load, lib = pcall(module.load, "kernel32")
     if ok_load then ffi, k32 = module, lib end
     return k32 ~= nil
+end
+
+-- Resolve the shipped exe to its real on-disk path past MO2's VFS, so CreateProcess launches the file on disk.
+--- @safety SAFE - a failed open or an over-long path returns nil, so xnet stays inert instead of raising.
+--- @cost 1 path resolve + 1 file open + 1 handle query, once
+local function resolve_exe_path()
+    if exe_path then return exe_path end
+    if not init_ffi() then return nil end
+    local vpath = xfs.resolve_path("$game_scripts$", EXE_VFS)
+    local handle = vpath and k32.CreateFileA(vpath, 0x80000000, 0x1, nil, 3, 0, nil)
+    if handle and handle ~= ffi.cast("void*", -1) then
+        local buffer = ffi.new("char[?]", PATH_BUFFER)
+        local written = k32.GetFinalPathNameByHandleA(handle, buffer, PATH_BUFFER, 0)
+        k32.CloseHandle(handle)
+        if written > 0 and written < PATH_BUFFER then exe_path = (ffi.string(buffer):gsub("^\\\\%?\\", "")) end
+    end
+    return exe_path
 end
 
 -- Spawn the exe with a command line, wait, and return its exit code; nil when the launch itself fails.
@@ -62,10 +84,10 @@ function set_config(cfg)
     if cfg and cfg.exe then exe_path = tostring(cfg.exe) end
 end
 
---- @return boolean whether xnet has an exe path and FFI is available.
---- @cost O(1) after the one-time FFI init
+--- @return boolean whether xnet resolved its exe and FFI is available.
+--- @cost O(1) after the one-time resolve
 function is_ready()
-    return exe_path ~= nil and init_ffi()
+    return resolve_exe_path() ~= nil
 end
 
 --- Run one HTTP(S) request through xnet.exe; the caller composes it and xnet only carries it.
@@ -75,8 +97,9 @@ end
 --- @param opts table { url (required), method, header_file, body_file, out } - all paths real, not VFS
 --- @return table { ok = boolean, code = number|nil } - ok on a 2xx (exit 0); nil code means the launch failed
 function run_request(opts)
-    if not (exe_path and opts and opts.url) then return { ok = false } end
-    local parts = { '"' .. exe_path .. '"', "-url", '"' .. opts.url .. '"' }
+    local exe = resolve_exe_path()
+    if not (exe and opts and opts.url) then return { ok = false } end
+    local parts = { '"' .. exe .. '"', "-url", '"' .. opts.url .. '"' }
     if opts.method then parts[#parts + 1] = "-method"; parts[#parts + 1] = tostring(opts.method) end
     if opts.header_file then parts[#parts + 1] = "-header-file"; parts[#parts + 1] = '"' .. opts.header_file .. '"' end
     if opts.body_file then parts[#parts + 1] = "-body-file"; parts[#parts + 1] = '"' .. opts.body_file .. '"' end
