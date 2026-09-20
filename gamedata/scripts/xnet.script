@@ -1,0 +1,87 @@
+--- xnet: launch the native companion (xnet.exe) over a LuaJIT FFI CreateProcess to run one HTTP request outside the script sandbox.
+
+local pcall, tostring, tonumber, require = pcall, tostring, tonumber, require
+local table = table
+
+local CREATE_NO_WINDOW = 0x08000000
+local WAIT_TIMEOUT_MS  = 30000
+
+-- The real on-disk path of xnet.exe (never a VFS path), set by set_config; xnet is inert until then.
+local exe_path
+-- FFI handles, built once on first use; absent FFI or a blocked kernel32 leaves xnet inert.
+local ffi, k32
+
+--- @safety SAFE - every FFI step runs under pcall; any failure leaves k32 nil and xnet inert.
+--- @cost 1 struct cdef + 4 function cdefs + 1 dll load, once
+local function init_ffi()
+    if k32 then return true end
+    local ok_ffi, module = pcall(require, "ffi")
+    if not (ok_ffi and module) then return false end
+    pcall(module.cdef, [[
+        typedef struct {
+            unsigned long cb; char* r1; char* r2; char* r3;
+            unsigned long dwX; unsigned long dwY; unsigned long dwXSize; unsigned long dwYSize;
+            unsigned long dwXCountChars; unsigned long dwYCountChars; unsigned long dwFillAttribute; unsigned long dwFlags;
+            unsigned short wShowWindow; unsigned short cbReserved2; char* r4;
+            void* hStdInput; void* hStdOutput; void* hStdError;
+        } XNET_STARTUPINFOA;
+        typedef struct { void* hProcess; void* hThread; unsigned long dwProcessId; unsigned long dwThreadId; } XNET_PROCESS_INFORMATION;
+    ]])
+    pcall(module.cdef, "int __stdcall CreateProcessA(const char*, char*, void*, void*, int, unsigned long, void*, const char*, XNET_STARTUPINFOA*, XNET_PROCESS_INFORMATION*);")
+    pcall(module.cdef, "unsigned long __stdcall WaitForSingleObject(void*, unsigned long);")
+    pcall(module.cdef, "int __stdcall GetExitCodeProcess(void*, unsigned long*);")
+    pcall(module.cdef, "int __stdcall CloseHandle(void*);")
+    local ok_load, lib = pcall(module.load, "kernel32")
+    if ok_load then ffi, k32 = module, lib end
+    return k32 ~= nil
+end
+
+-- Spawn the exe with a command line, wait, and return its exit code; nil when the launch itself fails.
+local function run_process(cmdline)
+    if not init_ffi() then return nil end
+    local info = ffi.new("XNET_STARTUPINFOA")
+    info.cb = ffi.sizeof("XNET_STARTUPINFOA")
+    local proc = ffi.new("XNET_PROCESS_INFORMATION")
+    local buffer = ffi.new("char[?]", #cmdline + 1)
+    ffi.copy(buffer, cmdline)
+    if k32.CreateProcessA(exe_path, buffer, nil, nil, 0, CREATE_NO_WINDOW, nil, nil, info, proc) == 0 then
+        return nil
+    end
+    k32.WaitForSingleObject(proc.hProcess, WAIT_TIMEOUT_MS)
+    local code = ffi.new("unsigned long[1]")
+    k32.GetExitCodeProcess(proc.hProcess, code)
+    k32.CloseHandle(proc.hProcess)
+    k32.CloseHandle(proc.hThread)
+    return tonumber(code[0])
+end
+
+--- Point xnet at the real on-disk path of its exe. Dormant until this is set.
+--- @cost O(1)
+--- @param cfg table { exe = string } the resolved xnet.exe path
+function set_config(cfg)
+    if cfg and cfg.exe then exe_path = tostring(cfg.exe) end
+end
+
+--- @return boolean whether xnet has an exe path and FFI is available.
+--- @cost O(1) after the one-time FFI init
+function is_ready()
+    return exe_path ~= nil and init_ffi()
+end
+
+--- Run one HTTP(S) request through xnet.exe; the caller composes it and xnet only carries it.
+--- The auth token belongs in the header file, never inline, so it stays off the process arguments.
+--- @safety SAFE - pcall contains a spawn failure; a bad path or FFI error returns { ok = false }, never raises.
+--- @cost 1 process spawn + wait, blocking until the request returns or the timeout
+--- @param opts table { url (required), method, header_file, body_file, out } - all paths real, not VFS
+--- @return table { ok = boolean, code = number|nil } - ok on a 2xx (exit 0); nil code means the launch failed
+function run_request(opts)
+    if not (exe_path and opts and opts.url) then return { ok = false } end
+    local parts = { '"' .. exe_path .. '"', "-url", '"' .. opts.url .. '"' }
+    if opts.method then parts[#parts + 1] = "-method"; parts[#parts + 1] = tostring(opts.method) end
+    if opts.header_file then parts[#parts + 1] = "-header-file"; parts[#parts + 1] = '"' .. opts.header_file .. '"' end
+    if opts.body_file then parts[#parts + 1] = "-body-file"; parts[#parts + 1] = '"' .. opts.body_file .. '"' end
+    if opts.out then parts[#parts + 1] = "-out"; parts[#parts + 1] = '"' .. opts.out .. '"' end
+    local ok, code = pcall(run_process, table.concat(parts, " "))
+    if not ok then return { ok = false } end
+    return { ok = code == 0, code = code }
+end
