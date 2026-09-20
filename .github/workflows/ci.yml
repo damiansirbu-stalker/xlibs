@@ -226,6 +226,16 @@ jobs:
             echo "    repo: \"$ws/xlibs\""
           } > pipeline/stalker-manager/dev.yaml
 
+      - name: Set up Go (xnet build)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: xlibs/tool/xnet/go.mod
+
+      - name: Build xnet.exe
+        shell: bash
+        working-directory: xlibs
+        run: go build -o gamedata/scripts/xnet.exe ./tool/xnet
+
       - name: Build snapshot zip
         shell: bash
         run: bash pipeline/stalker-manager/stalker-manager.sh release-zip xlibs --snapshot --out dist
@@ -303,6 +313,16 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$v"
           git push origin "$v"
+
+      - name: Set up Go (xnet build)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: xlibs/tool/xnet/go.mod
+
+      - name: Build xnet.exe
+        shell: bash
+        working-directory: xlibs
+        run: go build -o gamedata/scripts/xnet.exe ./tool/xnet
 
       - name: Build stamped release zip
         shell: bash
