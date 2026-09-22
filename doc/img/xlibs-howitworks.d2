@@ -1,0 +1,48 @@
+direction: right
+
+style.fill: "#1f2421"
+
+**.style.fill: "#262c27"
+**.style.stroke: "#ece7d8"
+**.style.font-color: "#ece7d8"
+**.style.stroke-width: 2
+
+title: "xlibs - one release-safe wrapper every mod calls" {
+  near: top-center
+  style: { stroke-width: 0; fill: "#1f2421"; font-color: "#ece7d8"; font-size: 28 }
+}
+
+consumer: "Consumer mod" {
+  style.stroke: "#c9d8b6"
+  grid-columns: 1
+  grid-gap: 14
+  a: "its own on_game_start registers the handlers"
+  b: "owns control flow - xlibs never self-registers"
+}
+
+mods: "xlibs modules" {
+  grid-columns: 2
+  grid-gap: 14
+  al: "A-Life\nxsquad xsmart xstash xlevel"
+  cb: "Combat\nxcombat"
+  en: "Entity and Items\nxcreature xobject xinventory"
+  ut: "Util\nxtable xttltable xslice xtime"
+  di: "Diagnostics\nxlog xprofiler xtrace"
+  fw: "Framework\nxbus xevent xmcm xchange"
+}
+
+engine: "Raw X-Ray and Anomaly\nSIMBOARD   alife()   game_object   ini_sys"
+
+inv: "Invariants hold every wrapper in line" {
+  style.stroke: "#c9d8b6"
+  grid-columns: 1
+  grid-gap: 12
+  p1: "no steady-state per-frame work"
+  p2: "passive - the caller drives, never xlibs"
+  p3: "performance first, nothing past the bridge call"
+  p4: "wrap the engine, never reimplement it"
+}
+
+consumer -> mods: "call" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+mods -> engine: "wrap" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+inv -> mods: "constrain" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
