@@ -56,9 +56,6 @@ xcombat.BODY_Y = {
 }
 local BODY_Y = xcombat.BODY_Y
 
--- Shared evaluator+action GOAP id; 188200 collided with an external companion surge-shelter scheme, 188347 verified unused and RESERVED.
-local TAKEOVER_ID = 188347
-
 -- Posture/movement keys into the engine move enum, looked up at call time so the module loads where move is absent (the validator stub).
 local BODY_KEY = { STAND = "standing", CROUCH = "crouch" }
 local MOVE_KEY = { STILL = "stand", WALK = "walk", RUN = "run" }
@@ -107,14 +104,34 @@ local ENC_BUILD_M        = 8
 local _next_sweep = setmetatable({}, { __mode = "k" })
 local _sweep_keys = {}
 
--- The blocked-planner id list, resolved at call time so the library never auto-loads the GOAP id modules at load.
-local _blocked_planners = nil
-local _takeover_spec = nil
-local _takeover_installed = {}
--- npc id -> set of blocked ids already preconditioned on this NPC's manager; makes the seize-time top-up idempotent (duplicate add_condition throws).
-local _takeover_blocked = {}
 -- The engine combat operators worth naming; resolved once at call time (stalker_ids absent at file body).
 local _operators = nil
+
+-- Generic-scheme operator ids live as module fields, not in xr_actions_id: { module, field, label } rows.
+local SCHEME_OPERATOR_FIELDS = {
+    { "rx_ff", "actid", "rx_ff" },
+    { "axr_fight_from_cover", "actid", "fight_from_cover" },
+    { "axr_npc_vs_heli", "actid", "npc_vs_heli" },
+    { "axr_npc_vs_box", "actid", "npc_vs_box" },
+    { "axr_radio_in_heli", "actid", "radio_in_heli" },
+    { "axr_stalker_panic", "actid", "stalker_panic" },
+    { "axr_turn_on_campfire", "actid", "turn_on_campfire" },
+    { "xrs_kill_wounded", "actid", "kill_wounded" },
+    { "xr_gather_items", "actid", "gather_items" },
+    { "xrs_facer", "actid_facer", "facer" },
+    { "xrs_facer", "actid_steal_up_facer", "facer_steal_up" },
+}
+
+-- Enter the scheme-module operator ids into the name table; rawget skips unloaded modules, never auto-loads.
+-- @cost O(n) rows | 2 rawgets per row, and only on an id the name table missed
+local function _register_scheme_operators()
+    for i = 1, #SCHEME_OPERATOR_FIELDS do
+        local row = SCHEME_OPERATOR_FIELDS[i]
+        local scheme_module = rawget(_G, row[1])
+        local aid = type(scheme_module) == "table" and rawget(scheme_module, row[2]) or nil
+        if type(aid) == "number" and _operators[aid] == nil then _operators[aid] = row[3] end
+    end
+end
 
 --- Delete every expired entry from an id-keyed TTL cache, at most once a minute.
 --- Keys are collected first and deleted in a second pass; _sweep_keys is reused (zero allocation) and _next_sweep is weak-keyed.
@@ -137,17 +154,6 @@ local function _clear_expired(cache, tg)
         _sweep_keys[i] = nil
     end
 end
--- Append one id, only when it resolves to a number; a removed or renumbered scheme is skipped rather than faulting the install.
-local function _add_planner_id(list, id)
-    if type(id) == "number" then list[#list + 1] = id end
-end
-
--- An action id off a scheme module, or nil when that scheme is not installed (auto-load returns nil for a missing .script).
-local function _get_scheme_id(module_ref, field)
-    if not module_ref then return nil end
-    return module_ref[field]
-end
-
 -- Register the +1/+2/+3 sub-action labels for one numeric action id, skipping any id already mapped.
 local function _set_variants(ops, name, aid)
     if type(aid) ~= "number" then return end
@@ -700,37 +706,6 @@ function xcombat.is_under_fire(npc, enemy, tg, window_ms)
     return source ~= nil and source:id() == enemy:id()
 end
 
---- GOAP action ids the takeover precondition-blocks while a transaction is open (built once, cached).
---- An action NOT listed satisfies the brain's goal directly and bypasses the takeover, so the list is enumerated, never sampled.
---- @safety SAFE - every entry is type-checked; a scheme absent from the install is skipped
---- @cost O(1) | 0 luabind (module field reads, cached after first build)
---- @src anomaly/xr_actions_id.script (the id arithmetic), anomaly/modules.script:17-34 (what is loaded)
---- @src anomaly/xr_combat.script:87-100 (the three combat schemes taking the TOP-LEVEL manager)
---- @src anomaly/state_mgr.script:552-559 (state_mgr+1), anomaly/xr_smartcover.script:210 (+2 = combat)
---- @src xray/stalker_combat_planner.cpp:182,193-194 (the mask bookkeeping the block removes)
---- @return table array of GOAP action ids
-function xcombat.get_blocked_planners()
-    if _blocked_planners then return _blocked_planners end
-    local list = {}
-    _add_planner_id(list, stalker_ids.action_combat_planner)
-    _add_planner_id(list, stalker_ids.action_danger_planner)
-    _add_planner_id(list, xr_actions_id.alife)
-    _add_planner_id(list, _get_scheme_id(xr_danger, "actid"))
-    _add_planner_id(list, xr_actions_id.state_mgr + 1)
-    _add_planner_id(list, xr_actions_id.state_mgr + 2)
-    for i = 0, 3 do _add_planner_id(list, xr_actions_id.combat_monolith_base + i) end
-    for i = 0, 1 do _add_planner_id(list, xr_actions_id.combat_zombied_base + i) end
-    for i = 0, 1 do _add_planner_id(list, xr_actions_id.combat_camper_base + i) end
-    _add_planner_id(list, _get_scheme_id(axr_fight_from_cover, "actid"))
-    _add_planner_id(list, xr_actions_id.smartcover_action + 2)
-    _add_planner_id(list, _get_scheme_id(xrs_facer, "actid_facer"))
-    _add_planner_id(list, _get_scheme_id(xrs_facer, "actid_steal_up_facer"))
-    _add_planner_id(list, _get_scheme_id(xrs_kill_wounded, "actid"))
-    _add_planner_id(list, _get_scheme_id(rx_ff, "actid"))
-    _blocked_planners = list
-    return _blocked_planners
-end
-
 --- Set the NPC's squad combat-mask bit - join the squad memory-sharing group.
 --- Called because the blocked CStalkerCombatPlanner::initialize no longer runs; idempotent (the engine ORs the bit), alive-gated.
 --- @safety SAFE - nil/alive-guarded; register_in_combat is SAFE_WRAPped and a no-op on a non-stalker
@@ -751,135 +726,6 @@ end
 function xcombat.unregister_in_combat(npc)
     if not npc or not npc:alive() then return end
     npc:unregister_in_combat()
-end
-
---- The grafted action's GOAP id, exported so a consumer can declare it in vanilla's state_mgr.combat_action_ids.
---- Read-only by convention; writing it does not move the graft, which reads the local.
---- @src anomaly/state_mgr.script:10-18 (the table and vanilla's own note on who belongs in it)
-xcombat.TAKEOVER_ID = TAKEOVER_ID
-
--- The gate evaluator: true exactly while the consumer's gate is raised for this NPC; polled every plan solve, so it is a flag read.
-class "xcombat_takeover_evaluator" (property_evaluator)
-function xcombat_takeover_evaluator:__init(name) super(nil, name) end
-function xcombat_takeover_evaluator:evaluate()
-    return _takeover_spec ~= nil and _takeover_spec.gate(self.object) == true
-end
-
--- The grafted action: initialize issues the maneuver via spec.on_begin, execute does nothing (the engine carries it), finalize leaves the group.
-class "xcombat_takeover_action" (action_base)
-function xcombat_takeover_action:__init(name) super(nil, name) end
-function xcombat_takeover_action:initialize()
-    action_base.initialize(self)
-    local npc = self.object
-    npc:clear_animations()
-    npc:set_desired_position()
-    npc:set_desired_direction()
-    npc:set_path_type(game_object.level_path)
-    npc:set_mental_state(anim.danger)
-    xcombat.register_in_combat(npc)
-    if _takeover_spec and _takeover_spec.on_begin then _takeover_spec.on_begin(npc) end
-end
-function xcombat_takeover_action:execute()
-    action_base.execute(self)
-end
-function xcombat_takeover_action:finalize()
-    action_base.finalize(self)
-    local npc = self.object
-    xcombat.unregister_in_combat(npc)
-    if _takeover_spec and _takeover_spec.on_release then _takeover_spec.on_release(npc) end
-end
-
---- Graft the takeover onto a stalker: add the gate evaluator + action and precondition-block the vanilla combat chain on the gate.
---- Idempotent per NPC and SINGLE-CONSUMER: a second differing spec asserts instead of silently replacing the first for every NPC.
---- @safety SAFE for the single consumer - nil/manager guarded, false without a manager; ASSERTS on a second differing spec
---- @cost O(b) blocked planners | add_evaluator + add_action + b*(action lookup + add_precondition), one-time at install
---- @src anomaly/xr_actions_id.script, anomaly/xr_evaluators_id.script:17 (sidor_wounded_base); xray/stalker_planner.cpp:68-69,128,149-163 (goal chain)
---- @param npc game_object stalker
---- @param spec table { gate = fn(npc) -> boolean, on_begin = fn(npc) on control granted, on_release = fn(npc)|nil on control taken away }
---- @return boolean true when grafted or already grafted, false when the NPC has no action manager
-function xcombat.register_takeover(npc, spec)
-    if not npc or not spec then return false end
-    assert(_takeover_spec == nil or _takeover_spec == spec,
-        "xcombat.register_takeover: a second differing takeover spec - the takeover is single-consumer")
-    local id = npc:id()
-    if _takeover_installed[id] then return true end
-    local manager = npc:motivation_action_manager()
-    if not manager then return false end
-    _takeover_spec = spec
-    _takeover_installed[id] = true
-
-    manager:add_evaluator(TAKEOVER_ID, xcombat_takeover_evaluator("eva_xcombat_takeover"))
-
-    local action = xcombat_takeover_action("act_xcombat_takeover")
-    action:add_precondition(world_property(stalker_ids.property_alive, true))
-    action:add_precondition(world_property(xr_evaluators_id.sidor_wounded_base, false))
-    action:add_precondition(world_property(TAKEOVER_ID, true))
-    action:add_effect(world_property(TAKEOVER_ID, false))
-    manager:add_action(TAKEOVER_ID, action)
-
-    _takeover_blocked[id] = {}
-    xcombat.apply_takeover_block(npc)
-    return true
-end
-
---- Apply the TAKEOVER_ID==false precondition to every blocked-list action on this NPC's manager that has not received it yet.
---- Run once at graft time and re-run by the consumer at each seize, so a scheme whose action bound after the graft is blocked in time.
---- @safety SAFE - nil/ungrafted/manager guarded; every id type-checked by get_blocked_planners
---- @cost O(b) blocked ids | one manager:action lookup per id still missing (ids already blocked cost a table read)
---- @src anomaly/xr_logic.script:279-295 (the once-per-NPC bind guard and the late-registration hole)
---- @src xray/condition_state_inline.h:44-53 (duplicate condition THROW - why the set gates the add)
---- @param npc game_object stalker previously passed to register_takeover
-function xcombat.apply_takeover_block(npc)
-    if not npc then return end
-    local done = _takeover_blocked[npc:id()]
-    if not done then return end
-    local manager = npc:motivation_action_manager()
-    if not manager then return end
-    local blocked = xcombat.get_blocked_planners()
-    for i = 1, #blocked do
-        local aid = blocked[i]
-        local act = not done[aid] and manager:action(aid) or nil
-        if not act then goto continue end
-        act:add_precondition(world_property(TAKEOVER_ID, false))
-        done[aid] = true
-        ::continue::
-    end
-end
-
---- True while the grafted takeover action is the manager's CURRENT top-level action - the boolean form of get_operator == "takeover".
---- Consumers pair it with an open gate to detect a denylist escape (an unblocked action holding the slot under an open maneuver).
---- @safety SAFE - nil-guarded manager + initialized check, false when unreadable
---- @cost O(1) | 3 luabind trivial (motivation_action_manager, initialized, current_action_id)
---- @param npc game_object stalker
---- @return boolean true when the takeover action is current
-function xcombat.is_takeover_current(npc)
-    if not npc then return false end
-    local mgr = npc:motivation_action_manager()
-    if not (mgr and mgr:initialized()) then return false end
-    return mgr:current_action_id() == TAKEOVER_ID
-end
-
---- Drop the install-tracking for an NPC so a respawned id re-grafts; call on net_destroy.
---- The graft cannot be unwired from a live manager; a respawn builds a fresh one, so clearing the guard lets the next install re-graft.
---- @safety SAFE - nil guarded
---- @cost O(1) | 1 luabind trivial (id) + table clear
---- @param npc game_object
-function xcombat.release_takeover(npc)
-    if not npc then return end
-    local id = npc:id()
-    _takeover_installed[id] = nil
-    _takeover_blocked[id] = nil
-end
-
---- Id-keyed sibling of release_takeover for callers holding no game_object (server-side unregister).
---- Calling this from the unregister handler keeps a recycled id from silently skipping its next re-graft.
---- @safety SAFE - nil guarded
---- @cost O(1) | 0 luabind (table clear)
---- @param id number NPC id
-function xcombat.release_takeover_id(id)
-    if not id then return end
-    _takeover_installed[id] = nil
-    _takeover_blocked[id] = nil
 end
 
 --- The combat planner's stored cover bookkeeping for a stalker: (in_cover, looked_out, position_held).
@@ -938,12 +784,13 @@ function xcombat.get_operator(npc)
             _set_variants(_operators, name, aid)
         end
         if xr_danger.actid and _operators[xr_danger.actid] == nil then _operators[xr_danger.actid] = "danger_s" end
-        _operators[TAKEOVER_ID] = "takeover"
+        _operators[xgraft.TAKEOVER_ID] = "takeover"
     end
     local mgr = npc:motivation_action_manager()
     if not (mgr and mgr:initialized()) then return "-" end
     local cur = mgr:current_action_id()
     if not cur then return "-" end
+    if _operators[cur] == nil then _register_scheme_operators() end
     return _operators[cur] or tostring(cur)
 end
 
@@ -1154,6 +1001,32 @@ function xcombat.has_friendly_lane(npc, npc_pos, ene_pos, lateral_thresh_m)
         if _is_member_lined(member_id, my_id, axis) then return true end
     end
     return false
+end
+
+--- True when a body sits inside the firing lane from origin to target: ahead of the origin, short of the target, within the lateral band.
+--- The single-body form of has_friendly_lane, in 3D so a bystander above or below the line clears; for callers naming the blocker per candidate.
+--- @safety SAFE - pure arithmetic on caller-supplied positions, no engine calls; a degenerate lane (target on the origin) blocks nothing
+--- @cost O(1) | 0 luabind (vector field reads only)
+--- @param origin_pos vector fire origin
+--- @param target_pos vector enemy position defining the lane
+--- @param body_pos vector candidate body position
+--- @param lateral_thresh_m number lateral half-width of the firing lane
+--- @return boolean true when the body blocks the lane
+function xcombat.has_body_in_lane(origin_pos, target_pos, body_pos, lateral_thresh_m)
+    local dx = target_pos.x - origin_pos.x
+    local dy = target_pos.y - origin_pos.y
+    local dz = target_pos.z - origin_pos.z
+    local dist = math_sqrt(dx*dx + dy*dy + dz*dz)
+    if dist < 0.1 then return false end
+    local mx = body_pos.x - origin_pos.x
+    local my = body_pos.y - origin_pos.y
+    local mz = body_pos.z - origin_pos.z
+    local along = (mx*dx + my*dy + mz*dz) / dist
+    if along <= 0 or along >= dist then return false end
+    local px = mx - along * (dx / dist)
+    local py = my - along * (dy / dist)
+    local pz = mz - along * (dz / dist)
+    return px*px + py*py + pz*pz < lateral_thresh_m * lateral_thresh_m
 end
 
 -- Squared NPC-to-actor distance TTL cache; 5s bounds the radius-compare error to +-70m at worst-case closure, acceptable for a perceivability gate.

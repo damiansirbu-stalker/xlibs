@@ -36,7 +36,7 @@ Shared utility library for STALKER Anomaly Lua modding. It is pure Lua and uses 
 xlibs
 |
 +- A-Life           xsquad  xsmart  xstash  xlevel  xdata
-+- Combat           xcombat
++- Combat           xcombat  xgraft
 +- Entity & Items   xcreature  xobject  xactor  xinventory
 +- Util             xtable  xttltable  xmath  xslice  xstring  xtime  xconst  xfs
 +- Diagnostics      xlog  xprofiler  xtrace  xinspect
@@ -149,7 +149,7 @@ xcombat.send_to(npc, xcombat.find_cover(npc, enemy_pos))
 if xcombat.fire_make_sense(npc, enemy) then ... end
 ```
 
-Combat-AI primitives for a script-driven NPC combat takeover, plus wrappers over the per-NPC combat-AI engine binds.
+Combat-AI primitives for script-driven NPC combat, plus wrappers over the per-NPC combat-AI engine binds. The GOAP takeover machinery lives in xgraft below.
 Registers no callbacks and holds no game state. Caches are transient (TTL, level-key) or session-stable exe probes.
 
 - `get_weapon_kind(npc)`, `get_weapon_range(kind)` - Active weapon kind (TTL-cached) and its engagement range band
@@ -159,13 +159,8 @@ Registers no callbacks and holds no game state. Caches are transient (TTL, level
   Visible now AND within radius metres (distance tested first, for close-range checks where full combat-sight range is wrong).
   Any-sense recency, and live-or-last-known position.
 - `show_enemy(npc, enemy, opts)` - Inject a known enemy into NPC memory and register in combat, relation-clean
-- `install_takeover(npc, spec)`, `release_takeover(npc)`, `release_takeover_id(id)` - Graft the GOAP gate evaluator + action per stalker. The consumer owns policy via spec { gate, on_begin }.
-  Single-consumer: a second differing spec asserts. release_takeover_id is the id-keyed release for server-side unregister.
-  The graft is planted on every stalker at spawn and stays dormant until the gate is raised.
-  Its evaluator and action share RESERVED GOAP id `188347` (moved off 188200, which collided with an external companion surge-shelter scheme on the shared action manager).
-  No other GOAP scheme on the stalker manager may reuse 188347.
 - `register_in_combat(npc)`, `unregister_in_combat(npc)` - Squad memory-sharing bookkeeping the blocked combat planner no longer performs
-- `get_blocked_planners()`, `get_operator(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Blocked planner-id list, current brain operator, body facing (unit vector), facing offset (degrees)
+- `get_operator(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Current brain operator by name (engine entries, generic schemes, the takeover), body facing (unit vector), facing offset (degrees)
 - `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held).
   These are engine beliefs (cover state the planner tracked), nil when there is no planner to ask.
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
@@ -208,6 +203,26 @@ Consumers call unconditionally, and the engine geometry switches on by itself wh
   Floor: the engine gate order from floor primitives (height gap, capped clearance ray, see-now, 10s unseen window with an automatic weapon).
   Constants track the ai_fire_* cvars when the exe has them.
 - `on_action_switch(fn)` - Register fn on the npc_on_combat_action_switch veto. Registers only when the seam exists and returns whether it did. Enhancement-only, no floor imitation possible
+
+### xgraft.script - The GOAP Graft
+
+```lua
+xgraft.register_takeover(npc, { gate = my_gate, on_begin = my_begin, on_release = my_release })
+xgraft.apply_takeover_block(npc)
+if xgraft.is_takeover_current(npc) then ... end
+```
+
+The GOAP takeover machinery: a gate evaluator plus one action grafted onto a stalker's motivation manager, precondition-blocking the vanilla combat chain while the consumer's gate is raised.
+Dormant at load; a consumer activates it per NPC and owns all policy through the spec.
+
+- `register_takeover(npc, spec)`, `release_takeover(npc)`, `release_takeover_id(id)` - Graft the gate evaluator + action per stalker. The consumer owns policy via spec { gate, on_begin, on_release }.
+  Single-consumer: a second differing spec asserts. release_takeover_id is the id-keyed release for server-side unregister.
+  The graft stays dormant until the gate is raised.
+  Its evaluator and action share RESERVED GOAP id `188347` (moved off 188200, which collided with an external companion surge-shelter scheme on the shared action manager).
+  No other GOAP scheme on the stalker manager may reuse 188347. Exported as `xgraft.TAKEOVER_ID`.
+- `apply_takeover_block(npc)` - Top up the gate precondition on every blocked-list action the NPC's manager has gained since the graft; idempotent, re-run per seize.
+- `get_blocked_planners()` - The enumerated GOAP action ids the takeover precondition-blocks (engine planners, the combat sub-schemes, the combat-moment schemes), built once.
+- `is_takeover_current(npc)` - True while the grafted action is the manager's current top-level action.
 
 ### xobject.script - Generic Object Lookup
 

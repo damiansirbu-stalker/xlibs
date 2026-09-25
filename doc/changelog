@@ -1,7 +1,16 @@
 1.9.0-snapshot
-  Summary: hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter, the xfs filesystem home, the xnet web companion, performance and infrastructure
+  Summary: the xgraft module, hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter, the xfs filesystem home, the xnet web companion, performance and infrastructure
+
+  xgraft
+    - Added xgraft: the GOAP graft moved out of xcombat into its own module - register_takeover, apply_takeover_block, is_takeover_current, release_takeover,
+      release_takeover_id, get_blocked_planners, and the reserved id TAKEOVER_ID. Function names and behavior unchanged; consumers rename xcombat.* to xgraft.*.
+      xcombat keeps the squad-mask primitives (register_in_combat, unregister_in_combat) and everything else.
 
   xcombat
+    - Added has_body_in_lane(origin_pos, target_pos, body_pos, lateral_thresh_m): the single-body firing-lane test in 3D, true only for a body ahead of the origin,
+      short of the target, and inside the lateral band. The per-candidate form of has_friendly_lane for callers that must name the blocker.
+    - get_operator now resolves the generic-scheme operator ids (rx_ff, fight_from_cover, kill_wounded, facer, and the rest of the module-id family) to names
+      instead of bare numbers, probing the scheme modules lazily on a miss.
     - Added on_get_min_combat_dist(fn) and on_get_max_combat_dist(fn): registrars for the engine's cover-band asks (npc_on_get_min_combat_dist / _max),
       fired on every cover re-search with the engine's own weapon-typed base in flags.ret_value for the handler to scale. Probe-gated, false on builds without the seam.
     - Added is_bleeding(obj): true while a combatant's bleed rate is above 0, the vanilla read convention, answering for the actor too.
