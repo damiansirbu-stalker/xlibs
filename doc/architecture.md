@@ -38,10 +38,10 @@ xlibs
 +- A-Life           xsquad  xsmart  xstash  xlevel  xdata
 +- Combat           xcombat
 +- Entity & Items   xcreature  xobject  xactor  xinventory
-+- Util             xtable  xttltable  xmath  xslice  xstring  xtime  xconst
++- Util             xtable  xttltable  xmath  xslice  xstring  xtime  xconst  xfs
 +- Diagnostics      xlog  xprofiler  xtrace  xinspect
 +- Effects          xpp  xsound
-+- Framework        xbus  xevent  xpda  xmcm  xchange
++- Framework        xbus  xevent  xpda  xmcm  xchange  xnet
 +- Package          xlibs  xlibs_mcm
 ```
 
@@ -620,6 +620,27 @@ end)
 - `game_sec()` - Game-seconds since epoch (cached start_time, invalidated on on_game_start)
 - `game_time()` - Engine CTime for the current in-game moment (nil when no level)
 - `hms()` - Current in-game hour and minute via CTime:get() (nil, nil when no level)
+
+### xfs.script - Filesystem
+
+The single sanctioned filesystem home. Consumers call xfs for file io, so the fs surface lives in one place.
+
+- `read_folders(mount, dir)` / `read_files(mount, dir, ext)` - Clean name lists over the engine VFS, root-only
+- `read_files_deep(mount, dir, ext)` - The recursive file list, subpath-qualified names
+- `read_file(path)` - Whole file as a string, nil when unreadable (libc io on a real path)
+- `write_file(path, text, append)` - Write or append, false on an open failure or a failed write
+- `remove_file(path)` - Delete through the engine FS (os.remove is absent in the game's Lua sandbox), true when the file is gone
+- `resolve_path(mount, rel)` - Mount-relative path to the full VFS path (wraps getFS():update_path)
+
+### xnet.script - Native HTTP Companion
+
+Launches the shipped xnet.exe (stdlib-only Go, built by CI from tool/xnet) over a LuaJIT FFI CreateProcess, because the script VM has no HTTP.
+The exe resolves to its real on-disk path past MO2's VFS. Auth always travels in a file, never on the command line. Blocking, 30s wait cap.
+
+- `is_ready()` - Whether FFI is available and the exe resolved
+- `run_request(opts)` - One HTTP(S) request the caller composes: url, method, header_file, body_file, out
+- `push_github(opts)` - Commit one file to a GitHub repo (Contents API): repo, path, file, token_file, branch, message
+- `set_config(cfg)` - Point at a different exe path
 
 ### xconst.script - Engine Sentinel Constants
 

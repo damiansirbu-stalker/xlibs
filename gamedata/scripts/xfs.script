@@ -82,7 +82,7 @@ end
 
 --- Write text to a file on disk (libc io on a real path). append=true adds to the end, else overwrites.
 --- The sanctioned filesystem home: consumers route here instead of raw io so the fs surface stays in one place.
---- @safety SAFE - false on an open failure, never raises.
+--- @safety SAFE - false on an open or write failure, never raises.
 --- @novalidate(security.fs_access, reason:"xfs is the single sanctioned filesystem home; consumers route here instead of raw io")
 --- @cost 1 libc open + O(bytes)
 --- @param path string The file path
@@ -92,8 +92,23 @@ end
 function write_file(path, text, append)
     local file = io.open(path, append and "a" or "w")
     if not file then return false end
-    file:write(text)
+    local written = file:write(text)
     file:close()
+    return written ~= nil and written ~= false
+end
+
+--- Delete a file on disk through the engine FS, because os.remove is absent in the game's Lua sandbox.
+--- The sanctioned filesystem home: consumers route here instead of a raw getFS() call so the fs surface stays in one place.
+--- @src xray/xrGame/fs_registrator_script.cpp(263) file_delete binding
+--- @safety SAFE - false when the file survives the delete, never raises.
+--- @novalidate(security.fs_access, reason:"xfs is the single sanctioned filesystem home; consumers route here instead of raw io")
+--- @cost 1 luabind (file_delete) + 1 libc open probe
+--- @param path string The file path
+--- @return boolean True when the file is gone
+function remove_file(path)
+    getFS():file_delete(path)
+    local file = io.open(path, "r")
+    if file then file:close(); return false end
     return true
 end
 
