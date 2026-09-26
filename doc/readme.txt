@@ -1,6 +1,5 @@
 Version: 1.9.0-snapshot
-Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
-Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
+Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog | Health: https://damiansirbu-stalker.github.io/xlibs/health/ | JitProfiler: https://damiansirbu-stalker.github.io/xlibs/jitprofiler/ | Bugs: https://github.com/damiansirbu-stalker/xlibs/issues | Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
 
 My work:
 GitHub: https://github.com/orgs/damiansirbu-stalker/repositories
@@ -10,7 +9,7 @@ Nexus: https://www.nexusmods.com/profile/damiansirbu/mods
 My contributions:
 X-Ray Monolith: https://github.com/themrdemonized/xray-monolith
 
-[ HERO IMAGE: xlibs-hero.gif — with vs without xlibs ]
+[ HERO IMAGE: xlibs-hero.gif - with vs without xlibs ]
 
 xlibs is a modder's toolbox for what Anomaly mods typically need.
 It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
@@ -68,13 +67,6 @@ Requirements:
 Anomaly 1.5.3
 Modded exes: themrdemonized 20250908 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build. A feature that needs a newer one stays inactive on older exes.
 
-Install (MO2):
-1. Install xlibs
-2. Load order does not matter (scripts are auto-loaded by the engine on demand)
-
-Uninstall (MO2):
-Disable or remove in MO2. Any mod depending on xlibs will stop working.
-
 Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
@@ -95,8 +87,7 @@ Every commit runs the full pipeline locally and in CI: luacheck, a Selene build 
 Rule layers then check crash safety, hotpath cost, engine correctness, complexity, architecture contracts, security, and the docs.
 It sits directly on X-Ray and depends on no mod. Every other mod depends on it.
 
-[Screenshot: xlibs under JitProfiler, a live CPU and allocation capture]
-Project Health: https://damiansirbu-stalker.github.io/xlibs/
+That pipeline runs on every commit and publishes what it finds. The header links a live health page and a JitProfiler capture of the mod's real CPU and allocation cost.
 
 Credits:
 Altogolik: support, ideas, source materials
