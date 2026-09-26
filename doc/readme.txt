@@ -13,7 +13,7 @@ Nexus: https://www.nexusmods.com/profile/damiansirbu/mods
 My contributions:
 X-Ray Monolith: https://github.com/themrdemonized/xray-monolith
 
-[ Hero image: xlibs-hero.gif - with vs without xlibs ]
+[ Hero image: xlibs-hero.gif - a mod runs with and without xlibs ]
 
 xlibs is a modder's toolbox for what Anomaly mods typically need.
 It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
@@ -75,7 +75,8 @@ Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
 Compatibility:
-Coexists with everything. A pure library with no gameplay of its own; only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
+Coexists with everything. A pure library with no gameplay of its own.
+Only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
 
 How It's Built:
 
@@ -94,7 +95,7 @@ It sits directly on X-Ray and depends on no mod. Every other mod depends on it.
 That pipeline runs on every commit and publishes what it finds. The header links a live health page and a JitProfiler capture of the mod's real CPU and allocation cost.
 
 Credits:
-Altogolik: support, ideas, source materials
+Altogolik provided support, ideas, and source materials.
 
 Usage and License:
   Calling xlibs functions from your mod: intended use, no restrictions.
