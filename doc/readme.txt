@@ -1,5 +1,9 @@
 Version: 1.9.0-snapshot
-Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog | Health: https://damiansirbu-stalker.github.io/xlibs/health/ | JitProfiler: https://damiansirbu-stalker.github.io/xlibs/jitprofiler/ | Bugs: https://github.com/damiansirbu-stalker/xlibs/issues | Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
+Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
+Health: https://damiansirbu-stalker.github.io/xlibs/health/
+JitProfiler: https://damiansirbu-stalker.github.io/xlibs/jitprofiler/
+Bugs: https://github.com/damiansirbu-stalker/xlibs/issues
+Russian / На русском: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt
 
 My work:
 GitHub: https://github.com/orgs/damiansirbu-stalker/repositories
@@ -9,7 +13,7 @@ Nexus: https://www.nexusmods.com/profile/damiansirbu/mods
 My contributions:
 X-Ray Monolith: https://github.com/themrdemonized/xray-monolith
 
-[ HERO IMAGE: xlibs-hero.gif - with vs without xlibs ]
+[ Hero image: xlibs-hero.gif - with vs without xlibs ]
 
 xlibs is a modder's toolbox for what Anomaly mods typically need.
 It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
@@ -82,7 +86,7 @@ The raycasting and range math are hand-written and tested live, and the engine s
 The combat primitives run on my own engine changes: per-NPC aim, vision, fire, and selection gates written into xray-monolith and merged into the demonized exes.
 It uses the engine and never reimplements it. A wrapper costs only the bridge call it wraps, and no code runs every frame.
 It is the family's one rulebook. Every rule, policy, and check the mods share is implemented once, here, the same protection, distances, faction logic, and combat reads for all of them.
-Profiled continuously with JitProfiler, an engine-native scientific tool. Manual tests run on unoptimized, single-threaded exes.
+Profiled continuously with JitProfiler, an engine-native profiler. Manual tests run on unoptimized, single-threaded exes.
 Every commit runs the full pipeline locally and in CI: luacheck, a Selene build compiled for STALKER with flags the public build lacks, and a load test that runs every script against engine stubs.
 Rule layers then check crash safety, hotpath cost, engine correctness, complexity, architecture contracts, security, and the docs.
 It sits directly on X-Ray and depends on no mod. Every other mod depends on it.
@@ -97,7 +101,7 @@ Usage and License:
   Modpacks: allowed and encouraged. Keep the readme and license files.
   Addons, patches, integrations: allowed. Credit "xlibs by Damian Sirbu" visibly on your mod page.
   Reproducing the implementation in other software: not allowed, even with credit.
-  Full license in LICENSE file and on GitHub.
+  The full license is in the LICENSE file and on GitHub.
 
 Diagnostics and reporting:
 Every release goes through careful engineering and testing, but bugs can still slip through.
