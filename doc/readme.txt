@@ -112,4 +112,4 @@ Send the traces on the Anomaly Discord, or file a defect on GitHub with the same
 Attach xray.log, the mod log, the engine build, the modlist, and the load order.
 For deep technical details and mechanisms, check the architecture docs on GitHub.
 
-Tags: engine-native, performance, save-safe, reverse-engineered, lua-library, systems-library, xray-bridge, modder-api, data-structures, design-patterns, best-practices, logging, profiling, tracing, event-bus
+Tags: engine-native, performance, save-safe, reverse-engineering, lua-library, systems-library, xray-bridge, modder-api, data-structures, design-patterns, best-practices, logging, profiling, tracing, event-bus
