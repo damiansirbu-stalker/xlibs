@@ -1,0 +1,46 @@
+direction: down
+
+style.fill: "#1f2421"
+
+**.style.fill: "#262c27"
+**.style.stroke: "#ece7d8"
+**.style.font-color: "#ece7d8"
+**.style.stroke-width: 2
+
+mod: "YOUR MOD" {
+  style: { fill: "#e8c46b"; stroke: "#e8c46b"; font-color: "#1f2421" }
+}
+
+sim: SIMBOARD
+cb: "combat binds"
+st: "smart_terrain"
+tm: "treasure_manager"
+ma: "mod A"
+mc: "mod C"
+mb: "mod B"
+os: "override sim_squad" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+px: "patch xr_danger" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+sss: "sim_squad_scripted"
+ar: "alife:release"
+
+mod -> sim: "luabind, no guard" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mod -> cb: "raw call" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mod -> cb: "dup call" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mod -> ma: "calls back" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+mod -> ma: "calls" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+mod -> mc: "calls" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+mod -> mc: "circular dep" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mod -> px: "monkey-patch" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mod -> mb: "depends on" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+mod -> ar: "double free" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mod -> sss: "raw call" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+ma -> tm: "full-file override" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+ma -> st: "raw call" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+cb -> st: "dup call" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+cb -> tm: "no guard" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mc -> os: "load-order clash" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mc -> tm: "dup" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+os -> px: "load-order" { style: { stroke: "#c9d8b6"; font-color: "#c9d8b6" } }
+px -> mb: "conflict" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+os -> sss: "stale id" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
+mb -> ar: "crash" { style: { stroke: "#e0777d"; font-color: "#e0777d" } }
