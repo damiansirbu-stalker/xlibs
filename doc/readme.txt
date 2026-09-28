@@ -18,7 +18,7 @@ X-Ray Monolith: https://github.com/themrdemonized/xray-monolith
 xlibs is a modder's toolbox for what Anomaly mods typically need.
 It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 
-The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in both the European and Russian STALKER modding traditions.
+The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in the European and Russian STALKER traditions.
 Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.
 
 Pure Lua where possible. No engine dependency unless necessary. No central loader. The engine auto-loads scripts on first access. Call xlog.get_logger() or xsquad.find_squads() and it works.
@@ -80,7 +80,7 @@ Only xlog is active at game start (save and level-change flush callbacks plus a 
 
 How It's Built:
 
-Although it started from work by Demonized, Alundaio, and Tronex, the current code and patterns are original, reverse-engineered from X-Ray and drawn from the best-known Lua and systems libraries.
+Although it started from work by Demonized, Alundaio, and Tronex, the current code and patterns are original, reverse-engineered from X-Ray and drawn from the best Lua and systems libraries.
 The design is strict inversion of control. Every module is state plus handlers, and the caller wires them at its composition root.
 It runs on proper data structures: a token-bucket rate limiter, a ring-buffer cache, a sliding-window counter, TTL maps, and a cooperative scheduler.
 The raycasting and range math are hand-written and tested live, and the engine sentinels come straight from the X-Ray C++ headers.
@@ -88,7 +88,7 @@ The combat primitives run on my own engine changes: per-NPC aim, vision, fire, a
 It uses the engine and never reimplements it. A wrapper costs only the bridge call it wraps, and no code runs every frame.
 It is the family's one rulebook. Every rule, policy, and check the mods share is implemented once, here, the same protection, distances, faction logic, and combat reads for all of them.
 Profiled continuously with JitProfiler, an engine-native profiler. Manual tests run on unoptimized, single-threaded exes.
-Every commit runs the full pipeline locally and in CI: luacheck, a Selene build compiled for STALKER with flags the public build lacks, and a load test that runs every script against engine stubs.
+Every commit runs the full pipeline locally and in CI: luacheck, a Selene build built for STALKER with flags the public build lacks, and a load test running every script against engine stubs.
 Rule layers then check crash safety, hotpath cost, engine correctness, complexity, architecture contracts, security, and the docs.
 It sits directly on X-Ray and depends on no mod. Every other mod depends on it.
 

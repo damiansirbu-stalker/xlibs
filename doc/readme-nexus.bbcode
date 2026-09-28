@@ -1,119 +1,114 @@
-Version: next
+Version: 1.9.0
+[url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog]Changelog[/url]
+[url=https://damiansirbu-stalker.github.io/xlibs/health/]Health[/url]
+[url=https://damiansirbu-stalker.github.io/xlibs/jitprofiler/]JitProfiler[/url]
+[url=https://github.com/damiansirbu-stalker/xlibs/issues]Bugs[/url]
+[url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt]Russian / На русском[/url]
 
-[url=https://github.com/damiansirbu-stalker/xlibs]GitHub[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog]Changelog[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt]На русском[/url] | [url=https://github.com/damiansirbu-stalker/xlibs/issues]Bugs, suggestions[/url]
+My work:
+[url=https://github.com/orgs/damiansirbu-stalker/repositories]GitHub[/url]
+[url=https://www.moddb.com/members/damian-sirbu/addons]ModDB[/url]
+[url=https://www.nexusmods.com/profile/damiansirbu/mods]Nexus[/url]
 
-xlibs is a modder's toolbox covering the full surface of what Anomaly mods typically need: entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
+My contributions:
+[url=https://github.com/themrdemonized/xray-monolith]X-Ray Monolith[/url]
 
-The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in both the European and Russian STALKER modding traditions. Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.
+
+xlibs is a modder's toolbox for what Anomaly mods typically need.
+It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
+
+The API design comes from reverse engineering the X-Ray engine and Anomaly internals, cross-referenced with patterns from the best modders in the European and Russian STALKER traditions.
+Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.
 
 Pure Lua where possible. No engine dependency unless necessary. No central loader. The engine auto-loads scripts on first access. Call xlog.get_logger() or xsquad.find_squads() and it works.
 
-[line]
+Features:
 
-[size=3][b]Features[/b][/size]
+A-Life:
+  xsquad       Squad search, scripted control, release, chase, iteration
+  xsmart       Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
+  xstash       Stash discovery, looting, filling, item filtering
+  xlevel       Level/map queries, game time, location names, vertex validation
+  xdata        Unscriptable NPC/squad tables (traders, mechanics, story characters)
 
-[size=2][b]A-Life[/b][/size]
-[list]
-[*][b]xsquad[/b]: Squad search, scripted control, release, chase, iteration
-[*][b]xsmart[/b]: Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
-[*][b]xstash[/b]: Stash discovery, looting, filling, item filtering
-[*][b]xlevel[/b]: Level/map queries, game time, location names, vertex validation
-[*][b]xdata[/b]: Unscriptable NPC/squad tables (traders, mechanics, story characters)
-[/list]
+Combat:
+  xcombat      Combat-AI primitives: GOAP takeover, per-NPC aim/vision/fire engine binds, cover and LOS reads
 
-[size=2][b]Combat[/b][/size]
-[list]
-[*][b]xcombat[/b]: Combat-AI primitives: GOAP takeover, per-NPC aim/vision/fire engine binds, cover and LOS reads
-[/list]
+Entity & Items:
+  xcreature    Creature identification, type checks, translated names, money primitives
+  xobject      Server object and online game object resolution from any input type
+  xactor       Actor info portions, talking/trading partner, state queries
+  xinventory   Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
 
-[size=2][b]Entity & Items[/b][/size]
-[list]
-[*][b]xcreature[/b]: Creature identification, type checks, translated names, money primitives
-[*][b]xobject[/b]: Server object and online game object resolution from any input type
-[*][b]xactor[/b]: Actor info portions, talking/trading partner, state queries
-[*][b]xinventory[/b]: Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
-[/list]
+Util:
+  xtable       Count, shuffle, sort, set merge and subtract
+  xttltable    TTL key-value store, sliding window counter, token bucket, FIFO cache
+  xmath        Random sampling and partial shuffle
+  xslice       Time-sliced array iteration across frames
+  xstring      String interpolation with {key} placeholders
+  xtime        Game-time seconds accumulator (wraps engine game_time())
+  xconst       X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
 
-[size=2][b]Util[/b][/size]
-[list]
-[*][b]xtable[/b]: Count, shuffle, sort, set merge and subtract
-[*][b]xttltable[/b]: TTL key-value store, sliding window counter, token bucket, FIFO cache
-[*][b]xmath[/b]: Random sampling and partial shuffle
-[*][b]xslice[/b]: Time-sliced array iteration across frames
-[*][b]xstring[/b]: String interpolation with {key} placeholders
-[*][b]xtime[/b]: Game-time seconds accumulator (wraps engine game_time())
-[*][b]xconst[/b]: X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
-[/list]
+Diagnostics:
+  xlog         Buffered file logging with session management and rotation
+  xprofiler    Microsecond code profiling via engine profile_timer
+  xtrace       Trace ID generation for request tracking across modules
+  xinspect     Deep table and userdata inspection, engine type identification
 
-[size=2][b]Diagnostics[/b][/size]
-[list]
-[*][b]xlog[/b]: Buffered file logging with session management and rotation
-[*][b]xprofiler[/b]: Microsecond code profiling via engine profile_timer
-[*][b]xtrace[/b]: Trace ID generation for request tracking across modules
-[*][b]xinspect[/b]: Deep table and userdata inspection, engine type identification
-[/list]
+Effects:
+  xpp          Post-process effector wrap (slot allocator, engine-smoothed factor, handle API, 35 verified-safe .ppe paths)
+  xsound       Sound wrap (single sounds, looping handles, volume lerp) plus the engine ambient-bed and level-music trace/veto seams (engine PR #644)
 
-[size=2][b]Effects[/b][/size]
-[list]
-[*][b]xpp[/b]: Post-process effector wrap (slot allocator, engine-smoothed factor, handle API, 35 verified-safe .ppe paths)
-[*][b]xsound[/b]: Looping sound wrap (handle API, Lua-side volume lerp, lazy actor_on_update tick)
-[/list]
+Framework:
+  xbus         Pub/sub event bus (direct delivery, errors stay visible)
+  xevent       Runtime function hooking for synthetic callbacks
+  xpda         PDA messages and map markers (squad and entity)
+  xmcm         MCM config bundle (pre-seeded table, getter, loader)
+  xchange      Liquibase-style save data migration registry, each changeset runs once per save
 
-[size=2][b]Framework[/b][/size]
-[list]
-[*][b]xbus[/b]: Pub/sub event bus (direct delivery, errors stay visible)
-[*][b]xevent[/b]: Runtime function hooking for synthetic callbacks
-[*][b]xpda[/b]: PDA messages and map markers (squad and entity)
-[*][b]xmcm[/b]: MCM config bundle (pre-seeded table, getter, loader)
-[*][b]xchange[/b]: Liquibase-style save data migration registry, each changeset runs once per save
-[/list]
+Requirements:
+Anomaly 1.5.3
+Modded exes: themrdemonized 20250908 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build. A feature that needs a newer one stays inactive on older exes.
 
-[line]
-
-[size=3][b]Requirements[/b][/size]
-[list]
-[*]Anomaly 1.5.3
-[/list]
-
-[size=3][b]Install (MO2)[/b][/size]
-[list=1]
-[*]Install xlibs
-[*]Load order does not matter (scripts are auto-loaded by the engine on demand)
-[/list]
-
-[size=3][b]Uninstall (MO2)[/b][/size]
-Disable or remove in MO2. Any mod depending on xlibs will stop working.
-
-[size=3][b]Configuration[/b][/size]
+Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
-[size=3][b]Performance[/b][/size]
-Performance comes first, ahead of any feature. A wrapper costs only the bridge call it wraps and adds no work of its own. When something cannot fit the budget it is reworked, replaced, or removed with an X-Ray engine modification rather than allowed to slow the game. The frame budget is fixed.
+Compatibility:
+Coexists with everything. A pure library with no gameplay of its own.
+Only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
 
-[size=3][b]Compatibility[/b][/size]
-Runs on themrdemonized modded exes 20250908 or newer, or AOEngine v0.55 or newer.
-Pure library. Does not modify any base scripts and adds no gameplay behavior of its own. xlog registers save/level-change flush callbacks and a periodic flush timer at game start. Everything else stays dormant until a mod calls it. Compatible with everything including GAMMA.
+How It's Built:
 
-[line]
+Although it started from work by Demonized, Alundaio, and Tronex, the current code and patterns are original, reverse-engineered from X-Ray and drawn from the best Lua and systems libraries.
+The design is strict inversion of control. Every module is state plus handlers, and the caller wires them at its composition root.
+It runs on proper data structures: a token-bucket rate limiter, a ring-buffer cache, a sliding-window counter, TTL maps, and a cooperative scheduler.
+The raycasting and range math are hand-written and tested live, and the engine sentinels come straight from the X-Ray C++ headers.
+The combat primitives run on my own engine changes: per-NPC aim, vision, fire, and selection gates written into xray-monolith and merged into the demonized exes.
+It uses the engine and never reimplements it. A wrapper costs only the bridge call it wraps, and no code runs every frame.
+It is the family's one rulebook. Every rule, policy, and check the mods share is implemented once, here, the same protection, distances, faction logic, and combat reads for all of them.
+Profiled continuously with JitProfiler, an engine-native profiler. Manual tests run on unoptimized, single-threaded exes.
+Every commit runs the full pipeline locally and in CI: luacheck, a Selene build built for STALKER with flags the public build lacks, and a load test running every script against engine stubs.
+Rule layers then check crash safety, hotpath cost, engine correctness, complexity, architecture contracts, security, and the docs.
+It sits directly on X-Ray and depends on no mod. Every other mod depends on it.
 
-[size=3][b]Development[/b][/size]
-Written against X-Ray Monolith engine source, Demonized exes source code, and Anomaly 1.5.3 unpacked gamedata.
-Code patterns and engine usage validated against established work by reputable GAMMA modders (Demonized, Vintar0, RavenAscendant, xcvb).
-The code is validated in real time by a multi-stage pipeline: luacheck, selene, tree-sitter AST analysis, contract rules, cross-file dependency resolution, cyclomatic complexity analysis, crash and vulnerability pattern detection, lua54 integration testing with X-Ray engine stubs, gitleaks secret scanning.
-Performance is measured on the engine built from the latest source with no multithreading and no optimizations, so the timings are worst-case. The optimized multithreaded build you run is always faster.
-Full report in doc/test-report.log.
+That pipeline runs on every commit and publishes what it finds. The header links a live health page and a JitProfiler capture of the mod's real CPU and allocation cost.
 
-[size=3][b]FAQ[/b][/size]
+Credits:
+Altogolik provided support, ideas, and source materials.
 
-[b]Do I need modded exes?[/b]
-Yes. xlibs needs themrdemonized modded exes (20250908 or newer) or AOEngine (v0.55 or newer). Vanilla Anomaly does not expose the APIs it relies on.
+Usage and License:
+  Calling xlibs functions from your mod: intended use, no restrictions.
+  Modpacks: allowed and encouraged. Keep the readme and license files.
+  Addons, patches, integrations: allowed. Credit "xlibs by Damian Sirbu" visibly on your mod page.
+  Reproducing the implementation in other software: not allowed, even with credit.
+  The full license is in the LICENSE file and on GitHub.
 
-[size=3][b]Credits[/b][/size]
-Altogolik: support, ideas, source materials
+Diagnostics and reporting:
+Every release goes through careful engineering and testing, but bugs can still slip through.
+To report one, reproduce with debug logging on, and the world log where the mod has one.
+First rule this mod out: reproduce with it off, then on. The cleanest test is this mod alone on vanilla and xlibs.
+Send the traces on the Anomaly Discord, or file a defect on GitHub with the same information.
+Attach xray.log, the mod log, the engine build, the modlist, and the load order.
+For deep technical details and mechanisms, check the architecture docs on GitHub.
 
-[line]
-
-[size=3][b]Reporting issues and suggestions[/b][/size]
-Open a report at https://github.com/damiansirbu-stalker/xlibs/issues/new/choose, or ask on the GAMMA, EFP, Anomaly, and Zona Discord servers. Read this readme first.
-
-Include: exact repro steps (new game or named save, expected vs actual), engine build, modlist, load order, and xray.log. With hundreds of mods loaded, only the log shows whether this one was involved.
+Tags: engine-native, performance, save-safe, reverse-engineering, lua-library, systems-library, xray-bridge, modder-api, data-structures, design-patterns, best-practices, logging, profiling, tracing, event-bus

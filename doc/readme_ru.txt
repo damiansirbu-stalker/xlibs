@@ -1,4 +1,4 @@
-Версия: 1.9.0-snapshot
+Версия: 1.9.1-snapshot
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Health: https://damiansirbu-stalker.github.io/xlibs/health/
 JitProfiler: https://damiansirbu-stalker.github.io/xlibs/jitprofiler/
@@ -112,4 +112,4 @@ Altogolik помог поддержкой, идеями и исходными м
   Приложите xray.log, лог мода, сборку движка, модлист и порядок загрузки.
   Для глубоких технических деталей и механизмов смотрите документацию по архитектуре на GitHub.
 
-Tags: engine-native, performance, save-safe, reverse-engineered, lua-library, systems-library, xray-bridge, modder-api, data-structures, design-patterns, best-practices, logging, profiling, tracing, event-bus
+Tags: engine-native, performance, save-safe, reverse-engineering, lua-library, systems-library, xray-bridge, modder-api, data-structures, design-patterns, best-practices, logging, profiling, tracing, event-bus
