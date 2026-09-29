@@ -1,4 +1,8 @@
 1.9.1-snapshot
+  Summary: xnet antivirus
+
+  xnet
+    - Changed the companion to a C++/WinHTTP build, so antivirus engines no longer flag the exe.
 
 1.9.0
   Summary: the xgraft module, hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter, the xfs filesystem home, the xnet web companion, performance and infrastructure
