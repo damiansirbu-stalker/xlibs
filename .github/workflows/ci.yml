@@ -336,10 +336,10 @@ jobs:
           printf '\nVirusTotal report: https://www.virustotal.com/gui/file/%s\n' "$sha" >> "$notes"
           id=$(curl -s -X POST https://www.virustotal.com/api/v3/files -H "x-apikey: $VT_API_KEY" -F "file=@$exe" | jq -r '.data.id // empty')
           if [ -n "$id" ]; then
-            for _ in $(seq 1 12); do
+            for _ in $(seq 1 15); do
               resp=$(curl -s "https://www.virustotal.com/api/v3/analyses/$id" -H "x-apikey: $VT_API_KEY")
               [ "$(echo "$resp" | jq -r '.data.attributes.status // empty')" = "completed" ] && break
-              sleep 10
+              sleep 20
             done
             mal=$(echo "$resp" | jq -r '.data.attributes.stats.malicious // "?"')
             total=$(echo "$resp" | jq -r '(.data.attributes.stats // {}) | [.[]] | add // "?"')
