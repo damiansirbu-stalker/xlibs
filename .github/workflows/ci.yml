@@ -226,15 +226,13 @@ jobs:
             echo "    repo: \"$ws/xlibs\""
           } > pipeline/stalker-manager/dev.yaml
 
-      - name: Set up Go (xnet build)
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: xlibs/tool/xnet/go.mod
-
-      - name: Build xnet.exe
-        shell: bash
+      - name: Build xnet.exe (MSVC via vswhere)
+        shell: cmd
         working-directory: xlibs
-        run: go build -o gamedata/scripts/xnet.exe ./tool/xnet
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
+          cl /O2 /MT /Fe:gamedata\scripts\xnet.exe tool\xnet\xnet.cpp winhttp.lib
 
       - name: Build snapshot zip
         shell: bash
@@ -314,15 +312,13 @@ jobs:
           git tag "$v"
           git push origin "$v"
 
-      - name: Set up Go (xnet build)
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: xlibs/tool/xnet/go.mod
-
-      - name: Build xnet.exe
-        shell: bash
+      - name: Build xnet.exe (MSVC via vswhere)
+        shell: cmd
         working-directory: xlibs
-        run: go build -o gamedata/scripts/xnet.exe ./tool/xnet
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
+          cl /O2 /MT /Fe:gamedata\scripts\xnet.exe tool\xnet\xnet.cpp winhttp.lib
 
       - name: Build stamped release zip
         shell: bash

@@ -649,7 +649,7 @@ The single sanctioned filesystem home. Consumers call xfs for file io, so the fs
 
 ### xnet.script - Native HTTP Companion
 
-Launches the shipped xnet.exe (stdlib-only Go, built by CI from tool/xnet) over a LuaJIT FFI CreateProcess, because the script VM has no HTTP.
+Launches the shipped xnet.exe (C++/WinHTTP, built by CI from tool/xnet) over a LuaJIT FFI CreateProcess, because the script VM has no HTTP.
 The exe resolves to its real on-disk path past MO2's VFS. Auth always travels in a file, never on the command line. Blocking, 30s wait cap.
 
 - `is_ready()` - Whether FFI is available and the exe resolved
