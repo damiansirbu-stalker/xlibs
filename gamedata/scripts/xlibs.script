@@ -1,11 +1,11 @@
 --- xlibs: Package metadata
 local tonumber, assert, type = tonumber, assert, type
-local _VERSION = "1.9.2-snapshot"
+local _VERSION = "1.9.3-snapshot"
 
 --- Get the xlibs package version string (the module-local _VERSION literal set at file load).
 --- @safety SAFE - returns a constant string literal
 --- @cost O(1) | 0 luabind (return local)
---- @return string Version string (e.g. "1.9.0" at a tag, or "1.9.2-snapshot" between releases)
+--- @return string Version string (e.g. "1.9.0" at a tag, or "1.9.3-snapshot" between releases)
 function get_version()
     return _VERSION
 end
