@@ -1,19 +1,11 @@
-Version: 1.9.0
-[url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog]Changelog[/url]
-[url=https://damiansirbu-stalker.github.io/xlibs/health/]Health[/url]
-[url=https://damiansirbu-stalker.github.io/xlibs/jitprofiler/]JitProfiler[/url]
-[url=https://github.com/damiansirbu-stalker/xlibs/issues]Bugs[/url]
-[url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt]Russian / На русском[/url]
-
-My work:
-[url=https://github.com/orgs/damiansirbu-stalker/repositories]GitHub[/url]
-[url=https://www.moddb.com/members/damian-sirbu/addons]ModDB[/url]
-[url=https://www.nexusmods.com/profile/damiansirbu/mods]Nexus[/url]
-
-My contributions:
-[url=https://github.com/themrdemonized/xray-monolith]X-Ray Monolith[/url]
-
-
+[line]
+[center]
+[size=5][b]Version 1.9.0[/b][/size]
+[size=4][b][url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog]Changelog[/url] · [url=https://damiansirbu-stalker.github.io/xlibs/health/]Health[/url] · [url=https://damiansirbu-stalker.github.io/xlibs/jitprofiler/]JitProfiler[/url] · [url=https://github.com/damiansirbu-stalker/xlibs/issues]Bugs[/url] · [url=https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/readme_ru.txt]Russian / На русском[/url][/b][/size]
+[b]My work:[/b]  [url=https://github.com/orgs/damiansirbu-stalker/repositories]GitHub[/url] · [url=https://www.moddb.com/members/damian-sirbu/addons]ModDB[/url] · [url=https://www.nexusmods.com/profile/damiansirbu/mods]Nexus[/url]
+[b]My contributions:[/b]  [url=https://github.com/themrdemonized/xray-monolith]X-Ray Monolith[/url]
+[/center]
+[line]
 xlibs is a modder's toolbox for what Anomaly mods typically need.
 It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
 
@@ -21,63 +13,63 @@ The API design comes from reverse engineering the X-Ray engine and Anomaly inter
 Every function wraps engine quirks, guards against nil, and handles edge cases that would otherwise require each mod to solve independently.
 
 Pure Lua where possible. No engine dependency unless necessary. No central loader. The engine auto-loads scripts on first access. Call xlog.get_logger() or xsquad.find_squads() and it works.
+[line]
+[size=4][b]Features[/b][/size]
 
-Features:
+[b]A-Life[/b]
+  [b]xsquad[/b] Squad search, scripted control, release, chase, iteration
+  [b]xsmart[/b] Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
+  [b]xstash[/b] Stash discovery, looting, filling, item filtering
+  [b]xlevel[/b] Level/map queries, game time, location names, vertex validation
+  [b]xdata[/b] Unscriptable NPC/squad tables (traders, mechanics, story characters)
 
-A-Life:
-  xsquad       Squad search, scripted control, release, chase, iteration
-  xsmart       Smart terrain queries, faction detection, capacity, arrival, conquest, job allocation
-  xstash       Stash discovery, looting, filling, item filtering
-  xlevel       Level/map queries, game time, location names, vertex validation
-  xdata        Unscriptable NPC/squad tables (traders, mechanics, story characters)
+[b]Combat[/b]
+  [b]xcombat[/b] Combat-AI primitives: GOAP takeover, per-NPC aim/vision/fire engine binds, cover and LOS reads
 
-Combat:
-  xcombat      Combat-AI primitives: GOAP takeover, per-NPC aim/vision/fire engine binds, cover and LOS reads
+[b]Entity & Items[/b]
+  [b]xcreature[/b] Creature identification, type checks, translated names, money primitives
+  [b]xobject[/b] Server object and online game object resolution from any input type
+  [b]xactor[/b] Actor info portions, talking/trading partner, state queries
+  [b]xinventory[/b] Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
 
-Entity & Items:
-  xcreature    Creature identification, type checks, translated names, money primitives
-  xobject      Server object and online game object resolution from any input type
-  xactor       Actor info portions, talking/trading partner, state queries
-  xinventory   Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
+[b]Util[/b]
+  [b]xtable[/b] Count, shuffle, sort, set merge and subtract
+  [b]xttltable[/b] TTL key-value store, sliding window counter, token bucket, FIFO cache
+  [b]xmath[/b] Random sampling and partial shuffle
+  [b]xslice[/b] Time-sliced array iteration across frames
+  [b]xstring[/b] String interpolation with {key} placeholders
+  [b]xtime[/b] Game-time seconds accumulator (wraps engine game_time())
+  [b]xconst[/b] X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
 
-Util:
-  xtable       Count, shuffle, sort, set merge and subtract
-  xttltable    TTL key-value store, sliding window counter, token bucket, FIFO cache
-  xmath        Random sampling and partial shuffle
-  xslice       Time-sliced array iteration across frames
-  xstring      String interpolation with {key} placeholders
-  xtime        Game-time seconds accumulator (wraps engine game_time())
-  xconst       X-Ray engine sentinel constants (invalid entity ID, invalid level vertex ID)
+[b]Diagnostics[/b]
+  [b]xlog[/b] Buffered file logging with session management and rotation
+  [b]xprofiler[/b] Microsecond code profiling via engine profile_timer
+  [b]xtrace[/b] Trace ID generation for request tracking across modules
+  [b]xinspect[/b] Deep table and userdata inspection, engine type identification
 
-Diagnostics:
-  xlog         Buffered file logging with session management and rotation
-  xprofiler    Microsecond code profiling via engine profile_timer
-  xtrace       Trace ID generation for request tracking across modules
-  xinspect     Deep table and userdata inspection, engine type identification
+[b]Effects[/b]
+  [b]xpp[/b] Post-process effector wrap (slot allocator, engine-smoothed factor, handle API, 35 verified-safe .ppe paths)
+  [b]xsound[/b] Sound wrap (single sounds, looping handles, volume lerp) plus the engine ambient-bed and level-music trace/veto seams (engine PR #644)
 
-Effects:
-  xpp          Post-process effector wrap (slot allocator, engine-smoothed factor, handle API, 35 verified-safe .ppe paths)
-  xsound       Sound wrap (single sounds, looping handles, volume lerp) plus the engine ambient-bed and level-music trace/veto seams (engine PR #644)
-
-Framework:
-  xbus         Pub/sub event bus (direct delivery, errors stay visible)
-  xevent       Runtime function hooking for synthetic callbacks
-  xpda         PDA messages and map markers (squad and entity)
-  xmcm         MCM config bundle (pre-seeded table, getter, loader)
-  xchange      Liquibase-style save data migration registry, each changeset runs once per save
-
-Requirements:
+[b]Framework[/b]
+  [b]xbus[/b] Pub/sub event bus (direct delivery, errors stay visible)
+  [b]xevent[/b] Runtime function hooking for synthetic callbacks
+  [b]xpda[/b] PDA messages and map markers (squad and entity)
+  [b]xmcm[/b] MCM config bundle (pre-seeded table, getter, loader)
+  [b]xchange[/b] Liquibase-style save data migration registry, each changeset runs once per save
+[line]
+[size=4][b]Requirements[/b][/size]
 Anomaly 1.5.3
 Modded exes: themrdemonized 20250908 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build. A feature that needs a newer one stays inactive on older exes.
 
-Configuration:
+[size=4][b]Configuration[/b][/size]
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
 
-Compatibility:
+[size=4][b]Compatibility[/b][/size]
 Coexists with everything. A pure library with no gameplay of its own.
 Only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
-
-How It's Built:
+[line]
+[b]How It's Built[/b]
 
 Although it started from work by Demonized, Alundaio, and Tronex, the current code and patterns are original, reverse-engineered from X-Ray and drawn from the best Lua and systems libraries.
 The design is strict inversion of control. Every module is state plus handlers, and the caller wires them at its composition root.
@@ -92,18 +84,18 @@ Rule layers then check crash safety, hotpath cost, engine correctness, complexit
 It sits directly on X-Ray and depends on no mod. Every other mod depends on it.
 
 That pipeline runs on every commit and publishes what it finds. The header links a live health page and a JitProfiler capture of the mod's real CPU and allocation cost.
-
-Credits:
+[line]
+[size=4][b]Credits[/b][/size]
 Altogolik provided support, ideas, and source materials.
 
-Usage and License:
+[size=4][b]Usage and License[/b][/size]
   Calling xlibs functions from your mod: intended use, no restrictions.
   Modpacks: allowed and encouraged. Keep the readme and license files.
   Addons, patches, integrations: allowed. Credit "xlibs by Damian Sirbu" visibly on your mod page.
   Reproducing the implementation in other software: not allowed, even with credit.
   The full license is in the LICENSE file and on GitHub.
 
-Diagnostics and reporting:
+[size=4][b]Diagnostics and reporting[/b][/size]
 Every release goes through careful engineering and testing, but bugs can still slip through.
 To report one, reproduce with debug logging on, and the world log where the mod has one.
 First rule this mod out: reproduce with it off, then on. The cleanest test is this mod alone on vanilla and xlibs.
