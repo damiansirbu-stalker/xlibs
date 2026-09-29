@@ -1,4 +1,8 @@
 1.9.2-snapshot
+  Summary: xnet antivirus
+
+  xnet
+    - Reduced antivirus false positives on the companion by embedding version metadata in the exe.
 
 1.9.1
   Summary: xnet antivirus

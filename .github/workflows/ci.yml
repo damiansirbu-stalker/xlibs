@@ -232,7 +232,8 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
           call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
-          cl /O2 /MT /Fe:gamedata\scripts\xnet.exe tool\xnet\xnet.cpp winhttp.lib
+          rc /nologo /fo tool\xnet\xnet.res tool\xnet\xnet.rc
+          cl /O2 /MT /Fe:gamedata\scripts\xnet.exe tool\xnet\xnet.cpp tool\xnet\xnet.res winhttp.lib
 
       - name: Build snapshot zip
         shell: bash
@@ -318,7 +319,8 @@ jobs:
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
           call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
-          cl /O2 /MT /Fe:gamedata\scripts\xnet.exe tool\xnet\xnet.cpp winhttp.lib
+          rc /nologo /fo tool\xnet\xnet.res tool\xnet\xnet.rc
+          cl /O2 /MT /Fe:gamedata\scripts\xnet.exe tool\xnet\xnet.cpp tool\xnet\xnet.res winhttp.lib
 
       - name: Build stamped release zip
         shell: bash

@@ -1,0 +1,33 @@
+// Version resource for xnet.exe. An unsigned binary with no version metadata scores high on the
+// antivirus ML heuristics (Trojan:Win32/Wacatac!ml and similar); a populated VERSIONINFO block lowers
+// that score. Compiled by rc and linked into the exe in the release job. See doc/standards/stalker-exe.md.
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "damiansirbu-stalker"
+            VALUE "FileDescription", "xlibs HTTP companion for STALKER Anomaly"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "xnet"
+            VALUE "LegalCopyright", "damiansirbu-stalker"
+            VALUE "OriginalFilename", "xnet.exe"
+            VALUE "ProductName", "xlibs xnet"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
