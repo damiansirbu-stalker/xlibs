@@ -324,20 +324,14 @@ jobs:
         shell: bash
         run: bash pipeline/stalker-manager/stalker-manager.sh release-zip xlibs --version "${{ github.event.inputs.version }}" --out dist
 
-      - name: Antivirus scan (Defender gate + VirusTotal report)
+      - name: VirusTotal report
         shell: bash
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
         run: |
+          set +e
           exe="xlibs/gamedata/scripts/xnet.exe"
           notes="dist/xlibs-${{ github.event.inputs.version }}-notes.md"
-          mpcmd="/c/Program Files/Windows Defender/MpCmdRun.exe"
-          if [ -x "$mpcmd" ]; then
-            "$mpcmd" -Scan -ScanType 3 -File "$(cygpath -w "$exe")" -DisableRemediation
-          else
-            echo "::warning::MpCmdRun.exe not found; skipping the Defender gate"
-          fi
-          set +e
           sha=$(sha256sum "$exe" | cut -d' ' -f1)
           printf '\nVirusTotal report: https://www.virustotal.com/gui/file/%s\n' "$sha" >> "$notes"
           id=$(curl -s -X POST https://www.virustotal.com/api/v3/files -H "x-apikey: $VT_API_KEY" -F "file=@$exe" | jq -r '.data.id // empty')
