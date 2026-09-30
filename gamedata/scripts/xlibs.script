@@ -1,6 +1,6 @@
 --- xlibs: Package metadata
 local tonumber, assert, type = tonumber, assert, type
-local _VERSION = "1.9.4-snapshot"
+local _VERSION = "1.9.1-snapshot"
 
 --- Get the xlibs package version string (the module-local _VERSION literal set at file load).
 --- @safety SAFE - returns a constant string literal

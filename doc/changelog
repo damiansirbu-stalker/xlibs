@@ -1,25 +1,7 @@
-1.9.4-snapshot
-
-1.9.3
-  Summary: xnet removed
-
-  xnet
-    - Removed xnet, the HTTP companion, and its native exe. xlibs no longer runs any network code.
-
-1.9.2
-  Summary: xnet antivirus
-
-  xnet
-    - Reduced antivirus false positives on the companion by embedding version metadata in the exe.
-
-1.9.1
-  Summary: xnet antivirus
-
-  xnet
-    - Changed the companion to a C++/WinHTTP build, so antivirus engines no longer flag the exe.
+1.9.1-snapshot
 
 1.9.0
-  Summary: the xgraft module, hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter, the xfs filesystem home, the xnet web companion, performance and infrastructure
+  Summary: the xgraft module, hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter, the xfs filesystem home, performance and infrastructure
 
   xgraft
     - Added xgraft: the GOAP graft moved out of xcombat into its own module - register_takeover, apply_takeover_block, is_takeover_current, release_takeover,
@@ -80,11 +62,6 @@
       Consumers route file io through xfs instead of raw io calls, so the fs surface lives in one place.
     - Added remove_file(path): deletes through the engine FS, because os.remove is absent in the game's Lua sandbox.
     - write_file now returns false when the write itself fails, not only when the open fails, so a full disk reads as a failure.
-
-  xnet
-    - Added xnet: the native HTTP companion, a stdlib-only Go exe launched over a LuaJIT FFI CreateProcess, because the script VM has no HTTP.
-      run_request carries one composed HTTP(S) call, push_github commits one file to a GitHub repo. Auth travels in a file, never on the
-      command line, and the exe resolves to its real on-disk path past MO2's VFS. Inert without FFI or the exe.
 
   Performance and Infrastructure
     - Rebuilt the validator into layered rules for crashes, unsafe engine usage, performance, best practices, smoke load, and secret leaks.
