@@ -226,15 +226,6 @@ jobs:
             echo "    repo: \"$ws/xlibs\""
           } > pipeline/stalker-manager/dev.yaml
 
-      - name: Build xnet.exe (MSVC via vswhere)
-        shell: cmd
-        working-directory: xlibs
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
-          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
-          rc /nologo /fo tool\xnet\xnet.res tool\xnet\xnet.rc
-          cl /O2 /MT /Fe:gamedata\scripts\xnet.exe tool\xnet\xnet.cpp tool\xnet\xnet.res winhttp.lib
-
       - name: Build snapshot zip
         shell: bash
         run: bash pipeline/stalker-manager/stalker-manager.sh release-zip xlibs --snapshot --out dist
@@ -313,40 +304,9 @@ jobs:
           git tag "$v"
           git push origin "$v"
 
-      - name: Build xnet.exe (MSVC via vswhere)
-        shell: cmd
-        working-directory: xlibs
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
-          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
-          rc /nologo /fo tool\xnet\xnet.res tool\xnet\xnet.rc
-          cl /O2 /MT /Fe:gamedata\scripts\xnet.exe tool\xnet\xnet.cpp tool\xnet\xnet.res winhttp.lib
-
       - name: Build stamped release zip
         shell: bash
         run: bash pipeline/stalker-manager/stalker-manager.sh release-zip xlibs --version "${{ github.event.inputs.version }}" --out dist
-
-      - name: VirusTotal report
-        shell: bash
-        env:
-          VT_API_KEY: ${{ secrets.VT_API_KEY }}
-        run: |
-          set +e
-          exe="xlibs/gamedata/scripts/xnet.exe"
-          notes="dist/xlibs-${{ github.event.inputs.version }}-notes.md"
-          sha=$(sha256sum "$exe" | cut -d' ' -f1)
-          printf '\nVirusTotal report: https://www.virustotal.com/gui/file/%s\n' "$sha" >> "$notes"
-          id=$(curl -s -X POST https://www.virustotal.com/api/v3/files -H "x-apikey: $VT_API_KEY" -F "file=@$exe" | jq -r '.data.id // empty')
-          if [ -n "$id" ]; then
-            for _ in $(seq 1 15); do
-              resp=$(curl -s "https://www.virustotal.com/api/v3/analyses/$id" -H "x-apikey: $VT_API_KEY")
-              [ "$(echo "$resp" | jq -r '.data.attributes.status // empty')" = "completed" ] && break
-              sleep 20
-            done
-            mal=$(echo "$resp" | jq -r '.data.attributes.stats.malicious // "?"')
-            total=$(echo "$resp" | jq -r '(.data.attributes.stats // {}) | [.[]] | add // "?"')
-            printf 'VirusTotal detections: %s / %s engines\n' "$mal" "$total" >> "$notes"
-          fi
 
       # Sigstore provenance: verifiable "this zip was built from this commit by this workflow"
       # (gh attestation verify). GA, becoming default for public repos.

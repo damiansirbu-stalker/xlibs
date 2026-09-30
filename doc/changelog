@@ -1,4 +1,8 @@
 1.9.3-snapshot
+  Summary: xnet removed
+
+  xnet
+    - Removed xnet, the HTTP companion, and its native exe. xlibs no longer runs any network code.
 
 1.9.2
   Summary: xnet antivirus
