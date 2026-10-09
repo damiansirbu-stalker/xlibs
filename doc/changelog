@@ -1,7 +1,9 @@
 1.9.1-snapshot
 
 1.9.0
-  Summary: the xgraft module, hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard, relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter, the xfs filesystem home, performance and infrastructure
+  Summary: the xgraft module, hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard,
+           relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter,
+           the xfs filesystem home, performance and infrastructure
 
   xgraft
     - Added xgraft: the GOAP graft moved out of xcombat into its own module - register_takeover, apply_takeover_block, is_takeover_current, release_takeover,
@@ -49,7 +51,8 @@
 
   xsquad
     - Added is_last_man(npc_id): squadless or sole surviving member, the rout eligibility read.
-    - Added squad_record(squad): the one-line per-squad diagnostic formatter (community, level, member count, current smart, target, commander role and name), now shared by dump_squads so both carry the commander name.
+    - Added squad_record(squad): the one-line per-squad diagnostic formatter (community, level, member count, current smart, target, commander role and name),
+      now shared by dump_squads so both carry the commander name.
 
   xsound
     - Added register_ambient_listener(seam, fn) / unregister_ambient_listener(seam, fn) and the xsound.SEAM table: the engine ambient sound seams (engine PR #644 and #661, pending merge).
@@ -70,7 +73,8 @@
     - Unified the module layout and naming across the library.
 
 1.8.5
-  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework, health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover id, creature particle attach
+  Summary: inventory walk cap, task-target objective coverage, tiered squad pool getter, spawn-section arrays, job unlink fix, ranged visibility check, directional cover read, cover finder rework,
+           health read, health write, facing read, standing-cover read, eye-height ray, offline campfire set, spawn-section existence guard, takeover id, creature particle attach
 
   xcombat
     - Added sees_within(npc, obj, radius): true when obj is within radius metres of npc and npc sees it now.
@@ -78,7 +82,8 @@
     - Added get_crouch_openness(lvid, dir): baked cover-graph openness at crouch height toward a direction (0 walled, 1 open), the cheap posture read.
       Routes the engine's directional-cover read through xcombat so a consumer makes no raw level combat call. Static geometry only, blind to bodies.
     - Changed find_cover into a four-way finder: find_cover(npc, enemy_pos, opts) with opts.selection ("nearest"|"best"), opts.firing (true shoots from cover, false hides in it), opts.radius, opts.search_pos.
-      Nearest walks the baked cover points closest-first with floor and toward-enemy guards. Best keeps the engine's best_cover. Absorbs the concealment finder. Signature change from find_cover(npc, enemy_pos, search_pos).
+      Nearest walks the baked cover points closest-first with floor and toward-enemy guards. Best keeps the engine's best_cover. Absorbs the concealment finder.
+      Signature change from find_cover(npc, enemy_pos, search_pos).
     - Removed find_shot: the dead firing-sidestep finder had no callers. Its shot sweep stays inside find_cover.
     - Added get_health_frac(npc): NPC health as a 0..1 fraction, the maneuver need's hurt input read through xcombat.
     - Added add_health_frac(npc, delta): a signed, clamped delta to an NPC's 0..1 health, the write counterpart of get_health_frac,
@@ -86,9 +91,13 @@
     - Added get_facing(npc): body facing as a unit direction vector, the heading read routed through xcombat. get_facing_offset composes on it, so the module has a single npc:direction() call site.
     - Added get_stand_openness(lvid, dir): baked cover-graph openness at standing height, the standing version of get_crouch_openness. find_cover's hide test now reads both bands through the wrappers.
     - Added is_line_blocked(a, b, opts) and the BODY_Y height enum (crouch-eye/lane/chest/stand-eye, measured in game): the one object-aware clearance ray, height as data.
-      has_obstacle_to_target now takes the shooter's eye height, so a shot ray casts from the shooter's eye height where the engine fires from. has_obstacle_between and _to_target are thin wrappers over is_line_blocked.
-    - Changed set_aim_params to assert when a passed min_angle or max_angle exceeds PI radians. Past PI the engine's tracking band collapses to always-on and silently does nothing, so a garbage config now crashes loud. The -1 global-cvar sentinel and any valid angle are unaffected.
-    - Changed xcombat.TAKEOVER_ID, the takeover's reserved GOAP id, from 188200 to 188347, because 188200 collided with an external companion mod's surge-shelter scheme on the shared action manager and blocked it. A consumer that declares the id to state_mgr must read TAKEOVER_ID, never the literal.
+      has_obstacle_to_target now takes the shooter's eye height, so a shot ray casts from the shooter's eye height where the engine fires from.
+      has_obstacle_between and _to_target are thin wrappers over is_line_blocked.
+    - Changed set_aim_params to assert when a passed min_angle or max_angle exceeds PI radians. Past PI the engine's tracking band collapses to always-on and silently does nothing,
+      so a garbage config now crashes loud. The -1 global-cvar sentinel and any valid angle are unaffected.
+    - Changed xcombat.TAKEOVER_ID, the takeover's reserved GOAP id, from 188200 to 188347,
+      because 188200 collided with an external companion mod's surge-shelter scheme on the shared action manager and blocked it.
+      A consumer that declares the id to state_mgr must read TAKEOVER_ID, never the literal.
     - Added set_view_distance_factor(npc, factor): scales an NPC's sight range, the distance counterpart of set_view_speed. Probes the engine bind and no-ops when the exe lacks it.
     - Added get_enclosure(pos): roof up-ray plus four cardinal wall-rays at a position, returning the hit distances. is_indoor now reads it, replacing the fixed heuristic.
 
@@ -105,7 +114,8 @@
       set_exclusive_spawn_tiered now resolves its pool through it.
     - set_exclusive_spawn_section now also accepts an array of squad sections. The engine picks uniformly per spawn. A single section string works as before.
     - Removed add_runtime_job and remove_runtime_job, the runtime exclusive-job injector, now that its only consumer no longer uses it.
-    - The spawn writers (set_shared_spawn, set_shared_spawn_section, set_exclusive_spawn, set_exclusive_spawn_tiered, set_exclusive_spawn_section) now drop squad sections absent from the system ini before writing the respawn row,
+    - The spawn writers (set_shared_spawn, set_shared_spawn_section, set_exclusive_spawn, set_exclusive_spawn_tiered,
+      set_exclusive_spawn_section) now drop squad sections absent from the system ini before writing the respawn row,
       so an injected entry can never name a section the engine cannot spawn. An entry left with no valid section is not written.
 
   xsmart
@@ -139,7 +149,8 @@
     - Fixed map spots placed for off-level objects: mark placement now guards on level.present(), so the mark status stays truthful.
 
 1.8.4
-  Summary: takeover late-bind top-up, takeover-current read, takeover id export, validated flee-lane fallback, spatial-query position guard, talking-npc lookup, inventory dump, clear_npc_job, runtime-job ini fix
+  Summary: takeover late-bind top-up, takeover-current read, takeover id export, validated flee-lane fallback, spatial-query position guard, talking-npc lookup, inventory dump, clear_npc_job,
+           runtime-job ini fix
 
   xcombat
     - Added topup_takeover_block(npc): re-applies the takeover's blocking precondition to any listed action present on the NPC's manager but not yet blocked.
@@ -186,7 +197,8 @@
       The ini is now registered there the same way a smart registers its own generated job (gulag_general.script:1331).
 
 1.8.3
-  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key, make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered, runtime_job, danger_tier, release
+  Summary: actor_can_hit, set_fire_queue_scale, reload events, is_reloading, reloading fire degrade, seen-class disclosure, is_monster_faction, get_section_npc_range, has_campfire offline, cell_key,
+           make_trader, spawn_section, exclusive_spawn_section, exclusive_spawn_tiered, runtime_job, danger_tier, release
 
   xcombat
     - Added actor_can_hit(npc, cone_deg): true when the ACTOR could plausibly land a shot on the NPC - holds a firearm, facing within the cone, shot line clear
@@ -202,7 +214,8 @@
       The stop edge is best-effort. Bound edge-tracked state with a staleness window or confirm via is_reloading.
     - Added is_reloading(npc): authoritative reload read over the active weapon's state machine, works on every exe.
       The reload state numeric is 7 (eReload). Older comparisons that circulate 5 (eFire) are wrong.
-    - Changed disclose_enemy to also promote the disclosed enemy into SEEN memory on exes with the make_enemy_visible bind (PR #613, probed): enemy selection ranks "currently seen" far above hit memory,
+    - Changed disclose_enemy to also promote the disclosed enemy into SEEN memory on exes with the make_enemy_visible bind (PR #613, probed):
+      enemy selection ranks "currently seen" far above hit memory,
       so the promotion is what makes the victim actually turn on the shooter. Floor exes keep the memory-only disclosure unchanged.
 
   xcreature
@@ -218,7 +231,8 @@
       so it passes the faction gate on an exclusive smart, where a plain shared-section entry (no .faction) would be suppressed.
     - Added set_exclusive_spawn_tiered(smart, key, faction, spawn_num): the exclusive faction inject with the squad tiers capped by the level's danger tier (xlevel.get_danger_tier), cumulative:
       rookie maps field novice squads only, early maps novice/advanced, mid maps and north the full pool. Unknown levels read as the shared mid default (novice/advanced).
-    - Added add_runtime_job(smart, opts) and remove_runtime_job(smart, section): push a self-contained exclusive job into a smart's job list from caller-supplied logic text, priority, and precondition,
+    - Added add_runtime_job(smart, opts) and remove_runtime_job(smart, section):
+      push a self-contained exclusive job into a smart's job list from caller-supplied logic text, priority, and precondition,
       then pull it back out and free any NPC that held it. Jobs rebuild on load, so callers re-ensure on their own cadence. No-op for smarts off the actor level.
 
   xlevel
@@ -343,7 +357,8 @@
       create_getter is now internal to create_config.
 
 1.8.0
-  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire, xinventory get_rank_chance, release_item_id, create_item cond fix, xsquad get_community
+  Summary: xcreature get_clsid id-vs-clsid fix, invalid-entity sentinel cleanup, xsmart get_job_for_npc and is_near_campfire, xinventory get_rank_chance, release_item_id, create_item cond fix,
+           xsquad get_community
 
   xcreature
     - Fixed get_clsid misclassifying low entity IDs. It short-circuited any number in [1,999] as an
@@ -458,36 +473,59 @@
 1.7.1
   Summary: xsquad protection catches non-commander task-giver members, xsound one-shot helper for brief notification cues
   xsquad:
-    Fixed: is_protected catches squads whose non-commander member is the task giver. _is_task_giver gained a pass 2: when no task points at the squad id or commander id, it accumulates task_giver_ids and matches them against squad:squad_members(). task_giver_id is polymorphic per vanilla (anomaly/axr_task_manager.script:723-732, sim_offline_combat.script:300-309): drx dialogs (axr_task_manager.script:792-794) write the squad id. Vanilla dialogs.script:680 npc_give_task and iTheon PDA Taskboard (ui_pda_taskboard_tab.script:138) write the specific npc id of the selected member. Before the fix, the npc-id case only matched when the selected NPC happened to be the squad commander. Consumers (AlifeGuard, AlifePlus, AlifeBalance, TestZone) inherit the broader coverage on next call, no caller change required. Pass 1 cost unchanged, pass 2 fires only on pass-1 miss and adds one squad_members iteration with hash-set lookup.
+    Fixed: is_protected catches squads whose non-commander member is the task giver.
+    _is_task_giver gained a pass 2: when no task points at the squad id or commander id, it accumulates task_giver_ids and matches them against squad:squad_members().
+    task_giver_id is polymorphic per vanilla (anomaly/axr_task_manager.script:723-732, sim_offline_combat.script:300-309): drx dialogs (axr_task_manager.script:792-794) write the squad id.
+    Vanilla dialogs.script:680 npc_give_task and iTheon PDA Taskboard (ui_pda_taskboard_tab.script:138) write the specific npc id of the selected member.
+    Before the fix, the npc-id case only matched when the selected NPC happened to be the squad commander.
+    Consumers (AlifeGuard, AlifePlus, AlifeBalance, TestZone) inherit the broader coverage on next call, no caller change required.
+    Pass 1 cost unchanged, pass 2 fires only on pass-1 miss and adds one squad_members iteration with hash-set lookup.
   xsound:
-    Added: play(snd_path, opts). One-shot 2D sound, no handle, no looping. For brief notification cues, pairing with the existing acquire/release looping API. opts.volume sets initial volume (default 1.0).
+    Added: play(snd_path, opts). One-shot 2D sound, no handle, no looping. For brief notification cues, pairing with the existing acquire/release looping API.
+    opts.volume sets initial volume (default 1.0).
 
 1.7.0
   Summary: faction-query surface trimmed and renamed to mark intent per question, tri-state smart hostility check, curated trader faction overrides
   xsmart:
-    Added: is_smart_hostile_to(smart, community). Tri-state hostility check. Samples the first 3 npc_info entries. For each, resolves faction via xdata.npc_roles override then community() fallback. Returns true on first enemy seen, false when at least one faction resolved and none enemy, nil when no signal (offline, empty, or no faction resolved). Online + actor-level smarts only, so the caller layers a standalone-NPC cache for offline coverage.
-    Renamed: get_smart_faction -> get_controlling_faction. Body changed: drops the iteration-order props fallback. Reads smart.faction (engine runtime set by check_smart_faction from NPCs at jobs) first, then smart.owning_faction when warfare set a real faction (skips the literal "none"), else "none". Unheld smarts return "none" so the caller can fall through to a post-arrival check.
+    Added: is_smart_hostile_to(smart, community). Tri-state hostility check. Samples the first 3 npc_info entries. For each, resolves faction via xdata.npc_roles override then community() fallback.
+    Returns true on first enemy seen, false when at least one faction resolved and none enemy, nil when no signal (offline, empty, or no faction resolved).
+    Online + actor-level smarts only, so the caller layers a standalone-NPC cache for offline coverage.
+    Renamed: get_smart_faction -> get_controlling_faction. Body changed: drops the iteration-order props fallback.
+    Reads smart.faction (engine runtime set by check_smart_faction from NPCs at jobs) first, then smart.owning_faction when warfare set a real faction (skips the literal "none"), else "none".
+    Unheld smarts return "none" so the caller can fall through to a post-arrival check.
     Renamed: get_smart_factions -> get_declared_factions. Name states the question (factions explicitly declared in smart.props LTX).
     Renamed: find_smarts_with_recipe -> find_smarts_spawning. Name states the question (smarts that spawn faction X on this level), not the implementation detail.
-    Changed: is_smart_empty signature takes smart_id directly. Matches the other SIMBOARD-indexing functions (get_smart_squads, has_squad_of_faction). Callers that previously passed smart now pass smart.id.
+    Changed: is_smart_empty signature takes smart_id directly. Matches the other SIMBOARD-indexing functions (get_smart_squads, has_squad_of_faction).
+    Callers that previously passed smart now pass smart.id.
     Removed: accepts_mutant. Subset of accepts_faction, which dispatches the mutant branch via is_squad_monster automatically.
-    Removed: has_faction, has_factions. find_smart and find_first_smart factions opt now matches via accepts_faction (engine Tier 1 with all / all_stalker / all_monster fallback). Behavior change at find_smart callers: smarts declaring all_stalker or all_monster now satisfy the factions filter.
+    Removed: has_faction, has_factions. find_smart and find_first_smart factions opt now matches via accepts_faction (engine Tier 1 with all / all_stalker / all_monster fallback).
+    Behavior change at find_smart callers: smarts declaring all_stalker or all_monster now satisfy the factions filter.
     Removed: has_capacity. No live callers.
   xdata:
-    Changed: npc_roles entries carry a faction field on every curated service NPC. Sidorovich-style universal-neutral traders get explicit faction encoding from lore (Petrenko at Dolg, Sakharov at Yantar, Ashot at Yanov, the Freedom leader at Army Warehouses, and the rest). Consumers reading get_npc_effective_faction see the curated override before falling back to engine community().
+    Changed: npc_roles entries carry a faction field on every curated service NPC.
+    Sidorovich-style universal-neutral traders get explicit faction encoding from lore (Petrenko at Dolg, Sakharov at Yantar, Ashot at Yanov, the Freedom leader at Army Warehouses, and the rest).
+    Consumers reading get_npc_effective_faction see the curated override before falling back to engine community().
 
 1.6.1
   xobject:
-    Added: in_reward_set(sec, set_name). Section classifier reading itms_manager.item_rewards (parsed at module load from items\settings\item_rewards.ltx). Returns true if sec is listed under [set_name]. Sets shipping in vanilla Anomaly: items_health, items_bleed, items_rad, items_drink, items_food, items_medical, items_ammo, items_utility, items_money, items_grenade. Consumers gate item flow on vanilla-curated categories without duplicating section lists. Addons that overlay item_rewards.ltx are picked up automatically.
+    Added: in_reward_set(sec, set_name). Section classifier reading itms_manager.item_rewards (parsed at module load from items\settings\item_rewards.ltx).
+    Returns true if sec is listed under [set_name].
+    Sets shipping in vanilla Anomaly: items_health, items_bleed, items_rad, items_drink, items_food, items_medical, items_ammo, items_utility, items_money, items_grenade.
+    Consumers gate item flow on vanilla-curated categories without duplicating section lists. Addons that overlay item_rewards.ltx are picked up automatically.
 
 1.6.0
   Summary: online inventory iterator centralized, generic NPC-by-job resolver, xstash notable filter removed
   xobject:
-    Added: iterate_online_inventory(npc_id, callback). Centralized wrapper for NPC inventory walks. Returns the npc game_object when iteration ran, nil if offline or invalid. The explicit name carries the engine's online-only constraint into the API surface. Offline NPCs are a hard engine limitation, no Lua-side offline-inventory iterator exists. Callback signature matches engine convention, and returning true stops iteration early.
+    Added: iterate_online_inventory(npc_id, callback). Centralized wrapper for NPC inventory walks. Returns the npc game_object when iteration ran, nil if offline or invalid.
+    The explicit name carries the engine's online-only constraint into the API surface. Offline NPCs are a hard engine limitation, no Lua-side offline-inventory iterator exists.
+    Callback signature matches engine convention, and returning true stops iteration early.
   xsmart:
-    Added: get_npc_for_job(smart, type_id). Returns the online game_object of the NPC assigned to a job of the given type_id at this smart. Generic resolver for assigned job slots (e.g. JOB_TYPE_CAMPFIRE_POINT, JOB_TYPE_GENERIC_POINT). Does NOT identify the trader NPC. job_type_id=15 (JOB_TYPE_TRADER) tags the visitor patrol slot (`<smart>_beh_trade_<i>`, gulag_general.script:971), not the barman's seated logic block.
+    Added: get_npc_for_job(smart, type_id). Returns the online game_object of the NPC assigned to a job of the given type_id at this smart.
+    Generic resolver for assigned job slots (e.g. JOB_TYPE_CAMPFIRE_POINT, JOB_TYPE_GENERIC_POINT). Does NOT identify the trader NPC.
+    job_type_id=15 (JOB_TYPE_TRADER) tags the visitor patrol slot (`<smart>_beh_trade_<i>`, gulag_general.script:971), not the barman's seated logic block.
   xstash:
-    Removed: NOTABLE_PREFIXES, NOTABLE_SET, is_notable_item, filter_notable_stash_items. Domain-curated "which items are notable for news" filter that did not belong in a generic engine-wrap library. No callers outside xstash itself.
+    Removed: NOTABLE_PREFIXES, NOTABLE_SET, is_notable_item, filter_notable_stash_items. Domain-curated "which items are notable for news" filter that did not belong in a generic engine-wrap library.
+    No callers outside xstash itself.
 
 1.5.2
   Summary: per-level fast-path scans, squad gate reorder, gvid guard, section_faction cache, recipe primitives, xpp and xsound modules
@@ -495,30 +533,42 @@
     Added: opts.source on find_smart and find_first_smart. Replaces SIMBOARD.smarts_by_names as the iteration pool when present, letting consumers inject a per-level bucket and bypass the global walk.
     Added: get_section_npc_max(section). Upper bound of a squad section's npc_in_squad field. Pairs with section_faction for recipe-content inspection. Cached.
     Added: find_smarts_with_recipe(level_id, faction). Walks SIMBOARD.smarts once, filters by level and by recipe-content match via section_faction. Returns smart server objects directly.
-    Added: has_squad_of_faction(smart_id, faction, exclude_id). True if any squad of the given faction is at the smart, short-circuiting on first match. Reads squad.player_id (trivial luabind) in place of get_squad_community (heavy).
+    Added: has_squad_of_faction(smart_id, faction, exclude_id). True if any squad of the given faction is at the smart, short-circuiting on first match.
+    Reads squad.player_id (trivial luabind) in place of get_squad_community (heavy).
     Changed: section_faction reads memoized per section. Repeated lookups for the same squad section return from cache without opening the LTX file each call.
   xstash:
-    Added: opts.source on find_stashes. Replaces treasure_manager.caches as the iteration set when present. State (filled / looted / hidden) is still read from treasure_manager.caches per iteration so mutations stay live.
+    Added: opts.source on find_stashes. Replaces treasure_manager.caches as the iteration set when present.
+    State (filled / looted / hidden) is still read from treasure_manager.caches per iteration so mutations stay live.
   xsquad:
-    Added: opts.source on find_squad and find_squads. Replaces SIMBOARD.squads as the iteration pool when present, letting consumers inject a per-level bucket and bypass the global walk. Symmetric with xsmart.find_smart and xstash.find_stashes.
-    Changed: _squad_base_valid runs the level_id gate first. Wrong-level squads on level-scoped find_squads reject after one cached xlevel.get_level_id lookup (0 luabind warm), before paying position, npc_count, player_id reads.
+    Added: opts.source on find_squad and find_squads. Replaces SIMBOARD.squads as the iteration pool when present, letting consumers inject a per-level bucket and bypass the global walk.
+    Symmetric with xsmart.find_smart and xstash.find_stashes.
+    Changed: _squad_base_valid runs the level_id gate first.
+    Wrong-level squads on level-scoped find_squads reject after one cached xlevel.get_level_id lookup (0 luabind warm), before paying position, npc_count, player_id reads.
   xlevel:
-    Fixed: get_level_id short-circuits on invalid m_tGraphID (engine sentinel GameGraph::_GRAPH_ID(-1) = 65535). Prevents an AV when callers pass position-less server objects. Required after the xsquad gate reorder, which now reaches get_level_id before the position check.
+    Fixed: get_level_id short-circuits on invalid m_tGraphID (engine sentinel GameGraph::_GRAPH_ID(-1) = 65535). Prevents an AV when callers pass position-less server objects.
+    Required after the xsquad gate reorder, which now reaches get_level_id before the position check.
   xpp:
     Added: xpp module. Post-process effector wrap with slot allocator, engine-smoothed factor, and handle API. xpp.PPE table holds 35 verified-safe .ppe filenames tested in GAMMA.
   xsound:
     Added: xsound module. Looping sound wrap with handle API, Lua-side volume lerp, and lazy actor_on_update at a 100ms interval.
 
 1.5.1
-  Summary: level adjacency, first-match smart lookup, faction acceptance check, squad-section faction lookup, commander rank, in-game clock, ttl_counter persistence, token bucket rate, offline cross-map item fallback
+  Summary: level adjacency, first-match smart lookup, faction acceptance check, squad-section faction lookup, commander rank, in-game clock, ttl_counter persistence, token bucket rate,
+           offline cross-map item fallback
   xlevel:
     Added: get_level_id_by_name(name). Lazy name-to-level_id map from SIMBOARD.smarts_by_names.
     Added: get_neighbor_levels(source_id, hops). BFS over A-Life level adjacency. Returns a set excluding the source. Cached per (source_id, hops). Powers off-map destination scans.
   xsmart:
     Added: find_first_smart(opts). First-match smart lookup with no ranking. Opts mirror find_smart factions / filter / level_id.
     Added: accepts_faction(smart, faction). True if smart's props admit the faction (stalker or mutant). Mirrors engine target_precondition Tier-1 admission gate. Use for routing-side decisions.
-    Added: section_faction(section). Returns the player_id (faction community) a squad section will produce, reading the section's `faction` INI field from configs/misc/squad_descr/. Same string round-trips with squad.player_id at spawn and xcreature.community at runtime. Use to classify a smart's respawn_params.squads pool by what it spawns, for recipe-content checks in refill / spawn-intervention logic, where Tier-1 admission does not answer the question (props admit factions that recipes cannot produce, see doc/library/modding/smart-terrain-props.md).
-    Removed: has_monster_jobs(smart, type_id). Constant-true predicate: gulag_general.init_monster_jobs pushes max_population*4 mob_home jobs (minimum 1) on EVERY smart (gulag_general.script:1018-1022), and load_jobs fills monster_jobs only for actor-level smarts (smart_terrain.script:457-464), so it never answered "can mutants go there". That question is accepts_faction (props admission) plus max_population (capacity). (Record backfilled 2026-07-08, removal was in this release.)
+    Added: section_faction(section). Returns the player_id (faction community) a squad section will produce, reading the section's `faction` INI field from configs/misc/squad_descr/.
+    Same string round-trips with squad.player_id at spawn and xcreature.community at runtime.
+    Use to classify a smart's respawn_params.squads pool by what it spawns, for recipe-content checks in refill / spawn-intervention logic, where Tier-1 admission does not answer the question
+    (props admit factions that recipes cannot produce, see doc/library/modding/smart-terrain-props.md).
+    Removed: has_monster_jobs(smart, type_id).
+    Constant-true predicate: gulag_general.init_monster_jobs pushes max_population*4 mob_home jobs (minimum 1) on EVERY smart (gulag_general.script:1018-1022),
+    and load_jobs fills monster_jobs only for actor-level smarts (smart_terrain.script:457-464), so it never answered "can mutants go there".
+    That question is accepts_faction (props admission) plus max_population (capacity). (Record backfilled 2026-07-08, removal was in this release.)
   xsquad:
     Added: get_commander_rank(squad). Commander rank. 0 for empty squads, non-stalkers, or unresolved commanders.
     Removed: is_squad_at_base(squad). No callers.
@@ -529,22 +579,30 @@
     Added: ttl_counter :export() / :import(). Round-trips bucket state through save/load. Timestamps are clock-domain-specific (game_sec persists across save/load, os.clock does not).
     Added: token bucket :set_rate(rate). Updates refill rate without rebuilding. Preserves in-flight token state.
   xobject:
-    Changed: create_item offline cross-map fallback routes through alife_create_item with a table owner. Property table t is forwarded on this branch (t.ammo splits across boxes atomically at spawn, t.cond and t.uses queue via ItemProcessor with a ~0.16s drop window for offline carriers). Section non-existence is guarded. Previously alife():create would Debug.fatal on missing sections.
+    Changed: create_item offline cross-map fallback routes through alife_create_item with a table owner. Property table t is forwarded on this branch (t.ammo splits across boxes atomically at spawn,
+    t.cond and t.uses queue via ItemProcessor with a ~0.16s drop window for offline carriers). Section non-existence is guarded. Previously alife():create would Debug.fatal on missing sections.
 
 1.5.0
   xchange:
-    Added: xchange. Liquibase-style changeset registry for save-data migrations. Mods register changesets by globally-unique id and call run(m_data) from their LOAD_STATE handler. Each id runs once per save, recorded in m_data.xchange_log. Subsequent loads skip applied changesets. register() warns on bad input or duplicate id. API: register(id, fn), run(m_data).
+    Added: xchange. Liquibase-style changeset registry for save-data migrations. Mods register changesets by globally-unique id and call run(m_data) from their LOAD_STATE handler.
+    Each id runs once per save, recorded in m_data.xchange_log. Subsequent loads skip applied changesets. register() warns on bad input or duplicate id. API: register(id, fn), run(m_data).
   xconst:
     Added: ACTOR_ENTITY_ID = 0. Engine convention for db.actor:id(). Pairs with INVALID_ENTITY_ID for actor-vs-other checks without magic numbers.
   xsmart:
-    Added: has_jobs_for(smart, squad). True when every squad member has an engine-assigned job at the smart. Reads smart.npc_info[id].job per member. nil info or nil job returns false. Detects at arrival whether the engine allocated jobs (animation will run) or left members without slots (visible freeze case).
+    Added: has_jobs_for(smart, squad). True when every squad member has an engine-assigned job at the smart. Reads smart.npc_info[id].job per member. nil info or nil job returns false.
+    Detects at arrival whether the engine allocated jobs (animation will run) or left members without slots (visible freeze case).
     Added: has_stalker_jobs(smart, type_id) and has_monster_jobs(smart, type_id) walk the matching job table. nil type_id matches any non-empty.
-    Added: has_animated_stalker_jobs(smart). True on any non-stub stalker job_type_id (stubs are generic_point id=0, campfire_point id=1) and on any LTX exclusive job (job.exclusive=true, set by gulag_general add_exclusive_job). Use to filter smarts whose stalker_jobs[] holds only generic_point and campfire_point stubs (level designer authored no walker / guard / sniper / sleep / etc patrol paths).
+    Added: has_animated_stalker_jobs(smart).
+    True on any non-stub stalker job_type_id (stubs are generic_point id=0, campfire_point id=1) and on any LTX exclusive job (job.exclusive=true, set by gulag_general add_exclusive_job).
+    Use to filter smarts whose stalker_jobs[] holds only generic_point and campfire_point stubs (level designer authored no walker / guard / sniper / sleep / etc patrol paths).
     Added: JOB_TYPE_GENERIC_POINT, JOB_TYPE_CAMPFIRE_POINT, JOB_TYPE_MOB_HOME constants alongside the existing JOB_TYPE_TRADER and JOB_TYPE_MECHANIC.
     Removed: has_trader_job, has_mechanic_job, _has_job_type and the per-id caches. Callers use the parametric has_stalker_jobs(JOB_TYPE_TRADER) / has_stalker_jobs(JOB_TYPE_MECHANIC) form.
-    Refactored: prop-flag predicates (is_base, is_lair, is_resource, is_territory, has_surge_shelter, is_smart_important) share a single _prop_truthy(smart, key) helper. Drops file CC under the 200-sum cap.
+    Refactored: prop-flag predicates (is_base, is_lair, is_resource, is_territory, has_surge_shelter, is_smart_important) share a single _prop_truthy(smart, key) helper.
+    Drops file CC under the 200-sum cap.
     Refactored: find_smart boolean preprocessing replaced and-or chains with explicit ifs (factions_check, min_dist_sqr, max_dist_sqr). Same behavior, lower CC.
-    Fixed: set_shared_spawn and set_exclusive_spawn write squad-section tables into respawn_params[key].squads. _SQUADS_BY_IDENTITY now built with an explicit value-preserving merge of SQUADS_BY_FACTION and SQUADS_BY_SPECIES (xtable.merge is set-merge and was storing boolean true, which crashed vanilla try_respawn at smart_terrain.script:1677 when v["squads"][1] tried to index it).
+    Fixed: set_shared_spawn and set_exclusive_spawn write squad-section tables into respawn_params[key].squads.
+    _SQUADS_BY_IDENTITY now built with an explicit value-preserving merge of SQUADS_BY_FACTION and SQUADS_BY_SPECIES (xtable.merge is set-merge and was storing boolean true,
+    which crashed vanilla try_respawn at smart_terrain.script:1677 when v["squads"][1] tried to index it).
   xsquad:
     Renamed: control_squad -> acquire_squad. Pairs with release_squad as acquire/release vocabulary. "control" was less specific than the multi-field engine acquire the function performs.
   xttltable:
@@ -554,24 +612,32 @@
   Summary: Generic spawn injection API, level/smart name cascade, commander name resolver, weak-key species cache, cp1251-aware capitalize, fifo_cache iteration and on_evict
   xsmart:
     Removed: set_faction_controlled and clear_faction_controlled. Replaced by the generic spawn injection API below.
-    Added: set_shared_spawn(smart, key, identity, num) and clear_shared_spawn(smart, key). Additive injection. Original LTX entries keep spawning alongside the injected entry. No faction filter applied.
-    Added: set_exclusive_spawn(smart, key, identity, num) and clear_exclusive_spawn(smart, key). Faction-filtered injection. Sets faction_controlled + faction so only the injected entry spawns. Monster factions need periodic re-apply (engine check_smart_faction ignores monsters, smart_terrain.script:1209-1236).
-    Added: SQUADS_BY_SPECIES table: single-species simulation_<species> sections (20 entries) for species-pure mutant injection. Identity slot in the spawn API accepts both stalker factions and mutant species.
+    Added: set_shared_spawn(smart, key, identity, num) and clear_shared_spawn(smart, key). Additive injection. Original LTX entries keep spawning alongside the injected entry.
+    No faction filter applied.
+    Added: set_exclusive_spawn(smart, key, identity, num) and clear_exclusive_spawn(smart, key). Faction-filtered injection. Sets faction_controlled + faction so only the injected entry spawns.
+    Monster factions need periodic re-apply (engine check_smart_faction ignores monsters, smart_terrain.script:1209-1236).
+    Added: SQUADS_BY_SPECIES table: single-species simulation_<species> sections (20 entries) for species-pure mutant injection.
+    Identity slot in the spawn API accepts both stalker factions and mutant species.
     Added: accepts_mutant(smart, player_id) mirrors the engine target_precondition mutant gate (props.all OR props.all_monster OR props[player_id]) at smart_terrain.script:1531-1532.
     Added: smart_iter() iterator over SIMBOARD smarts. Stateful, skips entries without a valid smrt ref.
   xlevel:
     Added: get_level_name(level_id) resolves a level_id to its localized display name via alife():level_name + game.translate_string.
-    Changed: get_smart_display_name cascades Anomaly smart_names.ltx -> Warfare "st_<name>_name" key -> level display name -> cleaned raw section (previously returned raw LTX section on unnamed smarts). Every return path strips a recognized "Level. " prefix so "Zaton. Claw Anomaly Camp" becomes "Claw Anomaly Camp" regardless of source.
+    Changed: get_smart_display_name cascades Anomaly smart_names.ltx -> Warfare "st_<name>_name" key -> level display name -> cleaned raw section
+    (previously returned raw LTX section on unnamed smarts). Every return path strips a recognized "Level. " prefix so "Zaton. Claw Anomaly Camp" becomes "Claw Anomaly Camp" regardless of source.
     Changed: get_smart_display_name returns nil on invalid input, no longer the baked string "unknown". Callers decide the fallback. Keeps xlibs locale-pure.
     Changed: get_current_level_name returns nil when no level / no name is available, no longer the baked string "the Zone". Locale-pure, callers decide the fallback.
     Added: lazy session-cache of level names (raw + translated) used by the prefix-stripper.
   xsquad:
-    Added: get_commander_name(squad) returns the commander's character_name. Hybrid resolver: tries online game_object via db.storage first (3 luabind fast path), falls back to cse_alife_trader_abstract:character_name() server-side binding (4 luabind, works for offline commanders). m_character_name is populated at NPC spawn and persists in saves, so both paths return identical strings. Returns nil for empty squads, non-stalkers, and unregistered commanders.
+    Added: get_commander_name(squad) returns the commander's character_name. Hybrid resolver: tries online game_object via db.storage first (3 luabind fast path),
+    falls back to cse_alife_trader_abstract:character_name() server-side binding (4 luabind, works for offline commanders).
+    m_character_name is populated at NPC spawn and persists in saves, so both paths return identical strings. Returns nil for empty squads, non-stalkers, and unregistered commanders.
     Changed: is_protected gained nil-squad and nil-opts early guards. Returns true,"nil_squad" for nil squads (fail-safe) and false for nil opts (no-criteria check). It no longer errors.
   xcreature:
-    Changed: get_mutant_species and _resolve_npc_species now use weak-key per-entity caches. Repeat lookups for the same squad or NPC entity are 0 luabind after the first call. False sentinel stored for "resolved to nil" results so cache miss vs cached-nil are distinguishable.
+    Changed: get_mutant_species and _resolve_npc_species now use weak-key per-entity caches. Repeat lookups for the same squad or NPC entity are 0 luabind after the first call.
+    False sentinel stored for "resolved to nil" results so cache miss vs cached-nil are distinguishable.
   xstring:
-    Added: capitalize_first(text): encoding-aware first-character capitalization. 256-byte uppercase table covers ASCII a-z, cp1251 Cyrillic а-я (0xE0-0xFF), and cp1251 ё (0xB8 -> Ё 0xA8). Replaces string.upper + %l regex, which are ASCII-only in Lua 5.1.
+    Added: capitalize_first(text): encoding-aware first-character capitalization. 256-byte uppercase table covers ASCII a-z, cp1251 Cyrillic а-я (0xE0-0xFF), and cp1251 ё (0xB8 -> Ё 0xA8).
+    Replaces string.upper + %l regex, which are ASCII-only in Lua 5.1.
   xttltable:
     Added: fifo_cache :each(fn) iterates all cached values in insertion order (oldest first), and on_evict callback fires when a value is pushed out of the ring.
   xlog:
@@ -590,7 +656,8 @@
     Changed: control_squad, target_actor, release_squad, reassert_target clear __lock (AP does not use it, scripted_target alone routes to specific_update).
     Fixed: fatal crash in _resolve_commander when non-squad server object arrives via squad_on_update callback (clsid guard in _check_permanent, field guard in _resolve_commander)
   xcreature:
-    Added: get_mutant_species(input) returns the base species string for any entity. Accepts squads, server objects, game objects, or IDs. Handles modded exe clsid ambiguity via section prefix fallback. Stalker squads rejected at 0 cost via player_id check.
+    Added: get_mutant_species(input) returns the base species string for any entity. Accepts squads, server objects, game objects, or IDs.
+    Handles modded exe clsid ambiguity via section prefix fallback. Stalker squads rejected at 0 cost via player_id check.
     Added: get_mutant_variant(input) returns the full NPC variant section (e.g. "bloodsucker_red_strong").
   xttltable:
     Added: clock injection (opts.clock) for ttl_table, ttl_counter, token_bucket. Callers can pass game-time or custom clock functions. Default remains os.clock (0 luabind).
