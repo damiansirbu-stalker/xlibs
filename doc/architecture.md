@@ -625,6 +625,8 @@ end)
 - `npc_tip(npc, msg, opts)` - NPC-attributed tip
 - `mark_squad(id, opts)`, `unmark_squad(id)`, `clear_squad_markers()`
 - `mark_entity(id, opts)`, `unmark_entity(id, type)`
+- `start_news_hook()` - idempotent; wraps the vanilla `send_tip` sinks so every drawn PDA line stamps a shared last-news clock. Dormant until a consumer calls it; the wrap installs once no matter how many mods start it (`xevent.register_hook` refuses a second wrap).
+- `get_last_news()` - real-sec `os.clock` of the last PDA line from any source, 0 until the hook runs. A consumer gates its own flavour output on `os.clock() - get_last_news() < window`.
 
 ### xstring.script - Interpolation
 

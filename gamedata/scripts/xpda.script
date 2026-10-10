@@ -1,12 +1,25 @@
 --- xpda: PDA map marker helpers. Transient: do nothing. Persistent: save in save_state, hydrate in actor_on_first_update.
 
-local pairs = pairs
+local pairs, os_clock, xevent = pairs, os.clock, xevent
 
 local DEFAULT_MARKER_TYPE = "red_location"
 local squad_markers = {}
 
 -- Seconds a PDA marker stays on screen when the caller names none.
 local DEFAULT_SHOWTIME_SEC = 7
+
+-- Real-sec os.clock of the last PDA line drawn from any source; 0 until start_news_hook installs the wrap. See get_last_news.
+local _last_news = 0
+local _news_hooked = false
+
+--- Hooked over each vanilla send_tip sink: run the original line, then stamp the last-news clock.
+--- @safety SAFE - passes straight through to the original send_tip; the only added work is one timestamp write
+--- @cost O(1) | 1 os.clock per drawn PDA line, on top of the original send_tip cost
+local function _on_tip_sent(orig, ...)
+    local result = orig(...)
+    _last_news = os_clock()
+    return result
+end
 
 --- Remove a squad's map marker, guarding level.present() (Level() is a NULL deref during transitions, uncatchable by pcall).
 --- Removes the spot and clears the ledger.
@@ -106,6 +119,7 @@ function publish_news(caption, msg, icon)
     local actor = db and db.actor
     if not actor then return false end
     actor:give_game_news(caption, msg, icon or "ui_inGame2_PDA_unknown", 0, 7000)
+    if _news_hooked then _last_news = os_clock() end
     return true
 end
 
@@ -130,5 +144,24 @@ function show_npc_tip(npc, msg, opts)
         return dynamic_news_helper.send_tip(msg, header, 0, showtime, icon, opts.sound or "news", "npc")
     end
     actor:give_game_news(header, game.translate_string(msg), icon, 0, showtime * 1000)
+    if _news_hooked then _last_news = os_clock() end
     return true
+end
+
+--- Install the PDA-activity hook (idempotent): wrap the vanilla send_tip sinks so every drawn PDA line stamps the last-news clock.
+--- Dormant until a consumer calls it at on_game_start. xevent refuses a second wrap, so two consumers sharing it are safe.
+--- @safety SAFE - xevent.register_hook is idempotent and type-checks the target before replacing; a missing sink is a silent no-op
+--- @cost O(1) | 2 register_hook at call, 1 os.clock per drawn PDA line after
+function start_news_hook()
+    if _news_hooked then return end
+    _news_hooked = true
+    xevent.register_hook("dynamic_news_helper", "send_tip", _on_tip_sent)
+    xevent.register_hook("news_manager", "send_tip", _on_tip_sent)
+end
+
+--- Real-sec os.clock of the last PDA line drawn from any source, or 0 if none since start_news_hook ran.
+--- @cost O(1) | 0 luabind (reads a module upvalue)
+--- @return number
+function get_last_news()
+    return _last_news
 end
