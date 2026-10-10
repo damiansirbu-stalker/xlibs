@@ -1,4 +1,4 @@
-Version: 1.9.1-snapshot
+Version: 1.9.2-snapshot
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Health: https://damiansirbu-stalker.github.io/xlibs/health/
 JitProfiler: https://damiansirbu-stalker.github.io/xlibs/jitprofiler/
