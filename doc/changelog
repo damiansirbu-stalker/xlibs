@@ -1,58 +1,62 @@
 1.9.1-snapshot
+  Summary: shared last-news clock for a PDA quiet window
+
+  xpda
+    - Added start_news_hook() and get_last_news(): a shared last-news clock for a PDA quiet window, so a consumer can hold its own line back while another one is still fresh.
+      start_news_hook wraps the vanilla send_tip sinks so every drawn PDA line stamps the clock, and get_last_news reads the stamp. publish_news and npc_tip stamp it too.
 
 1.9.0
   Summary: the xgraft module, hit-redirect setter, visible-enemy bias setter, movement hold, combat-distance registrars, bleeding read, ambient sound seams, sees dead-subject guard,
-           relation alive-guard, guarded selection read, facing predicate, the range band and sight primitives, zombied and last-man reads, per-subject vulnerability reads, squad record formatter,
+           relation alive-guard, guarded selection read, facing predicate, the range band, sight primitive, zombied read, last-man read, per-subject vulnerability read, squad record formatter,
            the xfs filesystem home, performance and infrastructure
 
   xgraft
-    - Added xgraft: the GOAP graft moved out of xcombat into its own module - register_takeover, apply_takeover_block, is_takeover_current, release_takeover,
-      release_takeover_id, get_blocked_planners, and the reserved id TAKEOVER_ID. Function names and behavior unchanged; consumers rename xcombat.* to xgraft.*.
-      xcombat keeps the squad-mask primitives (register_in_combat, unregister_in_combat) and everything else.
+    - Added xgraft: the GOAP graft moved out of xcombat into its own module - register_takeover, apply_takeover_block, is_takeover_current, release_takeover, release_takeover_id,
+      get_blocked_planners, and the reserved id TAKEOVER_ID. Function names and behavior are unchanged, so consumers rename xcombat.* to xgraft.*. xcombat keeps the squad-mask primitives
+      (register_in_combat, unregister_in_combat) and everything else.
 
   xcombat
-    - Added has_body_in_lane(origin_pos, target_pos, body_pos, lateral_thresh_m): the single-body firing-lane test in 3D, true only for a body ahead of the origin,
-      short of the target, and inside the lateral band. The per-candidate form of has_friendly_lane for callers that must name the blocker.
-    - get_operator now resolves the generic-scheme operator ids (rx_ff, fight_from_cover, kill_wounded, facer, and the rest of the module-id family) to names
-      instead of bare numbers, probing the scheme modules lazily on a miss.
-    - Added on_get_min_combat_dist(fn) and on_get_max_combat_dist(fn): registrars for the engine's cover-band asks (npc_on_get_min_combat_dist / _max),
-      fired on every cover re-search with the engine's own weapon-typed base in flags.ret_value for the handler to scale. Probe-gated, false on builds without the seam.
+    - Added has_body_in_lane(origin_pos, target_pos, body_pos, lateral_thresh_m): the single-body firing-lane test in 3D, true only for a body ahead of the origin, short of the target,
+      and inside the lateral band. The per-candidate form of has_friendly_lane for callers that must name the blocker.
+    - get_operator now resolves the generic-scheme operator ids (rx_ff, fight_from_cover, kill_wounded, facer, and the rest of the module-id family) to their names,
+      probing the scheme modules lazily on a miss.
+    - Added on_get_min_combat_dist(fn) and on_get_max_combat_dist(fn): registrars for the engine's cover-band asks (npc_on_get_min_combat_dist / _max), fired on every cover re-search
+      with the engine's own weapon-typed base in flags.ret_value for the handler to scale. Probe-gated, false on builds without the seam.
     - Added is_bleeding(obj): true while a combatant's bleed rate is above 0, the vanilla read convention, answering for the actor too.
     - Added set_hit_redirect(npc, max, falloff): the per-NPC selection lever toward the last attacker (engine PR #636), probe-gated, no-op on older builds.
       A hit victim prioritizes a close attacker on the real hit signal, no forged sighting.
     - Added set_movement_hold(npc, hold): the per-NPC movement hold (engine PR #645, pending merge), probe-gated, no-op on older builds.
       While held the engine mover keeps the stalker planted with his path preserved. The caller owns clearing the hold, a stale true plants the NPC until cleared.
     - Added get_block_reason(obj): the weapon-state reason a combatant cannot fire right now (unarmed, reloading, magazine_empty), or nil when the weapon is ready.
-      One active_item read serves the ordered terms, mirroring the engine ready-to-kill triple minus the unreadable misfire term. Policy-free: which combatant
-      kinds carry which extra terms (animation, locomotion) stays the consumer's business rule. An earlier composite form of this read never shipped.
+      One active_item read serves the ordered terms, mirroring the engine ready-to-kill triple minus the unreadable misfire term. Which combatant kinds carry which extra terms (animation,
+      locomotion) stays the consumer's business rule.
     - Added is_unarmed(obj) and is_magazine_empty(obj): the standalone weapon reads behind the block term, one rule each.
     - Added is_actor_sprinting() and is_actor_climbing(): the actor's weapon-down locomotion states, read from the actor moving-state bits.
     - Renamed body_busy to is_body_busy: boolean reads carry the is_ prefix.
     - Added get_best_enemy(npc): the engine selected enemy behind an alive guard, nil for a dead or missing NPC where the raw bind logs a dead-object error.
     - Added is_facing(obj, pos, cone_deg): true while the combatant faces the position within the cone, the predicate view of get_facing_offset. Negated, it is the back-turned read.
-    - Added get_range_band(dist, kind): the one range primitive, "too_close" | "in" | "out" against the kind's WEAPON_RANGES band.
-      Supersedes the is_inside_minimum / is_inside_reach pair, which never shipped in a release.
-    - Added is_in_sight(viewer, npc, cone_deg): the one sight primitive, viewer facing within the cone plus a clear shot line, viewer and cone as parameters.
-      Replaces the actor-only is_in_actor_sight and drops its in-hands weapon term, which never discriminates in combat.
+    - Added get_range_band(dist, kind): the one range primitive, returning "too_close", "in", or "out" against the kind's WEAPON_RANGES band. Supersedes the is_inside_minimum pair.
+    - Added is_in_sight(viewer, npc, cone_deg): the one sight primitive, viewer facing within the cone plus a clear shot line, viewer and cone as parameters. Replaces the actor-only
+      is_in_actor_sight and drops its in-hands weapon term, which never discriminates in combat.
     - Added set_visible_enemy_bias(npc, actor_bias, npc_bias): per-NPC override of the 900/300 "sees me" selection pull (engine PR #637), probe-gated, no-op on older builds.
-    - Corrected the show_enemy doc: make_enemy_visible restores the prior visible bit, so it shares knowledge but cannot promote an unseen shooter into the seen class.
-      A reliable victim turn is set_hit_redirect's job.
-    - Changed sees to return false without an engine log when the perceiving NPC is dead, where the raw visibility bind would otherwise log a dead-object error.
-      sees_within inherits the guard through it.
+    - Corrected the show_enemy doc: make_enemy_visible restores the prior visible bit, so it shares knowledge but cannot promote an unseen shooter into the seen class. A reliable
+      victim turn is set_hit_redirect's job.
+    - Changed sees to return false without an engine log when the perceiving NPC is dead, where the raw visibility bind would otherwise log a dead-object error. sees_within inherits
+      the guard through it.
 
   xcreature
     - Added is_zombied(obj): the stalker community zombied read, the mindless-shambler exclusion the combat layers bail on. Not the mutant zombie species.
-    - Fixed relation(a, b) and get_actor_relation(obj) to nil-guard aliveness before the engine call. GetRelationType smart_casts each object to CEntityAlive
-      and raises a Lua error on a non-creature (a grenade projectile, an item), which reached is_enemy callers on a projectile hit. The wrappers now return nil
-      for a non-alive object, matching the vanilla combat-ignore idiom.
+    - Fixed relation(a, b) and get_actor_relation(obj) to nil-guard aliveness before the engine call.
+      GetRelationType smart_casts each object to CEntityAlive and raises a Lua error on a non-creature (a grenade projectile, an item), which reached is_enemy callers on a projectile hit.
+      The wrappers now return nil for a non-alive object, matching the vanilla combat-ignore idiom.
 
   xsmart
     - Removed has_jobs_for(smart, squad). An unused presence check. Per-member job reads go through get_npc_job.
 
   xsquad
     - Added is_last_man(npc_id): squadless or sole surviving member, the rout eligibility read.
-    - Added squad_record(squad): the one-line per-squad diagnostic formatter (community, level, member count, current smart, target, commander role and name),
-      now shared by dump_squads so both carry the commander name.
+    - Added squad_record(squad): the one-line per-squad diagnostic formatter (community, level, member count, current smart, target, commander role and name), now shared by dump_squads
+      so both carry the commander name.
 
   xsound
     - Added register_ambient_listener(seam, fn) / unregister_ambient_listener(seam, fn) and the xsound.SEAM table: the engine ambient sound seams (engine PR #644 and #661, pending merge).
@@ -61,8 +65,8 @@
       Inert on builds without the hooks and while no listener is registered.
 
   xfs
-    - Added the filesystem home: read_file and write_file over real paths, resolve_path over the engine mounts, and the recursive read_files_deep.
-      Consumers route file io through xfs instead of raw io calls, so the fs surface lives in one place.
+    - Added the filesystem home: read_file and write_file over real paths, resolve_path over the engine mounts, and the recursive read_files_deep. Consumers route file io through xfs,
+      so the fs surface lives in one place.
     - Added remove_file(path): deletes through the engine FS, because os.remove is absent in the game's Lua sandbox.
     - write_file now returns false when the write itself fails, not only when the open fails, so a full disk reads as a failure.
 
@@ -81,8 +85,8 @@
       The squared-distance test runs before the visibility read, so a far object costs only the distance. Range-limits the otherwise combat-distance sees for close-range checks.
     - Added get_crouch_openness(lvid, dir): baked cover-graph openness at crouch height toward a direction (0 walled, 1 open), the cheap posture read.
       Routes the engine's directional-cover read through xcombat so a consumer makes no raw level combat call. Static geometry only, blind to bodies.
-    - Changed find_cover into a four-way finder: find_cover(npc, enemy_pos, opts) with opts.selection ("nearest"|"best"), opts.firing (true shoots from cover, false hides in it), opts.radius, opts.search_pos.
-      Nearest walks the baked cover points closest-first with floor and toward-enemy guards. Best keeps the engine's best_cover. Absorbs the concealment finder.
+    - Changed find_cover into a four-way finder: find_cover(npc, enemy_pos, opts) with opts.selection ("nearest" or "best"), opts.firing (true shoots from cover, false hides in it), opts.radius,
+      opts.search_pos. Nearest walks the baked cover points closest-first with floor and toward-enemy guards. Best keeps the engine's best_cover. Absorbs the concealment finder.
       Signature change from find_cover(npc, enemy_pos, search_pos).
     - Removed find_shot: the dead firing-sidestep finder had no callers. Its shot sweep stays inside find_cover.
     - Added get_health_frac(npc): NPC health as a 0..1 fraction, the maneuver need's hurt input read through xcombat.
@@ -97,7 +101,7 @@
       so a garbage config now crashes loud. The -1 global-cvar sentinel and any valid angle are unaffected.
     - Changed xcombat.TAKEOVER_ID, the takeover's reserved GOAP id, from 188200 to 188347,
       because 188200 collided with an external companion mod's surge-shelter scheme on the shared action manager and blocked it.
-      A consumer that declares the id to state_mgr must read TAKEOVER_ID, never the literal.
+      A consumer that declares the id to state_mgr must read TAKEOVER_ID for the current value.
     - Added set_view_distance_factor(npc, factor): scales an NPC's sight range, the distance counterpart of set_view_speed. Probes the engine bind and no-ops when the exe lacks it.
     - Added get_enclosure(pos): roof up-ray plus four cardinal wall-rays at a position, returning the hit distances. is_indoor now reads it, replacing the fixed heuristic.
 
@@ -115,8 +119,8 @@
     - set_exclusive_spawn_section now also accepts an array of squad sections. The engine picks uniformly per spawn. A single section string works as before.
     - Removed add_runtime_job and remove_runtime_job, the runtime exclusive-job injector, now that its only consumer no longer uses it.
     - The spawn writers (set_shared_spawn, set_shared_spawn_section, set_exclusive_spawn, set_exclusive_spawn_tiered,
-      set_exclusive_spawn_section) now drop squad sections absent from the system ini before writing the respawn row,
-      so an injected entry can never name a section the engine cannot spawn. An entry left with no valid section is not written.
+      set_exclusive_spawn_section) now drop squad sections absent from the system ini before writing the respawn row, so an injected entry can never name a section the engine cannot spawn.
+      An entry left with no valid section is not written.
 
   xsmart
     - clear_npc_job now unlinks the NPC from the smart's job-occupancy map before clearing its job fields, mirroring vanilla clear_job,
@@ -139,7 +143,7 @@
 
   xsound
     - Added length(snd_path): a sound's duration in seconds, read from the file without playing it.
-    - Fixed one-shot sounds cut short by the collector: play routes through play_no_feedback so GC cannot reclaim the sound object mid-play.
+    - Fixed single-play sounds cut short by the collector: play routes through play_no_feedback so GC cannot reclaim the sound object mid-play.
 
   xprops
     - Added the xprops module for placeable world props: place(section, pos, opts), remove(id), ground_below(pos, opts), is_clear(pos, dims, opts).
@@ -156,30 +160,28 @@
     - Added topup_takeover_block(npc): re-applies the takeover's blocking precondition to any listed action present on the NPC's manager but not yet blocked.
       install_takeover seeds a per-NPC blocked set and applies through it, and a consumer re-runs the top-up at each seize,
       so a scheme whose action binds after the graft (a later gulag job change re-running scheme setup) no longer escapes the block for the NPC's life.
-    - Added is_takeover_current(npc): true while the grafted takeover action is the manager's current top-level action -
-      the live "does the takeover actually hold this NPC" read, for consumers detecting an unlisted action holding the slot under an open transaction.
+    - Added is_takeover_current(npc): true while the grafted takeover action is the manager's current top-level action - the live "does the takeover actually hold this NPC" read,
+      for consumers detecting an unlisted action holding the slot under an open transaction.
     - Added TAKEOVER_ID: the grafted takeover action's GOAP id, exported so a consumer can declare it to state_mgr.combat_action_ids,
       which keeps state_mgr_to_idle_combat applicable for the whole takeover, so the idle evaluator no longer forces the combat flag false.
     - Changed find_flee_lane's last-resort fallback to validate its run lane like the fan phases: the farthest reachable partial is now obstacle-checked,
       and the search returns nil when nothing clear validates (no lane through a tree or crate).
-    - Added body_busy(npc): true while a transient animation owns the body - the critical-hit stagger (critically_wounded, exact to the stagger anim's duration),
-      a script animation overlay, or the engine hit flinch where the exe exposes it. The "never act on an animating body" gate for consumers that write NPC state.
+    - Added body_busy(npc): true while a transient animation owns the body - the critical-hit stagger (critically_wounded, exact to the stagger anim's duration), a script animation overlay,
+      or the engine hit flinch where the exe exposes it. The "never act on an animating body" gate for consumers that write NPC state.
     - Added is_flinching(npc): probed read of the engine hit-flinch window (is_hit_anim_playing), false on exes without the bind.
-    - Added is_staggering(npc): true exactly while the critical-hit stagger animation plays. Wraps the engine's misleadingly named
-      critically_wounded() (a ~1s hit reaction, distinct from the wounded-down state) so consumers pause on it and treat it as a stagger.
+    - Added is_staggering(npc): true exactly while the critical-hit stagger animation plays. Wraps the engine's misleadingly named critically_wounded() (a ~1s hit reaction,
+      distinct from the wounded-down state) so consumers pause on it and treat it as a stagger.
     - Added get_sight_target(npc): the sight manager's current sight object id and mode (sight_params m_object/m_sight_type) -
       the identity+mode pair the state machinery's direction evaluator gates fire on for a look order (the body angle is never measured).
       For traces and consumers asking whether a look_object order was actually accepted.
-    - Fixed a takeover-held NPC staying sight-glued to his PREVIOUS enemy: the engine sight slot has no expiry, so the old fight's stare
-      survived the takeover and the state machinery could not replace it while any of its direction preconditions hung - the NPC held
-      a maneuver facing the wrong man and never fired (the counterflank freeze). set_combat now sets the sight at the committed target
-      on every firing apply, the exact call and branch the state machinery itself uses, so the two writers agree. The mode stamp is
-      written alongside, so fire releases once the body converges. This is the fire-side twin of the existing stowed-rout path-sight assert.
+    - Fixed a takeover-held NPC staying sight-glued to his PREVIOUS enemy. The engine sight slot has no expiry, so the old fight's stare survived the takeover,
+      and the state machinery could not replace it while any direction precondition hung. The NPC held a maneuver facing the wrong man and never fired, the counterflank freeze.
+      set_combat now sets the sight at the committed target on every firing apply, the exact call and branch the state machinery itself uses, so the two writers agree.
+      The mode stamp is written alongside, so fire releases once the body converges. This is the fire-side twin of the existing stowed-rout path-sight assert.
 
   xmath
-    - Added check_pos(pos): a position-type guard the spatial-query entry points now run on their argument.
-      find_smart, find_friendly_base, is_near_campfire, find_squad, find_squads, has_squad, find_stashes, cell_key, and is_indoor now reject a non-vector position
-      safely. A foreign mod that shadows an object's position field with a method no longer crashes the game through these calls.
+    - Added check_pos(pos): a position-type guard the spatial-query entry points now run on their argument. find_smart, find_friendly_base, is_near_campfire, find_squad, find_squads, has_squad,
+      find_stashes, cell_key, and is_indoor now reject a non-vector position safely. A foreign mod that shadows an object's position field with a method no longer crashes the game through these calls.
 
   xactor
     - Added get_talking_npc(actor): the NPC the actor is currently trading or in dialog with.
@@ -214,8 +216,7 @@
       The stop edge is best-effort. Bound edge-tracked state with a staleness window or confirm via is_reloading.
     - Added is_reloading(npc): authoritative reload read over the active weapon's state machine, works on every exe.
       The reload state numeric is 7 (eReload). Older comparisons that circulate 5 (eFire) are wrong.
-    - Changed disclose_enemy to also promote the disclosed enemy into SEEN memory on exes with the make_enemy_visible bind (PR #613, probed):
-      enemy selection ranks "currently seen" far above hit memory,
+    - Changed disclose_enemy to promote the disclosed enemy into SEEN memory on exes with the make_enemy_visible bind (PR #613, probed): enemy selection ranks "currently seen" far above hit memory,
       so the promotion is what makes the victim actually turn on the shooter. Floor exes keep the memory-only disclosure unchanged.
 
   xcreature
@@ -231,8 +232,7 @@
       so it passes the faction gate on an exclusive smart, where a plain shared-section entry (no .faction) would be suppressed.
     - Added set_exclusive_spawn_tiered(smart, key, faction, spawn_num): the exclusive faction inject with the squad tiers capped by the level's danger tier (xlevel.get_danger_tier), cumulative:
       rookie maps field novice squads only, early maps novice/advanced, mid maps and north the full pool. Unknown levels read as the shared mid default (novice/advanced).
-    - Added add_runtime_job(smart, opts) and remove_runtime_job(smart, section):
-      push a self-contained exclusive job into a smart's job list from caller-supplied logic text, priority, and precondition,
+    - Added add_runtime_job(smart, opts) and remove_runtime_job(smart, section): push a self-contained exclusive job into a smart's job list from caller-supplied logic text, priority and precondition,
       then pull it back out and free any NPC that held it. Jobs rebuild on load, so callers re-ensure on their own cadence. No-op for smarts off the actor level.
 
   xlevel
@@ -255,28 +255,22 @@
   Summary: get_faction_smart_count, is_companion, is_unscriptable_se, dist_flat_sqr, set_combat fire discipline, fire queue bands, cover-repick veto
 
   xsmart
-    - Added get_faction_smart_count(factions, level_id): count of smarts on a level with a
-      stationed squad of the given community, or of any community in a given set. Reads the
-      SIMBOARD squads roster through a per-level snapshot cached for 60 seconds.
+    - Added get_faction_smart_count(factions, level_id): count of smarts on a level with a stationed squad of the given community, or of any community in a given set.
+      Reads the SIMBOARD squads roster through a per-level snapshot cached for 60 seconds.
 
   xsquad
-    - Added is_companion(squad): true for an active companion squad, 0 luabind. The companion
-      branch of has_active_role and is_protected now routes through it.
+    - Added is_companion(squad): true for an active companion squad, 0 luabind. The companion branch of has_active_role and is_protected now routes through it.
 
   xcreature
-    - Added is_unscriptable_se: server-entity variant of is_unscriptable that works on offline
-      entities. Checks story_id, unscriptable_npcs section, and squad story_id without a game
-      object. The companion has_info signal is game-object-only and omitted.
+    - Added is_unscriptable_se: server-entity variant of is_unscriptable that works on offline entities. Checks story_id, unscriptable_npcs section, and squad story_id without a game object.
+      The companion has_info signal is game-object-only and omitted.
 
   xcombat
-    - Changed set_combat to take a fire intent plus the enemy and resolve the fire discipline
-      itself: a FIRE or SNIPE intent degrades to READY when no shot makes sense. Consumers pass
-      an intent and hold no fire logic. The resolved state is no longer their concern.
-    - Added FIRE_QUEUE and get_fire_queue(kind, band): the engine's [fire_queue_params] burst
-      envelope (size and interval bounds per weapon kind and distance band) as static data.
+    - Changed set_combat to take a fire intent plus the enemy and resolve the fire discipline itself: a FIRE or SNIPE intent degrades to READY when no shot makes sense.
+      Consumers pass an intent and hold no fire logic. The resolved state is no longer their concern.
+    - Added FIRE_QUEUE and get_fire_queue(kind, band): the engine's [fire_queue_params] burst envelope (size and interval bounds per weapon kind and distance band) as static data.
       Unknown kinds fall back to the rifle bands, unknown bands to medium.
-    - Added on_cover_repick(fn): subscribe to the best-cover re-pick veto so fn(npc, flags) can set
-      flags.allow = false to keep an NPC's current cover and skip shuffling to a newly-found one.
+    - Added on_cover_repick(fn): subscribe to the best-cover re-pick veto so fn(npc, flags) can set flags.allow = false to keep an NPC's current cover and skip shuffling to a newly-found one.
       Registers only when the engine seam exists and returns whether it did, inert on builds without it.
 
   xmath
@@ -289,62 +283,43 @@
     - Added xmcm.platform_status: dynamic checking of xlibs and xray-monolith/AOEngine versions.
 
   xlog
-    - Fixed the periodic flush that fired exactly once per session. It now fires every 60 seconds.
-      The flush timer now re-arms itself, so buffered INFO/DEBUG lines reach disk on the
-      configured interval, no longer waiting for a save, level change, or error write.
+    - Fixed the periodic flush that fired exactly once per session. It fires every 60 seconds. The flush timer now re-arms itself, so buffered INFO/DEBUG lines reach disk on the configured interval,
+      no longer waiting for a save, level change, or error write.
 
   xcreature
-    - Changed get_name to translate-first for mutants: a localized inv_name or section string
-      now beats the built-in English name table, and results are memoized per section.
-    - Changed get_name to return nil for nil entities and nameless stalkers. Callers choose
-      the fallback text (was baked "unknown" / "stalker" / "mutant").
-    - Removed query() with its fluent iterator surface, entity_type, pos, online_iter,
-      get_goodwill, set_goodwill. get_clsid is now internal. No consumers existed.
+    - Changed get_name to translate-first for mutants: a localized inv_name or section string now beats the built-in English name table, and results are memoized per section.
+    - Changed get_name to return nil for nil entities and nameless stalkers. Callers choose the fallback text (was baked "unknown" / "stalker" / "mutant").
+    - Removed query() with its fluent iterator surface, entity_type, pos, online_iter, get_goodwill, set_goodwill. get_clsid is now internal. No consumers existed.
 
   xttltable
-    - Fixed ttl_table :get() collapsing a stored false to nil. false now round-trips, matching
-      the fifo_cache negative-cache convention.
+    - Fixed ttl_table :get() collapsing a stored false to nil. false now round-trips, matching the fifo_cache negative-cache convention.
     - Removed create_budget. No consumers existed.
 
   xsquad
-    - Added collect_squad_ids(out): snapshots all SIMBOARD squad ids into a reusable array,
-      id-only with 0 luabind cost, so a caller can spread a squad walk across frames without
-      touching the live table mid-iteration.
-    - Added create_squad(smart, section): spawns a squad at a smart through the vanilla board
-      path, with roster assignment and squad_on_npc_creation fired natively.
+    - Added collect_squad_ids(out): snapshots all SIMBOARD squad ids into a reusable array, id-only with 0 luabind cost,
+      so a caller can spread a squad walk across frames without touching the live table mid-iteration.
+    - Added create_squad(smart, section): spawns a squad at a smart through the vanilla board path, with roster assignment and squad_on_npc_creation fired natively.
 
   xcombat
-    - Added wrappers over the per-NPC combat-AI engine binds from themrdemonized/xray-monolith
-      PRs #594, #595, #596: set_aim_params, set_vision_speed, can_kill_enemy, can_kill_member,
-      fire_make_sense, on_action_switch. Each wrapper probes its engine bind on the first call.
-      Below the bind each degrades to a defined fallback, so consumers never touch a raw bind.
-    - Added sees(npc, obj): the visible-right-now read (the test vanilla kill_enemy fires on),
-      nil-guarded, so consumers route every sight check through one primitive.
-    - Added get_cover_state(npc): the combat planner's stored cover flags (in_cover, looked_out,
-      position_held) as one guarded read. Engine bookkeeping (cover flags the planner tracked). It returns
-      nil when there is no planner to ask.
-    - Added release_takeover_id(id): id-keyed sibling of release_takeover for server-side
-      unregister, so a recycled NPC id re-grafts cleanly.
-    - Changed install_takeover to assert on a second differing takeover spec. A second spec no longer silently
-      replaces the first consumer's policy. A failed install no longer writes the spec.
+    - Added wrappers over the per-NPC combat-AI engine binds from themrdemonized/xray-monolith PRs #594, #595, #596: set_aim_params, set_vision_speed, can_kill_enemy, can_kill_member, fire_make_sense,
+      on_action_switch. Each wrapper probes its engine bind on the first call. Below the bind each degrades to a defined fallback, so consumers never touch a raw bind.
+    - Added sees(npc, obj): the visible-right-now read (the test vanilla kill_enemy fires on), nil-guarded, so consumers route every sight check through one primitive.
+    - Added get_cover_state(npc): the combat planner's stored cover flags (in_cover, looked_out, position_held) as one guarded read. It returns nil when there is no planner to ask.
+    - Added release_takeover_id(id): id-keyed sibling of release_takeover for server-side unregister, so a recycled NPC id re-grafts cleanly.
+    - Changed install_takeover to assert on a second differing takeover spec. A second spec no longer silently replaces the first consumer's policy. A failed install no longer writes the spec.
     - Removed resolve_stance, find_point, AGGRESSOR_KINDS. No consumers existed.
-    - Fixed send_to returning the engine's invalid-vertex sentinel when accessible_nearest fails.
-      It now falls back to the NPC's own node, so an arrival check cannot read the previous,
+    - Fixed send_to returning the engine's invalid-vertex sentinel when accessible_nearest fails. It now falls back to the NPC's own node, so an arrival check cannot read the previous,
       already-completed path as an instant arrival.
 
   xsmart
-    - Added reconcile_squad_roster(squad, from_smart_id): syncs SIMBOARD.smarts rosters after a
-      squad changed smart through the roster-blind vanilla assign_smart, so has_capacity /
-      is_smart_empty read truth. Idempotent, a no-op on a base that already syncs.
-    - Fixed get_npc_roles serving a dead NPC's cached role set to the new holder of a recycled
-      server id. A cache entry now verifies the NPC section on hit. It re-detects on a mismatch.
+    - Added reconcile_squad_roster(squad, from_smart_id): syncs SIMBOARD.smarts rosters after a squad changed smart through the roster-blind vanilla assign_smart,
+      so has_capacity / is_smart_empty read truth. Idempotent, a no-op on a base that already syncs.
+    - Fixed get_npc_roles serving a dead NPC's cached role set to the new holder of a recycled server id. A cache entry now verifies the NPC section on hit. It re-detects on a mismatch.
     - Removed get_npc_for_job. get_declared_factions is now internal. No consumers existed.
 
   Surface audit
-    - Removed every remaining export with no consumers, verified by census across all 8
-      consumer repos plus Warfare-erepb. Per-module lists below.
-    - Removed from xtable: is_array, clone, filter, find, reduce, sweep, bisect_left,
-      binary_insert, memoize, acquire_lock, check_lock, clear_locks.
+    - Removed every remaining export with no consumers, verified by census across all 8 consumer repos plus Warfare-erepb. Per-module lists below.
+    - Removed from xtable: is_array, clone, filter, find, reduce, sweep, bisect_left, binary_insert, memoize, acquire_lock, check_lock, clear_locks.
     - Removed from xmath: chance, prd_chance, prd_reset, weighted_choice, vary.
     - Removed from xbus: unsubscribe, get_subscribers, count, has, stats, reset_stats, debug_state.
     - Removed from xevent: unhook, emit, list_hooks.
@@ -361,70 +336,53 @@
            xsquad get_community
 
   xcreature
-    - Fixed get_clsid misclassifying low entity IDs. It short-circuited any number in [1,999] as an
-      already-resolved class id and returned it unchanged, so early story NPCs (ids below 1000) read
-      back their own id where a clsid was expected, so is_npc / is_stalker / is_mutant returned wrong answers.
-      Numbers now always resolve through xobject.se. No caller passed a raw clsid through this path.
-    - Replaced literal 65535 invalid-entity sentinels in get_mutant_species / get_mutant_variant with
-      xconst.INVALID_ENTITY_ID, matching xsquad.
+    - Fixed get_clsid misclassifying low entity IDs. It short-circuited any number in [1,999] as an already-resolved class id and returned it unchanged,
+      so early story NPCs (ids below 1000) read back their own id where a clsid was expected, so is_npc / is_stalker / is_mutant returned wrong answers. Numbers now always resolve through xobject.se.
+      No caller passed a raw clsid through this path.
+    - Replaced literal 65535 invalid-entity sentinels in get_mutant_species / get_mutant_variant with xconst.INVALID_ENTITY_ID, matching xsquad.
 
   xsmart
-    - Added get_job_for_npc(smart, npc_id): the job a given NPC holds at the smart, or nil. Inverse
-      of get_npc_for_job. The descriptor carries section and job_type_id.
-    - Added is_near_campfire(smart, position, radius): true if the position is within radius of any
-      campfire bound to the smart. Distinguishes a real fire seat from the campfire_point scheme's
-      random-cover fallback.
+    - Added get_job_for_npc(smart, npc_id): the job a given NPC holds at the smart, or nil. Inverse of get_npc_for_job. The descriptor carries section and job_type_id.
+    - Added is_near_campfire(smart, position, radius): true if the position is within radius of any campfire bound to the smart.
+      Distinguishes a real fire seat from the campfire_point scheme's random-cover fallback.
 
   xinventory
-    - Added get_rank_chance(section, actor, ruleset): a 0..1 appearance chance for a section by the
-      actor's rank tier, with a hard category floor and per-tier cost bands. Rank-gate kernel for the
-      AlifePlus faction market.
-    - Added release_item_id(id): id-based sibling of release_item that releases offline items too
-      (no game_object required).
-    - Fixed create_item dropping the cond value on non-degradable items.
-      alife_create_item registers the deferred set_condition only for use_condition sections, so
-      weapons, outfits, and helmets spawned at full condition.
-      create_item now applies the requested condition through alife_process_item for those sections.
+    - Added get_rank_chance(section, actor, ruleset): a 0..1 appearance chance for a section by the actor's rank tier, with a hard category floor and per-tier cost bands.
+      Rank-gate kernel for the AlifePlus faction market.
+    - Added release_item_id(id): id-based sibling of release_item that releases offline items too (no game_object required).
+    - Fixed create_item dropping the cond value on non-degradable items. alife_create_item registers the deferred set_condition only for use_condition sections, so weapons, outfits,
+      and helmets spawned at full condition. create_item now applies the requested condition through alife_process_item for those sections.
 
   xsquad
-    - Added get_community(squad): raw community id (faction key), the untranslated sibling of
-      get_community_name.
+    - Added get_community(squad): raw community id (faction key), the untranslated sibling of get_community_name.
 
 1.7.7
   Summary: xcombat combat-AI module, xcreature goodwill, xpda npc tip, id-yielding iterator, xinventory policy rows by category or item section, dead-helper cleanup
 
   xcombat (new)
-    - Combat-AI primitives for a script-driven NPC combat takeover: enemy-memory readers, ring-search
-      cover and shot finders, a combat-state matrix, engine-routed movement and stance resolution, and
-      disclose_enemy to force an NPC to register a known enemy. Drives the AlifeTactics turret takeover.
+    - Combat-AI primitives for a script-driven NPC combat takeover: enemy-memory readers, ring-search cover and shot finders, a combat-state matrix, engine-routed movement and stance resolution,
+      and disclose_enemy to force an NPC to register a known enemy. Drives the AlifeTactics turret takeover.
 
   xcreature
-    - Added get_goodwill(obj, target) / set_goodwill(obj, value, target) over the engine personal
-      relation registry. set_goodwill writes only the personal term (engine-clamped), letting a
-      caller flip one NPC's attitude toward another without touching community relations.
-    - Added online_iter_with_id() yielding (id, obj) pairs from gameobjects_registry (modded-exes)
-      or db.storage (fallback). Caller can validate destroyed-state via alife_object(id) before any
-      method call on obj, avoiding "you are trying to use a destroyed object [N]" warnings during the
-      window where iterator yields an obj whose game-side destroy started but server release has run.
+    - Added get_goodwill(obj, target) / set_goodwill(obj, value, target) over the engine personal relation registry. set_goodwill writes only the personal term (engine-clamped),
+      letting a caller flip one NPC's attitude toward another without touching community relations.
+    - Added online_iter_with_id() yielding (id, obj) pairs from gameobjects_registry (modded-exes) or db.storage (fallback).
+      Caller can validate destroyed-state via alife_object(id) before any method call on obj,
+      avoiding "you are trying to use a destroyed object [N]" warnings during the window where iterator yields an obj whose game-side destroy started but server release has run.
 
   xpda
-    - Added npc_tip(npc, msg, opts) sending an NPC-attributed PDA tip: header is the speaker's name,
-      body the message id, icon the speaker's portrait, plus a PDA sound. Direct to the actor (not
-      faction-channel routed). opts: header, sound, showtime.
+    - Added npc_tip(npc, msg, opts) sending an NPC-attributed PDA tip: header is the speaker's name, body the message id, icon the speaker's portrait, plus a PDA sound.
+      Direct to the actor (not faction-channel routed). opts: header, sound, showtime.
 
   xinventory
-    - Added item-section policy rows: a policy row key is now a category or an item section. An item
-      uses its section's rule when the policy names that section, otherwise its category's rule
-      (policy_key). classify, iterate_surplus and build_surplus_map all key through it. A config can
-      cap a whole category or single out individual items in one min/max policy.
-    - Changed get_equipped_ids to exclude the grenade slot, so a slotted grenade stays managed by
-      inventory policy (capped, or removed when its section is named).
-    - Added is_corpse_take(mode, bag) and deny_move(flags) for ActorMenu_on_item_before_move
-      handlers: is_corpse_take tells a loot-mode take from a dead body, deny_move vetoes the move.
+    - Added item-section policy rows: a policy row key is now a category or an item section. An item uses its section's rule when the policy names that section,
+      otherwise its category's rule (policy_key). classify, iterate_surplus and build_surplus_map all key through it.
+      A config can cap a whole category or single out individual items in one min/max policy.
+    - Changed get_equipped_ids to exclude the grenade slot, so a slotted grenade stays managed by inventory policy (capped, or removed when its section is named).
+    - Added is_corpse_take(mode, bag) and deny_move(flags) for ActorMenu_on_item_before_move handlers: is_corpse_take tells a loot-mode take from a dead body, deny_move vetoes the move.
       A consumer gates corpse looting without touching the engine list enum or the ret_value flag.
-    - Removed get_ammo_count, get_ammo_classes, get_ammo_tier, get_ammo_tier_sorted. No downstream
-      consumer remained after AlifeTactics at_ammo switched to a fixed AP section set. Public surface
-      retains get_ammo_sections, get_ammo_tier_map (used by AlifePlus trade), resolve_ammo_category.
+    - Removed get_ammo_count, get_ammo_classes, get_ammo_tier, get_ammo_tier_sorted. No downstream consumer remained after AlifeTactics at_ammo switched to a fixed AP section set.
+      Public surface retains get_ammo_sections, get_ammo_tier_map (used by AlifePlus trade), resolve_ammo_category.
 
 1.7.6
   Summary: xsquad.is_squad, xsmart class guard
@@ -448,9 +406,7 @@
     - LAST_MAIN_SLOT lowered from 18 to 14 to match runtime slot_persistent count (Inventory.cpp:72-86).
     - Removed 20 dedicated is_X predicates (is_medkit, is_bandage, and others). Use is_in_category(sec, category).
     - Removed in_reward_set. Superseded by the category model (get_section_category / is_in_category).
-      (Record backfilled 2026-07-08, removal was in this release.)
-    - Changed xobject.iterate_online_inventory to xinventory.iterate_inventory with the
-      xobject/xinventory boundary split. (Record backfilled 2026-07-08, move was in this release.)
+    - Changed xobject.iterate_online_inventory to xinventory.iterate_inventory with the xobject/xinventory boundary split.
 
   xsmart
     - get_npc_roles(npc) returns the set of all roles an NPC fulfills (was get_npc_role single-string).
@@ -458,9 +414,8 @@
       level_spot signal dropped (vanilla quest scripts set level_spot=trader on non-traders).
       is_trader_npc, is_medic_npc, is_mechanic_npc unchanged (predicates over the set).
     - smarts_by_names() returns SIMBOARD.smarts_by_names for whole-world smart iteration (nil-guarded).
-    - Removed get_controlling_faction (the 1.7.0 rename of get_smart_faction) and is_smart_hostile_to.
-      No consumers remained. Holder reads go through smart.faction directly, props admission
-      through accepts_faction. (Record backfilled 2026-07-08, removals were in this release.)
+    - Removed get_controlling_faction (the 1.7.0 rename of get_smart_faction) and is_smart_hostile_to. No consumers remained. Holder reads go through smart.faction directly,
+      props admission through accepts_faction.
 
   xdata
     - 22 vanilla mechanics + 4 quest trader NPCs added to npc_roles as trader/medic destinations.
@@ -471,17 +426,17 @@
     - Explicit faction field on 4 Jupiter guard/leader entries (verified against squad_descr_jupiter.ltx).
 
 1.7.1
-  Summary: xsquad protection catches non-commander task-giver members, xsound one-shot helper for brief notification cues
+  Summary: xsquad protection catches non-commander task-giver members, xsound single-play helper for brief notification cues
   xsquad:
     Fixed: is_protected catches squads whose non-commander member is the task giver.
-    _is_task_giver gained a pass 2: when no task points at the squad id or commander id, it accumulates task_giver_ids and matches them against squad:squad_members().
+    _is_task_giver gained a pass 2. When no task points at the squad id or commander id, it accumulates task_giver_ids and matches them against squad:squad_members().
     task_giver_id is polymorphic per vanilla (anomaly/axr_task_manager.script:723-732, sim_offline_combat.script:300-309): drx dialogs (axr_task_manager.script:792-794) write the squad id.
     Vanilla dialogs.script:680 npc_give_task and iTheon PDA Taskboard (ui_pda_taskboard_tab.script:138) write the specific npc id of the selected member.
     Before the fix, the npc-id case only matched when the selected NPC happened to be the squad commander.
     Consumers (AlifeGuard, AlifePlus, AlifeBalance, TestZone) inherit the broader coverage on next call, no caller change required.
-    Pass 1 cost unchanged, pass 2 fires only on pass-1 miss and adds one squad_members iteration with hash-set lookup.
+    Pass 1 cost is unchanged. Pass 2 fires only on a pass-1 miss and adds one squad_members iteration with a hash-set lookup.
   xsound:
-    Added: play(snd_path, opts). One-shot 2D sound, no handle, no looping. For brief notification cues, pairing with the existing acquire/release looping API.
+    Added: play(snd_path, opts). Single-play 2D sound, no handle, no looping. For brief notification cues, pairing with the existing acquire/release looping API.
     opts.volume sets initial volume (default 1.0).
 
 1.7.0
@@ -522,7 +477,7 @@
   xsmart:
     Added: get_npc_for_job(smart, type_id). Returns the online game_object of the NPC assigned to a job of the given type_id at this smart.
     Generic resolver for assigned job slots (e.g. JOB_TYPE_CAMPFIRE_POINT, JOB_TYPE_GENERIC_POINT). Does NOT identify the trader NPC.
-    job_type_id=15 (JOB_TYPE_TRADER) tags the visitor patrol slot (`<smart>_beh_trade_<i>`, gulag_general.script:971), not the barman's seated logic block.
+    job_type_id=15 (JOB_TYPE_TRADER) tags the visitor patrol slot (`<smart>_beh_trade_<i>`, gulag_general.script:971). The barman's seated logic block is a different slot.
   xstash:
     Removed: NOTABLE_PREFIXES, NOTABLE_SET, is_notable_item, filter_notable_stash_items. Domain-curated "which items are notable for news" filter that did not belong in a generic engine-wrap library.
     No callers outside xstash itself.
@@ -534,7 +489,7 @@
     Added: get_section_npc_max(section). Upper bound of a squad section's npc_in_squad field. Pairs with section_faction for recipe-content inspection. Cached.
     Added: find_smarts_with_recipe(level_id, faction). Walks SIMBOARD.smarts once, filters by level and by recipe-content match via section_faction. Returns smart server objects directly.
     Added: has_squad_of_faction(smart_id, faction, exclude_id). True if any squad of the given faction is at the smart, short-circuiting on first match.
-    Reads squad.player_id (trivial luabind) in place of get_squad_community (heavy).
+    Reads squad.player_id (trivial luabind) for the faction match, a cheaper read than get_squad_community.
     Changed: section_faction reads memoized per section. Repeated lookups for the same squad section return from cache without opening the LTX file each call.
   xstash:
     Added: opts.source on find_stashes. Replaces treasure_manager.caches as the iteration set when present.
@@ -739,7 +694,6 @@
   Fixed: xobject.get_box_size crash when ammo section doesn't exist in system_ini
 
 1.0.5
-  xlevel pcall removal, nil guard improvements.
   Fixed: get_game_hours unnecessary pcall, replaced with level.present() guard
   Fixed: get_current_level_name missing level.present() guard
 
