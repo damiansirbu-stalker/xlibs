@@ -385,7 +385,8 @@ Smart property predicates (read from smart.props / engine fields):
 - `is_base(smart)`, `is_lair(smart)`, `is_resource(smart)`, `is_territory(smart)`
 - `has_surge_shelter(smart)` - Smart has surge shelter (emission-safe indoor)
 - `has_campfire(smart)` - Has a map-placed campfire (any distance) or a live online one. Static `xdata.campfire_smarts` set, online table as fallback
-- `has_anomaly(smart)` - Within 50m of any online anomaly zone
+- `has_hazard_anomaly(smart)` / `is_hazard_anomaly_near(pos, radius)` - Within 50m / radius of any online hazard anomaly field (bind_anomaly_field.fields_by_names, the zones that hurt)
+- `has_artefact_anomaly(smart)` - Within 50m of any online artefact anomalous zone (db.anomaly_by_name, section anomal_zone, where artefacts spawn)
 - `has_animated_jobs(smart)` - Has any non-stub stalker job (excludes generic_point / campfire_point stubs)
 - `accepts_faction(smart, faction)` - Engine target_precondition Tier 1: props.all OR props.all_stalker/all_monster OR props[faction]
 - `is_near_campfire(smart, position, radius)` - Position within radius of one of the smart's campfires

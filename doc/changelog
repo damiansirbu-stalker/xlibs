@@ -1,4 +1,9 @@
 1.9.2-snapshot
+  Summary: hazard vs artefact anomaly detection in xsmart
+
+  xsmart
+    - Added has_hazard_anomaly and is_hazard_anomaly_near for the anomaly fields that hurt, and has_artefact_anomaly for the zones that spawn artefacts.
+      Two distinct anomaly queries where there was one; a consumer asks for danger or for artefacts by name. Replaces has_anomaly and is_anomaly_near.
 
 1.9.1
   Summary: shared last-news clock for a PDA quiet window
