@@ -1,0 +1,438 @@
+--- xmonster: the CBaseMonster combat surface - FSM/memory readers, maneuver invokes, param setters, the decision-callback registrar
+
+local type, rawget = type, rawget
+
+xmonster = xmonster or {}
+
+-- Bind availability by name, probed once and cached for the session (the bind set is a property of the exe, immutable at runtime).
+local _bind_ready = {}
+
+-- True when the engine bind `name` exists on this exe's game_object.
+-- @cost O(1) | 1 luabind trivial on the first probe (method lookup), 0 cached
+local function _has_bind(mob, name)
+    local ready = _bind_ready[name]
+    if ready == nil then
+        ready = type(mob[name]) == "function"
+        _bind_ready[name] = ready
+    end
+    return ready
+end
+
+-- nil opts component -> -1, the engine's keep-current sentinel on every monster param setter.
+local function _get_keep(value)
+    if value == nil then return -1 end
+    return value
+end
+
+--- Deepest resolved monster FSM state id (EMonsterState), nil below the bind - an attacking monster reports its substate (Attack_Run), not eStateAttack.
+--- @safety SAFE - nil-guarded, nil below the bind
+--- @cost O(1) | 1 luabind trivial (StateMan substate walk)
+--- @src modded-exes/lua_help_ex.script (get_monster_state), xray/ai/monsters/monster_state_manager.cpp (get_state_type)
+--- @param mob game_object monster
+--- @return number|nil EMonsterState id, nil when unavailable
+function xmonster.get_monster_state(mob)
+    if not mob or not _has_bind(mob, "get_monster_state") then return nil end
+    return mob:get_monster_state()
+end
+
+--- True while the monster's jump control is in flight - the one-animation-owner gate: never command or override a body mid-jump.
+--- @safety SAFE - nil-guarded, false below the bind
+--- @cost O(1) | 1 luabind trivial
+--- @src modded-exes/lua_help_ex.script (is_monster_jumping), xray/ai/monsters/basemonster/base_monster.cpp:1059-1062
+--- @param mob game_object monster
+--- @return boolean true while a jump is active
+function xmonster.is_monster_jumping(mob)
+    if not mob or not _has_bind(mob, "is_monster_jumping") then return false end
+    return mob:is_monster_jumping()
+end
+
+--- Current monster morale value - an observability read (the live flee gate never consults it against the actor).
+--- @safety SAFE - nil-guarded, nil below the bind
+--- @cost O(1) | 1 luabind trivial (CMonsterMorale field read)
+--- @src modded-exes/lua_help_ex.script (get_monster_morale)
+--- @param mob game_object monster
+--- @return number|nil morale, nil when unavailable
+function xmonster.get_monster_morale(mob)
+    if not mob or not _has_bind(mob, "get_monster_morale") then return nil end
+    return mob:get_monster_morale()
+end
+
+--- Last-hit record from the monster FSM's own hit memory (.position, .count, who, time), nil below the bind or no mob.
+--- The .count gate matters: a never-hit monster anchors retreat logic at the world origin, so consumers check count > 0 first.
+--- @safety SAFE - nil-guarded, nil below the bind
+--- @cost O(1) | 1 luabind trivial (CMonsterHitMemory read)
+--- @src modded-exes/lua_help_ex.script (get_monster_hit_info), xray/ai/monsters/monster_hit_memory.cpp:156 (the origin default)
+--- @param mob game_object monster
+--- @return userdata|nil the hit info, nil when unavailable
+function xmonster.get_monster_hit_info(mob)
+    if not mob or not _has_bind(mob, "get_monster_hit_info") then return nil end
+    return mob:get_monster_hit_info()
+end
+
+--- Last-heard-sound record from the monster FSM's own sound memory (.type, .count, position, power), nil below the bind.
+--- @safety SAFE - nil-guarded, nil below the bind
+--- @cost O(1) | 1 luabind trivial (CMonsterSoundMemory read)
+--- @src modded-exes/lua_help_ex.script (get_sound_info)
+--- @param mob game_object monster
+--- @return userdata|nil the sound info, nil when unavailable
+function xmonster.get_monster_sound_info(mob)
+    if not mob or not _has_bind(mob, "get_sound_info") then return nil end
+    return mob:get_sound_info()
+end
+
+--- The monster enemy-memory record (last-seen time and position, enemies count), nil below the bind.
+--- @safety SAFE - nil-guarded, nil below the bind
+--- @cost O(1) | 1 luabind trivial (CMonsterEnemyMemory read)
+--- @src modded-exes/lua_help_ex.script (get_monster_enemy_info)
+--- @param mob game_object monster
+--- @return userdata|nil the enemy info, nil when unavailable
+function xmonster.get_monster_enemy_info(mob)
+    if not mob or not _has_bind(mob, "get_monster_enemy_info") then return nil end
+    return mob:get_monster_enemy_info()
+end
+
+--- The monster home-territory record (point and radii), nil below the bind.
+--- @safety SAFE - nil-guarded, nil below the bind
+--- @cost O(1) | 1 luabind trivial (CMonsterHome read)
+--- @src modded-exes/lua_help_ex.script (get_monster_home_info)
+--- @param mob game_object monster
+--- @return userdata|nil the home info, nil when unavailable
+function xmonster.get_monster_home_info(mob)
+    if not mob or not _has_bind(mob, "get_monster_home_info") then return nil end
+    return mob:get_monster_home_info()
+end
+
+--- Monster health in ABSOLUTE points (a dog ~120, a chimera ~1000 - never a 0..1 fraction), 0 when unreadable.
+--- @safety SAFE - nil-guarded; the property read is engine-SAFE_WRAPped
+--- @cost O(1) | 1 luabind trivial (health property read)
+--- @src xray/script_game_object_script2.cpp:76 (.property health), xray/ai/monsters/basemonster/base_monster_startup.cpp:72 (points load)
+--- @param mob game_object monster
+--- @return number health points, 0 when mob is nil
+function xmonster.get_monster_health(mob)
+    if not mob then return 0 end
+    return mob.health
+end
+
+--- Write monster health in ABSOLUTE points via the health property - never set_health_ex, whose [0,1] clamp near-kills a point-valued monster.
+--- Monster health persists in saves, so callers write values computed from the LTX base (idempotent), never multiplied from the current value.
+--- @safety SAFE - nil-guarded; the property write is an absolute assignment with no clamp
+--- @cost O(1) | 1 luabind trivial (health property write)
+--- @src xray/script_game_object_script2.cpp:76 (.property health = SetHealth), xray/script_game_object4.cpp:450-456 (the set_health_ex clamp trap)
+--- @param mob game_object monster
+--- @param health_points number absolute health points to assign
+function xmonster.set_monster_health(mob, health_points)
+    if not mob or not health_points then return end
+    mob.health = health_points
+end
+
+--- Command a jump toward a world position through the monster jump control; the engine validates capture, never geometry.
+--- THE CALLER BOUNDS THE TARGET and checks facing first: this path runs no distance/angle check, and the damage cone follows the body axis.
+--- @safety SAFE - nil-guarded, false below the bind; the engine refuses during an active jump, a foreign capture, or scheme ownership
+--- @cost O(1) | 1 luabind medium (component capture attempt)
+--- @src modded-exes/lua_help_ex.script (try_monster_jump), xray/ai/monsters/control_manager_custom.cpp:452-481 (script_try_jump)
+--- @param mob game_object monster
+--- @param pos vector world target position
+--- @param factor number jump force factor
+--- @param opts table|nil { skip_prepare = true } launches without the crouch wind-up (ePrepareSkip)
+--- @return boolean true when the jump was captured and started
+function xmonster.try_monster_jump(mob, pos, factor, opts)
+    if not mob or not pos or not _has_bind(mob, "try_monster_jump") then return false end
+    return mob:try_monster_jump(pos, factor, (opts and opts.skip_prepare) == true)
+end
+
+--- Start a rotation-jump from the species' loaded motion data - the instant turning juke (bloodsucker, dog, gigant, pseudodog, boar).
+--- @safety SAFE - nil-guarded, false below the bind; the engine refuses without data or under capture, and consults the FSM's own gate
+--- @cost O(1) | 1 luabind medium (component capture attempt)
+--- @src modded-exes/lua_help_ex.script (try_monster_rotation_jump), xray/ai/monsters/control_manager_custom.cpp:493
+--- @param mob game_object monster
+--- @return boolean true when started
+function xmonster.try_monster_rotation_jump(mob)
+    if not mob or not _has_bind(mob, "try_monster_rotation_jump") then return false end
+    return mob:try_monster_rotation_jump()
+end
+
+--- Start a run-attack - the full-speed charging strike (bloodsucker, boar, gigant).
+--- @safety SAFE - nil-guarded, false below the bind; the engine refuses without the component and consults the FSM's own gate
+--- @cost O(1) | 1 luabind medium (component capture attempt)
+--- @src modded-exes/lua_help_ex.script (try_monster_run_attack), xray/ai/monsters/control_manager_custom.cpp:516
+--- @param mob game_object monster
+--- @return boolean true when started
+function xmonster.try_monster_run_attack(mob)
+    if not mob or not _has_bind(mob, "try_monster_run_attack") then return false end
+    return mob:try_monster_run_attack()
+end
+
+--- Play the species threaten display - a free telegraph (data carriers today: snork, gigant; others refuse).
+--- @safety SAFE - nil-guarded, false below the bind; the engine refuses without threaten data
+--- @cost O(1) | 1 luabind medium (component capture attempt)
+--- @src modded-exes/lua_help_ex.script (try_monster_threaten)
+--- @param mob game_object monster
+--- @return boolean true when started
+function xmonster.try_monster_threaten(mob)
+    if not mob or not _has_bind(mob, "try_monster_threaten") then return false end
+    return mob:try_monster_threaten()
+end
+
+--- Arm the dormant rear spin-strike (CControlMeleeJump) with the model's own strike motions; it then self-fires on rear exposure under 4m.
+--- Motions MUST carry their own attack_params rows or release deals the first row's numbers (the damage law).
+--- @safety SAFE - nil-guarded, false below the bind; an unknown motion name keeps the component refusing (engine guard)
+--- @cost O(1) | 1 luabind trivial (motion resolve + data fill, once per arm)
+--- @src modded-exes/lua_help_ex.script (set_monster_melee_strike), xray/ai/monsters/control_melee_jump.cpp:19-32 (the rear gate)
+--- @param mob game_object monster
+--- @param anim_left string left-side strike motion name
+--- @param anim_right string right-side strike motion name
+--- @param rear_arc_deg number rear cone width in degrees; <= 0 keeps the 120 default
+--- @return boolean true when the engine path applied
+function xmonster.set_monster_melee_strike(mob, anim_left, anim_right, rear_arc_deg)
+    if not mob or not _has_bind(mob, "set_monster_melee_strike") then return false end
+    mob:set_monster_melee_strike(anim_left, anim_right, rear_arc_deg or -1)
+    return true
+end
+
+--- Melee reach band (MeleeChecker MinAttackDist/MaxAttackDist); nil component = keep current; re-set on spawn, never serialized.
+--- @safety SAFE - nil-guarded, false below the bind
+--- @cost O(1) | 1 luabind trivial (2 field writes)
+--- @src modded-exes/lua_help_ex.script (set_monster_attack_dist), xray/ai/monsters/melee_checker.h:40-45
+--- @param mob game_object monster
+--- @param opts table { min_dist, max_dist } metres, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_monster_attack_dist(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_monster_attack_dist") then return false end
+    mob:set_monster_attack_dist(_get_keep(opts.min_dist), _get_keep(opts.max_dist))
+    return true
+end
+
+--- CControlJump params (distance band, angle, height, post-jump delay); nil component = keep; re-set on spawn.
+--- @safety SAFE - nil-guarded, false below the bind
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_monster_jump_params), xray/ai/monsters/control_jump.h:130-138
+--- @param mob game_object monster
+--- @param opts table { min_dist, max_dist, max_angle, max_height, delay_ms }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_monster_jump_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_monster_jump_params") then return false end
+    mob:set_monster_jump_params(_get_keep(opts.min_dist), _get_keep(opts.max_dist),
+        _get_keep(opts.max_angle), _get_keep(opts.max_height), _get_keep(opts.delay_ms))
+    return true
+end
+
+--- Script-forced jump flags, OR'd onto every jump's own fill - never clears an engine-set flag; auto_aim needs its factor too (configs ship 0).
+--- @safety SAFE - nil-guarded, false below the bind
+--- @cost O(1) | 1 luabind trivial (flag mask write)
+--- @src modded-exes/lua_help_ex.script (set_monster_jump_flags), xray/ai/monsters/control_jump.cpp (activate OR)
+--- @param mob game_object monster
+--- @param opts table { auto_aim, prepare_in_move, ground_skip (booleans, default false), auto_aim_factor (nil = keep) }
+--- @return boolean true when the engine path applied
+function xmonster.set_monster_jump_flags(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_monster_jump_flags") then return false end
+    mob:set_monster_jump_flags(opts.auto_aim == true, opts.prepare_in_move == true,
+        opts.ground_skip == true, _get_keep(opts.auto_aim_factor))
+    return true
+end
+
+--- Chimera/lurker attack geometry and jump economy; nil component = keep; the engine clamps its own sqrt so an oversized radius cannot NaN.
+--- @safety SAFE - nil-guarded, false below the bind; chimera-class only (engine error-logs other species)
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_chimera_attack_params), xray/ai/monsters/chimera/chimera.h:44-53
+--- @param mob game_object chimera or lurker
+--- @param opts table { attack_radius, prepare_timeout_ms, attack_timeout_ms, num_prepare_jumps, num_attack_jumps }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_chimera_attack_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_chimera_attack_params") then return false end
+    mob:set_chimera_attack_params(_get_keep(opts.attack_radius), _get_keep(opts.prepare_timeout_ms),
+        _get_keep(opts.attack_timeout_ms), _get_keep(opts.num_prepare_jumps), _get_keep(opts.num_attack_jumps))
+    return true
+end
+
+--- The attack-on-move circle geometry and side-flip cadence; nil component = keep; geometry only, the enabled switch stays config-owned.
+--- @safety SAFE - nil-guarded, false below the bind
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_monster_attack_on_move_params), xray/ai/monsters/basemonster/base_monster.h:595-607
+--- @param mob game_object monster
+--- @param opts table { max_go_close_time, far_radius, prepare_radius, prepare_time, attack_radius, update_side_period, prediction_factor }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_monster_circle_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_monster_attack_on_move_params") then return false end
+    mob:set_monster_attack_on_move_params(_get_keep(opts.max_go_close_time), _get_keep(opts.far_radius),
+        _get_keep(opts.prepare_radius), _get_keep(opts.prepare_time), _get_keep(opts.attack_radius),
+        _get_keep(opts.update_side_period), _get_keep(opts.prediction_factor))
+    return true
+end
+
+--- CControlRunAttack distance band and re-arm delay roll; nil component = keep; a wide max_dist re-fires the check per frame in band, keep it modest.
+--- @safety SAFE - nil-guarded, false below the bind; the engine error-logs species without the component
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_monster_run_attack_params), xray/ai/monsters/control_run_attack.h:18-25
+--- @param mob game_object monster carrying run-attack
+--- @param opts table { min_dist, max_dist, min_delay_ms, max_delay_ms }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_monster_rush_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_monster_run_attack_params") then return false end
+    mob:set_monster_run_attack_params(_get_keep(opts.min_dist), _get_keep(opts.max_dist),
+        _get_keep(opts.min_delay_ms), _get_keep(opts.max_delay_ms))
+    return true
+end
+
+--- The monster's ground heading-turn speed multiplier (1 = vanilla, <= 0 keeps current); in-flight jump alignment stays engine-owned.
+--- @safety SAFE - nil-guarded, false below the bind
+--- @cost O(1) | 1 luabind trivial (field write)
+--- @src modded-exes/lua_help_ex.script (set_monster_turn_factor), xray/ai/monsters/control_direction_base.cpp:77
+--- @param mob game_object monster
+--- @param factor number turn-speed multiplier
+--- @return boolean true when the engine path applied
+function xmonster.set_monster_turn_factor(mob, factor)
+    if not mob or not _has_bind(mob, "set_monster_turn_factor") then return false end
+    mob:set_monster_turn_factor(factor)
+    return true
+end
+
+--- One monster aura by name (psy, radiation, fire, base): falloff pair, power cap, range, read live by the aura's calculate().
+--- @safety SAFE - nil-guarded, false below the bind; the engine error-logs an unknown aura name
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_monster_aura_params)
+--- @param mob game_object monster
+--- @param aura_name string "psy" | "radiation" | "fire" | "base"
+--- @param opts table { linear, quadratic, max_power, max_distance }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_monster_aura_params(mob, aura_name, opts)
+    if not mob or not aura_name or not opts or not _has_bind(mob, "set_monster_aura_params") then return false end
+    mob:set_monster_aura_params(aura_name, _get_keep(opts.linear), _get_keep(opts.quadratic),
+        _get_keep(opts.max_power), _get_keep(opts.max_distance))
+    return true
+end
+
+--- The minimum dwell between bloodsucker visibility-state changes - the invisibility pacing (lower = faster flicker, higher = committed stretches).
+--- @safety SAFE - nil-guarded, false below the bind; bloodsucker only (engine error-logs other species)
+--- @cost O(1) | 1 luabind trivial (field write)
+--- @src modded-exes/lua_help_ex.script (set_bloodsucker_vis_timing), xray/ai/monsters/bloodsucker/bloodsucker.cpp:540-546
+--- @param mob game_object bloodsucker
+--- @param min_delay_ms number minimum ms between visibility transitions
+--- @return boolean true when the engine path applied
+function xmonster.set_bloodsucker_invisibility_delay(mob, min_delay_ms)
+    if not mob or not _has_bind(mob, "set_bloodsucker_vis_timing") then return false end
+    mob:set_bloodsucker_vis_timing(min_delay_ms)
+    return true
+end
+
+--- Force or release the burer's gravity attack - the WHEN lever for the gravi trigger (a vanilla modded-exes bind, present pre-floor).
+--- @safety SAFE - nil-guarded, false below the bind; burer only (engine error-logs other species)
+--- @cost O(1) | 1 luabind trivial (flag write)
+--- @src modded-exes/lua_help_ex.script (burer_set_force_gravi_attack), xray/script_game_object_use2.cpp:42-53
+--- @param mob game_object burer
+--- @param enabled boolean true forces the gravi attack on the next decision
+--- @return boolean true when the engine path applied
+function xmonster.set_burer_gravi_force(mob, enabled)
+    if not mob or not _has_bind(mob, "burer_set_force_gravi_attack") then return false end
+    mob:burer_set_force_gravi_attack(enabled == true)
+    return true
+end
+
+--- Burer gravity-attack family (cooldown, distance band, speed, radius, hit power); nil component = keep.
+--- @safety SAFE - nil-guarded, false below the bind; burer only
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_burer_gravi_params)
+--- @param mob game_object burer
+--- @param opts table { cooldown_ms, min_dist, max_dist, speed, radius, hit_power }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_burer_gravi_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_burer_gravi_params") then return false end
+    mob:set_burer_gravi_params(_get_keep(opts.cooldown_ms), _get_keep(opts.min_dist), _get_keep(opts.max_dist),
+        _get_keep(opts.speed), _get_keep(opts.radius), _get_keep(opts.hit_power))
+    return true
+end
+
+--- Burer telekinesis family (object count, find radius, distance band, fly velocity); nil component = keep.
+--- @safety SAFE - nil-guarded, false below the bind; burer only
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_burer_tele_params)
+--- @param mob game_object burer
+--- @param opts table { max_objects, find_radius, min_dist, max_dist, fly_velocity }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_burer_telekinesis_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_burer_tele_params") then return false end
+    mob:set_burer_tele_params(_get_keep(opts.max_objects), _get_keep(opts.find_radius),
+        _get_keep(opts.min_dist), _get_keep(opts.max_dist), _get_keep(opts.fly_velocity))
+    return true
+end
+
+--- Controller psi tube-attack pacing (damage, see-duration, minimum delay, minimum distance); nil component = keep; keep the envelope SLOW.
+--- @safety SAFE - nil-guarded, false below the bind; controller only
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_controller_tube_params)
+--- @param mob game_object controller
+--- @param opts table { damage, see_duration_ms, min_delay_ms, min_distance }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_controller_tube_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_controller_tube_params") then return false end
+    mob:set_controller_tube_params(_get_keep(opts.damage), _get_keep(opts.see_duration_ms),
+        _get_keep(opts.min_delay_ms), _get_keep(opts.min_distance))
+    return true
+end
+
+--- Controller per-hit stamina drain; negative keeps current.
+--- @safety SAFE - nil-guarded, false below the bind; controller only
+--- @cost O(1) | 1 luabind trivial (field write)
+--- @src modded-exes/lua_help_ex.script (set_controller_stamina_hit)
+--- @param mob game_object controller
+--- @param value number stamina drained per psi hit
+--- @return boolean true when the engine path applied
+function xmonster.set_controller_stamina_hit(mob, value)
+    if not mob or not _has_bind(mob, "set_controller_stamina_hit") then return false end
+    mob:set_controller_stamina_hit(value)
+    return true
+end
+
+--- Poltergeist hover-height family (band, change velocity, dwell band); nil component = keep - the per-spawn visible variation.
+--- @safety SAFE - nil-guarded, false below the bind; poltergeist only
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_poltergeist_height_params)
+--- @param mob game_object poltergeist
+--- @param opts table { height_min, height_max, change_velocity, min_time_ms, max_time_ms }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_poltergeist_height_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_poltergeist_height_params") then return false end
+    mob:set_poltergeist_height_params(_get_keep(opts.height_min), _get_keep(opts.height_max),
+        _get_keep(opts.change_velocity), _get_keep(opts.min_time_ms), _get_keep(opts.max_time_ms))
+    return true
+end
+
+--- Play a named motion on a monster in place (set_override_animation): the motion resolves by registered prefix and REPLAYS until stopped.
+--- THE CALLER OWNS STOPPING IT (a timer or the jump read) - a standing override suppresses movement animations indefinitely.
+--- @safety SAFE - nil-guarded, false below the bind; an unknown motion name engine-logs and plays nothing
+--- @cost O(1) | 1 luabind trivial (override fields write)
+--- @src modded-exes/lua_help_ex.script (set_override_animation), xray/ai/monsters/control_animation_base_update.cpp:169-194 (prefix resolve)
+--- @param mob game_object monster
+--- @param motion_name string motion name with index suffix (e.g. "jump_attack_0")
+--- @return boolean true when the engine path applied
+function xmonster.play_monster_animation(mob, motion_name)
+    if not mob or not motion_name or not _has_bind(mob, "set_override_animation") then return false end
+    mob:set_override_animation(motion_name)
+    return true
+end
+
+--- Stop a play_monster_animation override; safe at any time, the base animation selection resumes next frame.
+--- @safety SAFE - nil-guarded, false below the bind
+--- @cost O(1) | 1 luabind trivial (override fields reset)
+--- @src modded-exes/lua_help_ex.script (clear_override_animation), xray/ai/monsters/control_animation_base_update.cpp:134-138
+--- @param mob game_object monster
+--- @return boolean true when the engine path applied
+function xmonster.stop_monster_animation(mob)
+    if not mob or not _has_bind(mob, "clear_override_animation") then return false end
+    mob:clear_override_animation()
+    return true
+end
+
+--- Register fn on the monster combat-decision relay (monster_on_combat_action): set flags.substate to a monster_state.* id, -1 = vanilla.
+--- Fires per combat-active monster per frame (engine-memoized once per monster) - the subscriber's silent path must be pure Lua.
+--- @safety SAFE - registers only behind the functor probe, false on any floor/absent path
+--- @cost O(1) | one-time registration; the handler pays per fire
+--- @src modded-exes/lua_help_ex.script, xray gamedata callbacks_gameobject.script:252-267, xray/base_monster.cpp:1064-1087 (memoized)
+--- @param fn function subscriber fn(monster, enemy, dist, enemy_strength, can_jump, flags)
+--- @return boolean true when registered, false when this exe has no decision relay
+function xmonster.on_monster_combat_action(fn)
+    if type(fn) ~= "function" then return false end
+    if callbacks_gameobject == nil then return false end
+    if type(rawget(_G, "CMonsterCombatAction")) ~= "function" then return false end
+    RegisterScriptCallback("monster_on_combat_action", fn)
+    return true
+end

@@ -1115,12 +1115,12 @@ function xcombat.set_fire_queue_scale(npc, size_k, interval_k)
     return true
 end
 
---- Per-NPC additive passive health-restore velocity: 0 = vanilla, higher = faster idle regeneration.
---- Distinct lever from the medkit heal action (an item consume; this is the standing velocity); re-set on npc_on_net_spawn. Floor: no-op.
+--- Per-entity additive passive health-restore velocity: 0 = vanilla, higher = faster idle regeneration; negative clamps to 0, it does NOT keep.
+--- Reaches any CEntityAlive, monsters included (their health is absolute points, so the velocity is points per game-second); re-set on net spawn, floor no-op.
 --- @safety SAFE - nil-guarded, no-op below the bind
 --- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
---- @src xray/EntityCondition.cpp:642 (UpdateHealth applies m_fV_HealthRestore), :279 (alive gate); base health_restore_v anomaly/m_stalker.ltx:249
---- @param npc game_object stalker
+--- @src xray/script_game_object3.cpp:206-214 (CEntityAlive cast), xray/EntityCondition.cpp:642 (UpdateHealth applies the boost)
+--- @param npc game_object stalker or monster
 --- @param boost number additive on the restore velocity (0 = vanilla)
 --- @return boolean true when the engine path applied, false on a floor exe (no-op)
 function xcombat.set_health_restore_boost(npc, boost)
@@ -1695,3 +1695,4 @@ function xcombat.get_squad_ordinal(squad_id, npc_id)
     end
     return 0
 end
+

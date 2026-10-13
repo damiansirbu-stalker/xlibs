@@ -36,7 +36,7 @@ Shared utility library for STALKER Anomaly Lua modding. It is pure Lua and uses 
 xlibs
 |
 +- A-Life           xsquad  xsmart  xstash  xlevel  xdata
-+- Combat           xcombat  xgraft
++- Combat           xcombat  xmonster  xgraft
 +- Entity & Items   xcreature  xobject  xactor  xinventory
 +- Util             xtable  xttltable  xmath  xslice  xstring  xtime  xconst  xfs
 +- Diagnostics      xlog  xprofiler  xtrace  xinspect
@@ -203,6 +203,25 @@ Consumers call unconditionally, and the engine geometry switches on by itself wh
   Floor: the engine gate order from floor primitives (height gap, capped clearance ray, see-now, 10s unseen window with an automatic weapon).
   Constants track the ai_fire_* cvars when the exe has them.
 - `on_action_switch(fn)` - Register fn on the npc_on_combat_action_switch veto. Registers only when the seam exists and returns whether it did. Enhancement-only, no floor imitation possible
+
+### xmonster.script - Monster Combat Surface
+
+```lua
+xmonster.try_monster_jump(mob, pos, factor, { skip_prepare = true })
+xmonster.set_monster_rush_params(mob, { min_dist = 4, max_dist = 20 })
+xmonster.on_monster_combat_action(fn)
+```
+
+The CBaseMonster combat surface over the modded-exes monster seam set (releases >= 2026.10.11): FSM and memory readers, engine-validated maneuver invokes, per-object combat-param setters, the in-place animation override, and the combat-decision registrar. Every wrapper probes its bind once per session and no-ops below it, so a consumer self-gates with one INACTIVE line. Param-family setters take key-named opts tables; a nil component maps to the engine's keep-current sentinel. Registers no callbacks of its own and holds no game state. The stalker combat surface stays in xcombat; the shared any-entity levers (vision speed, view distance, health-restore boost) stay there too.
+
+- `get_monster_state(mob)`, `is_monster_jumping(mob)`, `get_monster_morale(mob)` - FSM state id (deepest substate), jump-in-flight, morale
+- `get_monster_hit_info(mob)`, `get_monster_sound_info(mob)`, `get_monster_enemy_info(mob)`, `get_monster_home_info(mob)` - the monster FSM's own memory records
+- `try_monster_jump(mob, pos, factor, opts)`, `try_monster_rotation_jump(mob)`, `try_monster_run_attack(mob)`, `try_monster_threaten(mob)` - engine-validated one-shot invokes; every refusal returns false
+- `set_monster_melee_strike(mob, anim_left, anim_right, rear_arc_deg)` - arm the dormant rear spin-strike with the model's own motions
+- `set_monster_attack_dist/jump_params/jump_flags/circle_params/rush_params/turn_factor/aura_params(mob, ...)` - the per-object combat-param families, nil = keep
+- `set_chimera_attack_params(mob, opts)`, `set_bloodsucker_invisibility_delay(mob, ms)`, `set_burer_gravi_force/gravi_params/telekinesis_params(mob, ...)`, `set_controller_tube_params/stamina_hit(mob, ...)`, `set_poltergeist_height_params(mob, opts)` - the species families
+- `play_monster_animation(mob, motion_name)`, `stop_monster_animation(mob)` - the in-place motion override; the caller owns stopping it
+- `on_monster_combat_action(fn)` - register fn on the monster combat-decision relay; flags.substate proposes a monster_state.* id, -1 = vanilla
 
 ### xgraft.script - The GOAP Graft
 
