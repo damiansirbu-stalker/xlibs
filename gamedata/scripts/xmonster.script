@@ -35,6 +35,17 @@ function xmonster.get_monster_state(mob)
     return mob:get_monster_state()
 end
 
+--- The monster's current FSM-selected enemy game_object, nil when none (a vanilla bind, monster-correct on every exe).
+--- @safety SAFE - nil-guarded; the bind returns nil without an enemy
+--- @cost O(1) | 1 luabind trivial (EnemyMan read)
+--- @src xray/script_game_object3.cpp (get_enemy monster branch)
+--- @param mob game_object monster
+--- @return game_object|nil the selected enemy
+function xmonster.get_monster_enemy(mob)
+    if not mob then return nil end
+    return mob:get_enemy()
+end
+
 --- True while the monster's jump control is in flight - the one-animation-owner gate: never command or override a body mid-jump.
 --- @safety SAFE - nil-guarded, false below the bind
 --- @cost O(1) | 1 luabind trivial
