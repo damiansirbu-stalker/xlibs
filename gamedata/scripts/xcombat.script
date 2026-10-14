@@ -1272,18 +1272,18 @@ function xcombat.on_action_switch(fn)
     return true
 end
 
---- Register fn on the best-cover re-pick veto (npc_on_find_best_cover_repick); set flags.allow = false to keep the NPC's current cover.
+--- Register fn on the best-cover re-pick veto (npc_on_best_cover_repick); set flags.allow = false to keep the NPC's current cover.
 --- Two invalidators are STANDING STATE (enemy inside 3m, gone loophole) and re-ask per brain update - keep fn cheap, cap any continuous deny.
 --- @safety SAFE - registers only behind the functor probe, false on any absent path (no crash on old exes)
 --- @cost O(1) | one-time registration, 2 table reads per repeat call
---- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick) + update_find_best_cover_actuality; xray gamedata callbacks_gameobject.script
+--- @src xray/ai/stalker/ai_stalker_cover.cpp best_cover() (AllowCoverRepick) + update_best_cover_actuality; xray gamedata callbacks_gameobject.script
 --- @param fn function subscriber fn(npc, flags)
 --- @return boolean true when registered on the engine callback, false when this exe has no veto seam
 function xcombat.on_cover_repick(fn)
     if type(fn) ~= "function" then return false end
     if callbacks_gameobject == nil then return false end
     if type(rawget(_G, "CAI_Stalker__AllowCoverRepick")) ~= "function" then return false end
-    RegisterScriptCallback("npc_on_find_best_cover_repick", fn)
+    RegisterScriptCallback("npc_on_best_cover_repick", fn)
     return true
 end
 
