@@ -113,27 +113,27 @@ function xmonster.get_monster_home_info(mob)
     return mob:get_monster_home_info()
 end
 
---- Monster health in ABSOLUTE points (a dog ~120, a chimera ~1000 - never a 0..1 fraction), 0 when unreadable.
+--- Monster health, a NORMALIZED fraction [0,1] - the condition update clamps to max_health()=1.0 so LTX Health points never surface here. 0 when unreadable.
 --- @safety SAFE - nil-guarded; the property read is engine-SAFE_WRAPped
 --- @cost O(1) | 1 luabind trivial (health property read)
---- @src xray/script_game_object_script2.cpp:76 (.property health), xray/ai/monsters/basemonster/base_monster_startup.cpp:72 (points load)
+--- @src xray/script_game_object_script2.cpp:76 (.property health), xray/EntityCondition.cpp:20,338 (MAX_HEALTH 1.0, the per-update clamp)
 --- @param mob game_object monster
---- @return number health points, 0 when mob is nil
+--- @return number health fraction [0,1], 0 when mob is nil
 function xmonster.get_monster_health(mob)
     if not mob then return 0 end
     return mob.health
 end
 
---- Write monster health in ABSOLUTE points via the health property - never set_health_ex, whose [0,1] clamp near-kills a point-valued monster.
---- Monster health persists in saves, so callers write values computed from the LTX base (idempotent), never multiplied from the current value.
---- @safety SAFE - nil-guarded; the property write is an absolute assignment with no clamp
+--- Write monster health, a NORMALIZED fraction [0,1]; clamped to max_health()=1.0 next tick, so a value from the absolute LTX base caps to full - the trap.
+--- Monster health persists in saves, so a caller writes an idempotent fraction, never a value multiplied from the current reading.
+--- @safety SAFE - nil-guarded; SetHealth writes the field, the condition update clamps it into [0,1]
 --- @cost O(1) | 1 luabind trivial (health property write)
---- @src xray/script_game_object_script2.cpp:76 (.property health = SetHealth), xray/script_game_object4.cpp:450-456 (the set_health_ex clamp trap)
+--- @src xray/script_game_object_script2.cpp:76 (.property health = SetHealth), xray/EntityCondition.cpp:338 (clamp to max_health()=1.0)
 --- @param mob game_object monster
---- @param health_points number absolute health points to assign
-function xmonster.set_monster_health(mob, health_points)
-    if not mob or not health_points then return end
-    mob.health = health_points
+--- @param fraction number normalized health [0,1] to assign
+function xmonster.set_monster_health(mob, fraction)
+    if not mob or not fraction then return end
+    mob.health = fraction
 end
 
 --- Command a jump toward a world position through the monster jump control; the engine validates capture, never geometry.
