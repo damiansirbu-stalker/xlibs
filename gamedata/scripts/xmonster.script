@@ -407,6 +407,20 @@ function xmonster.set_poltergeist_height_params(mob, opts)
     return true
 end
 
+--- Poltergeist actor-detection family (near/far range factors, far range, accumulation speed, loose speed); nil component = keep.
+--- @safety SAFE - nil-guarded, false below the bind; poltergeist only (engine error-logs other species)
+--- @cost O(1) | 1 luabind trivial (field writes)
+--- @src modded-exes/lua_help_ex.script (set_poltergeist_detection_params), xray/ai/monsters/poltergeist/poltergeist.cpp:146-150
+--- @param mob game_object poltergeist
+--- @param opts table { near_factor, far_factor, far_range, speed_factor, loose_speed }, nil = keep
+--- @return boolean true when the engine path applied
+function xmonster.set_poltergeist_detection_params(mob, opts)
+    if not mob or not opts or not _has_bind(mob, "set_poltergeist_detection_params") then return false end
+    mob:set_poltergeist_detection_params(_get_keep(opts.near_factor), _get_keep(opts.far_factor),
+        _get_keep(opts.far_range), _get_keep(opts.speed_factor), _get_keep(opts.loose_speed))
+    return true
+end
+
 --- Play a named motion on a monster in place (set_override_animation): the motion resolves by registered prefix and REPLAYS until stopped.
 --- THE CALLER OWNS STOPPING IT (a timer or the jump read) - a standing override suppresses movement animations indefinitely.
 --- @safety SAFE - nil-guarded, false below the bind; an unknown motion name engine-logs and plays nothing
