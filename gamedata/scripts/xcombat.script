@@ -975,6 +975,46 @@ function xcombat.is_in_sight(viewer, npc, cone_deg)
     return not xcombat.has_shot_obstacle(viewer:position(), npos, BODY_Y.STAND_EYE)
 end
 
+--- True when the enemy is WATCHING this combatant: a weapon out AND the combatant in his sight (facing cone + clear line).
+--- The predator read a wind-up answers: leaping telegraphed in front of a watching gun hands it a free second.
+--- @safety SAFE - false when either side is nil; composes get_weapon_kind + is_in_sight
+--- @cost O(1) | get_weapon_kind (TTL-cached) + is_in_sight's 2 luabind + 1 raycast - an event-edge or beat read, never per frame
+--- @param enemy game_object the enemy whose attention is asked (stalker or actor)
+--- @param npc game_object the combatant asking whether he is watched
+--- @param cone_deg number the enemy's facing offset to the combatant must be within this many degrees
+--- @return boolean true when the enemy is armed and has the combatant in sight
+function xcombat.is_enemy_watching(enemy, npc, cone_deg)
+    if not (enemy and npc) then return false end
+    if xcombat.get_weapon_kind(enemy) == nil then return false end
+    return xcombat.is_in_sight(enemy, npc, cone_deg)
+end
+
+--- True when the enemy holds aim on this combatant RIGHT NOW - one stateless sample; the hold TIMER is the caller's.
+--- The same sample serves every aim premise, the cone is what differs (a stare reads tight, a watch reads wide).
+--- @safety SAFE - see is_enemy_watching
+--- @cost O(1) | one is_enemy_watching read
+--- @param enemy game_object the aiming enemy (stalker or actor)
+--- @param npc game_object the combatant under the aim
+--- @param cone_deg number the aim cone in degrees (tight for a held stare)
+--- @return boolean true when the enemy is armed and aiming within the cone with a clear line
+function xcombat.is_aim_held(enemy, npc, cone_deg)
+    return xcombat.is_enemy_watching(enemy, npc, cone_deg)
+end
+
+--- True when the enemy stands ABOVE this combatant by more than delta_m - the elevation-exploit read.
+--- 0.8m is the engine's own standard: the dog jump gate (dog.cpp can_use_agressive_jump) and Rulix's facer gate both use it.
+--- @safety SAFE - false when either side is nil; pure position math
+--- @cost O(1) | 2 luabind trivial (position reads)
+--- @src xray/ai/monsters/dog/dog.cpp:410-422 (the 0.8m delta), sdk/ai rx_facer.script:46 (the same threshold)
+--- @param enemy game_object the enemy whose elevation is asked
+--- @param npc game_object the combatant below
+--- @param delta_m number|nil height delta in metres that counts as elevated (default 0.8)
+--- @return boolean true when the enemy is higher by more than delta_m
+function xcombat.is_enemy_above(enemy, npc, delta_m)
+    if not (enemy and npc) then return false end
+    return enemy:position().y - npc:position().y > (delta_m or 0.8)
+end
+
 --- True if any living squadmate sits roughly on the NPC -> enemy firing line within combat range.
 --- Projects each member onto the firing axis; used to detect a friendly line-of-fire block before firing.
 --- @safety SAFE - nil-guarded squad lookup, empty-squad returns false
