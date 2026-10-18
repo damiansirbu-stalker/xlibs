@@ -1,4 +1,4 @@
-Version: 1.9.2-snapshot
+Version: 1.9.2-snapshot (demonized latest)
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Health: https://damiansirbu-stalker.github.io/xlibs/health/
 JitProfiler: https://damiansirbu-stalker.github.io/xlibs/jitprofiler/
@@ -23,11 +23,13 @@ Engines:
   X-Ray Monolith: https://github.com/themrdemonized/xray-monolith/pulls?q=is%3Apr+author%3Adamiansirbu+is%3Amerged
   OpenXRay: https://github.com/OpenXRay/xray-16/pulls?q=is%3Apr+author%3Adamiansirbu+is%3Amerged
   IX-Ray: https://github.com/ixray-team/ixray-1.6-stcop/commits/develop?author=damiansirbu
-Integrations:
+Dependents:
+  COMPASS: https://github.com/Crimento/COMPASS
+  Nemesis Wave Spawn System: https://github.com/SirEndet/Nemesis-Wave-Spawn-System
   Word of Mouth: https://github.com/joshcoppola/word_of_mouth
+Integrations:
   Warfare (erepb): https://www.moddb.com/mods/stalker-anomaly/addons/warfare-alife-overhaul-new
   Stealth Overhaul: https://github.com/Alex-leon1594/Stealth_Overhaul_Reworked
-  COMPASS: https://github.com/Crimento/COMPASS
 Collaborations:
   xAGNA: https://www.moddb.com/mods/stalker-anomaly/addons/xagna
 
@@ -36,6 +38,8 @@ Collaborations:
 Thanks for the support, but I don't need donations. Reviews, ratings, and proper reports help more.
 An organized group copies my work, spreads daily lies, and mass-downvotes my mods across platforms.
 My work is open source, present in most modpacks, and integrates with established projects.
+
+Every release is stable and whole new systems may appear. Always understand the documentation.
 
 xlibs is a modder's toolbox for what Anomaly mods typically need.
 It covers entity queries, squad operations, smart terrain logic, stash manipulation, logging, profiling, event systems, and data structures.
