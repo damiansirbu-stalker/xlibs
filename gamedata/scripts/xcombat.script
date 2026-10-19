@@ -494,6 +494,7 @@ local function _get_static_dist(pos, dir, range)
 end
 
 local _weapon_kind_cache = {}
+local _weapon_kind_hands_cache = {}
 
 --- Kind string for the weapon an NPC is fighting with (w_rifle / w_pistol / ...), TTL-cached 2s per id so it holds stable through transitions.
 --- Reads the active item's kind, accepting only held-and-fightable kinds; falls back to the slot-priority scan (rifle, pistol, knife).
@@ -501,11 +502,13 @@ local _weapon_kind_cache = {}
 --- @cost O(1) | 0 luabind cached; on miss 1 luabind active_item + r_string_ex, else the slot-scan getters + r_string_ex
 --- @src anomaly/configs/items/weapons/w_*.ltx (kind field), xray/script_ini_file.cpp, xray/script_game_object.cpp (active_item)
 --- @param npc game_object
+--- @param hands_only boolean|nil true skips the slot fallback (the actor: a holstered or knife-drawn player reads unarmed, not his backpack gun)
 --- @return string|nil weapon kind, or nil when unarmed/unresolved
-function xcombat.get_weapon_kind(npc)
+function xcombat.get_weapon_kind(npc, hands_only)
     local id = npc:id()
     local tg = time_global()
-    local entry = _weapon_kind_cache[id]
+    local cache = hands_only and _weapon_kind_hands_cache or _weapon_kind_cache
+    local entry = cache[id]
     if entry and tg < entry.expires then return entry.kind end
     local kind = nil
     local active = npc:active_item()
@@ -513,7 +516,7 @@ function xcombat.get_weapon_kind(npc)
         local k = ini_sys:r_string_ex(active:section(), "kind")
         if k and HELD_WEAPON_KINDS[k] then kind = k end
     end
-    if not kind then
+    if not kind and not hands_only then
         local wpn = xinventory.get_equipped_rifle(npc)
                  or xinventory.get_equipped_pistol(npc)
                  or xinventory.get_equipped_knife(npc)
@@ -522,8 +525,8 @@ function xcombat.get_weapon_kind(npc)
             if section then kind = ini_sys:r_string_ex(section, "kind") end
         end
     end
-    _clear_expired(_weapon_kind_cache, tg)
-    _weapon_kind_cache[id] = { kind = kind, expires = tg + WEAPON_TTL_MS }
+    _clear_expired(cache, tg)
+    cache[id] = { kind = kind, expires = tg + WEAPON_TTL_MS }
     return kind
 end
 
