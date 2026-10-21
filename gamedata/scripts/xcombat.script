@@ -797,6 +797,36 @@ function xcombat.get_operator(npc)
     return _operators[cur] or tostring(cur)
 end
 
+-- Combat sub-planner action id -> engine name; ids anomaly/xrs_debug_tools.script, names xray/ai_stalker_script.cpp:84-110.
+local _combat_actions = {
+    [16] = "aim_enemy", [17] = "get_ready_to_kill", [19] = "kill_enemy",
+    [20] = "retreat", [21] = "take_cover", [22] = "look_out",
+    [23] = "hold_position", [24] = "get_distance", [25] = "detour_enemy",
+    [26] = "search_enemy", [28] = "sudden_attack", [29] = "kill_hidden",
+    [33] = "kill_wounded", [34] = "post_combat_wait", [35] = "kill_on_path",
+    [36] = "critically_wounded", [37] = "kill_crit_wounded",
+}
+local NO_ACTION = 4294967295
+
+--- The engine combat sub-action driving the stalker (kill_enemy / take_cover / get_distance / ...), nil when combat is not the selected operator.
+--- Descends the combat sub-planner the top planner selects, one level below get_operator's "combat". Mirrors vanilla xrs_debug_tools.script:1069-1071.
+--- @safety SAFE - every descent step nil-guarded; nil when uninitialized, not in combat, or the planner reports the no-action sentinel
+--- @cost O(1) | up to 6 luabind trivial; combat only, never per-frame
+--- @src xray/action_planner_script.cpp (cast_planner), anomaly/xrs_debug_tools.script:1069-1077
+--- @param npc game_object stalker
+--- @return string combat action name, or nil
+function xcombat.get_combat_action(npc)
+    local mgr = npc:motivation_action_manager()
+    if not (mgr and mgr:initialized()) then return nil end
+    if mgr:current_action_id() ~= stalker_ids.action_combat_planner then return nil end
+    local combat = mgr:action(stalker_ids.action_combat_planner)
+    local planner = combat and cast_planner(combat)
+    if not (planner and planner:initialized()) then return nil end
+    local aid = planner:current_action_id()
+    if not aid or aid >= NO_ACTION then return nil end
+    return _combat_actions[aid] or ("op" .. aid)
+end
+
 --- Body facing as a unit direction vector - the heading/aim read.
 --- Wraps npc:direction() so a consumer takes facing through xcombat instead of the raw engine field; get_facing_offset composes on it.
 --- @safety SAFE - nil npc returns a zero vector

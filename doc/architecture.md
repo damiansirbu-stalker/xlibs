@@ -160,7 +160,7 @@ Registers no callbacks and holds no game state. Caches are transient (TTL, level
   Any-sense recency, and live-or-last-known position.
 - `show_enemy(npc, enemy, opts)` - Inject a known enemy into NPC memory and register in combat, relation-clean
 - `register_in_combat(npc)`, `unregister_in_combat(npc)` - Squad memory-sharing bookkeeping the blocked combat planner no longer performs
-- `get_operator(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Current brain operator by name (engine entries, generic schemes, the takeover), body facing (unit vector), facing offset (degrees)
+- `get_operator(npc)`, `get_combat_action(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Current brain operator by name (engine entries, generic schemes, the takeover), the combat sub-planner's current action one level below "combat" (kill_enemy/take_cover/...), body facing (unit vector), facing offset (degrees)
 - `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held).
   These are engine beliefs (cover state the planner tracked), nil when there is no planner to ask.
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
