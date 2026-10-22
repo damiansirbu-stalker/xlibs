@@ -8,6 +8,7 @@ local level_object_by_id = level.object_by_id
 local vector, level, GetEvent = vector, level, GetEvent
 local move, state_mgr, state_mgr_direction = move, state_mgr, state_mgr_direction
 local db, alife_object, ini_sys, IsWeapon, xmath = db, alife_object, ini_sys, IsWeapon, xmath
+local IsMonster = IsMonster
 
 xcombat = xcombat or {}
 
@@ -498,13 +499,14 @@ local _weapon_kind_hands_cache = {}
 
 --- Kind string for the weapon an NPC is fighting with (w_rifle / w_pistol / ...), TTL-cached 2s per id so it holds stable through transitions.
 --- Reads the active item's kind, accepting only held-and-fightable kinds; falls back to the slot-priority scan (rifle, pistol, knife).
---- @safety SAFE - nil-guarded section reads, returns nil when no weapon resolves
---- @cost O(1) | 0 luabind cached; on miss 1 luabind active_item + r_string_ex, else the slot-scan getters + r_string_ex
+--- @safety SAFE - returns nil for a monster (no inventory slots, item_in_slot throws) or when no weapon resolves; nil-guarded section reads
+--- @cost O(1) | 0 luabind cached; on miss 1 luabind IsMonster + active_item + r_string_ex, else the slot-scan getters + r_string_ex
 --- @src anomaly/configs/items/weapons/w_*.ltx (kind field), xray/script_ini_file.cpp, xray/script_game_object.cpp (active_item)
---- @param npc game_object
+--- @param npc game_object stalker or actor; a monster returns nil
 --- @param hands_only boolean|nil true skips the slot fallback (the actor: a holstered or knife-drawn player reads unarmed, not his backpack gun)
---- @return string|nil weapon kind, or nil when unarmed/unresolved
+--- @return string|nil weapon kind, or nil when unarmed/unresolved/a monster
 function xcombat.get_weapon_kind(npc, hands_only)
+    if not npc or IsMonster(npc) then return nil end
     local id = npc:id()
     local tg = time_global()
     local cache = hands_only and _weapon_kind_hands_cache or _weapon_kind_cache
@@ -1034,10 +1036,10 @@ function xcombat.is_aim_held(enemy, npc, cone_deg)
     return xcombat.is_enemy_watching(enemy, npc, cone_deg)
 end
 
---- True when the enemy stands ABOVE this combatant by more than delta_m - the elevation-exploit read.
---- 0.8m is the engine's own standard: the dog jump gate (dog.cpp can_use_agressive_jump) and Rulix's facer gate both use it.
+--- True when the enemy stands above this combatant by more than delta_m - the elevation-exploit read.
+--- Uses object positions so a rock/ledge the nav mesh misses still counts; the caller's near gate keeps a far valley out. 0.8m is the dog gate standard.
 --- @safety SAFE - false when either side is nil; pure position math
---- @cost O(1) | 2 luabind trivial (position reads)
+--- @cost O(1) | 2 luabind trivial (position each side)
 --- @src xray/ai/monsters/dog/dog.cpp:410-422 (the 0.8m delta), sdk/ai rx_facer.script:46 (the same threshold)
 --- @param enemy game_object the enemy whose elevation is asked
 --- @param npc game_object the combatant below
@@ -1046,6 +1048,21 @@ end
 function xcombat.is_enemy_above(enemy, npc, delta_m)
     if not (enemy and npc) then return false end
     return enemy:position().y - npc:position().y > (delta_m or 0.8)
+end
+
+--- True when the object stands off the navmesh - more than gap_sqr (sq. m) from its own level vertex, the mark of a rock or ledge the AI graph does not cover.
+--- Improves Rulix's rx_knife read: guards the INVALID vertex (release CTD) and the 3D gap catches a perch over a ground node the X/Z inside() misses.
+--- @safety SAFE - false when obj nil or its vertex is INVALID (spawn/teardown); never calls vertex_position on an invalid id
+--- @cost O(1) | 4 luabind trivial (level_vertex_id, vertex_position, position, distance_to_sqr)
+--- @src sdk/ai rx_knife.script:110 (the read this improves); xray level_graph_inline.h:34 (compiled-out VERIFY), script_game_object3.cpp:430 (INVALID lvid)
+--- @param obj game_object the object whose navmesh footing is asked
+--- @param gap_sqr number|nil squared-metre gap that counts as off-mesh (default 6.2, Rulix's actor value ~2.5m)
+--- @return boolean true when the object stands off the navmesh by more than the gap
+function xcombat.is_off_navmesh(obj, gap_sqr)
+    if not obj then return false end
+    local lvid = obj:level_vertex_id()
+    if lvid == INVALID_LVID then return false end
+    return level.vertex_position(lvid):distance_to_sqr(obj:position()) > (gap_sqr or 6.2)
 end
 
 --- True if any living squadmate sits roughly on the NPC -> enemy firing line within combat range.
