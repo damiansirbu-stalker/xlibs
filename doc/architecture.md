@@ -168,12 +168,12 @@ Registers no callbacks and holds no game state. Caches are transient (TTL, level
   Movement lane, shot line capped short of the target body, and the squad firing-lane check.
 - `get_crouch_openness(lvid, dir)`, `get_stand_openness(lvid, dir)` - Baked cover-graph openness toward a direction at crouch and standing height (0 walled, 1 open), the cheap posture reads.
   Static geometry only, blind to bodies (contrast the object-aware rays). See `doc/library/modding/cover-and-los-queries.md`
-- `find_cover(npc, enemy_pos, opts)`, `find_flee_lane(npc, dir, m, arc, spread)` - Maneuver vertex finders.
-  find_cover is four ways from `opts.selection` (nearest walks baked cover points closest-first, best takes best_cover) and `opts.firing` (true = shoot from, false = hide).
-  `opts.radius` and `opts.search_pos` required. find_flee_lane is clear-lane fans.
+- `get_best_cover(npc, threat_pos, opts)`, `get_quick_cover(npc, threat_pos, opts)`, `get_safe_cover(npc, opts)`, `find_free_lane(npc, dir, m, arc, spread)` - cover and lane finders.
+  get_best_cover is the most-hidden node (STRICT floor, escalating near->far, give-ground) for a committed hold; get_quick_cover the nearest decent one (LENIENT floor, small radius) for a brief duck; get_safe_cover an omnidirectional hide (safe_cover + an all-round floor sampled over SAFE_DIRS).
+  All are claim-aware and search from the NPC's position; the directional two floor on `min(stand,crouch)` toward the threat, `opts.radius` required. find_free_lane is clear-lane fans. See `doc/library/modding/cover-and-los-queries.md`.
 - `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
 - `is_indoor(pos)` - Indoor-level table plus surge-shelter proximity
-- `claim_cover(lvid, owner_id)`, `release_cover(lvid, owner_id)` - Ownership-checked cover-vertex reservation over db.used_level_vertex_ids
+- `register_cover(lvid, owner_id)`, `release_cover(lvid, owner_id)` - Ownership-checked reservation over the VANILLA `db.used_level_vertex_ids` ledger, so a claim coordinates with vanilla cover schemes (axr_fight_from_cover and kin) and other AT NPCs; the get_*_cover finders consult it to skip a held node.
 - `get_squad_ordinal(squad_id, npc_id)` - Stable per-member spread bucket
 
 Engine fire-gate wrappers (themrdemonized/xray-monolith PRs #594 aim+vision, #595 switch veto, #596 fire gates).

@@ -1,7 +1,9 @@
 1.9.2-snapshot
-  Summary: hazard vs artefact anomaly detection in xsmart, the hands-only weapon read
+  Summary: the get_best_cover and get_quick_cover cover primitives, hazard vs artefact anomaly detection in xsmart, the hands-only weapon read
 
   xcombat
+    - Added get_best_cover, get_quick_cover, and get_safe_cover, cover primitives built from a line-by-line reverse-engineering of the xray cover graph; find_flee_lane is renamed find_free_lane.
+      get_best_cover takes the most-hidden node toward a threat for a committed hold, get_quick_cover the nearest decent one for a brief duck, get_safe_cover an omnidirectional hide walled all round. All floor on min(stand,crouch) and reserve their pick in the vanilla cover-occupancy ledger, so NPCs never stack on one cover and the claim coordinates with vanilla's own cover schemes. Load-tested over 100 fighting NPCs at 5-13us a scan; replaces find_cover, and get_nearby_covers was dropped after it returned nothing for 0 of 102 NPCs.
     - get_weapon_kind gains a hands-only flag that reads the active item alone and skips the slot fallback, so a holstered or knife-drawn actor reads unarmed.
       The old read resolved a gun stored in the backpack. NPCs keep the fallback, so a stalker whose active item briefly clears mid-reload still reads armed.
     - get_weapon_kind returns nil for a monster, so a consumer reading a mutant enemy no longer pays the item_in_slot query every frame.
