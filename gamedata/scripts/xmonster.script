@@ -1,6 +1,8 @@
 --- xmonster: the CBaseMonster combat surface - FSM/memory readers, maneuver invokes, param setters, the decision-callback registrar
 
 local type, rawget = type, rawget
+local math_abs, math_sqrt, math_acos = math.abs, math.sqrt, math.acos
+local ini_sys = ini_sys
 
 xmonster = xmonster or {}
 
@@ -22,6 +24,32 @@ end
 local function _get_keep(value)
     if value == nil then return -1 end
     return value
+end
+
+-- The interim can_jump mirror (control_jump.cpp:640-678): the band/angle/height gates script_try_jump bypasses (accessibility + cooldown stay engine-owned).
+-- @cost O(1) | a few LTX reads + vector math
+local function _can_jump(mob, pos)
+    local sec = mob:section()
+    local max_dist = ini_sys:r_float_ex(sec, "jump_max_distance")
+    if not max_dist then return true end
+    local mp = mob:position()
+    local dx, dy, dz = pos.x - mp.x, pos.y - mp.y, pos.z - mp.z
+    local dist = math_sqrt(dx * dx + dy * dy + dz * dz)
+    if dist > max_dist or dist < (ini_sys:r_float_ex(sec, "jump_min_distance") or 0) then return false end
+    local max_h = ini_sys:r_float_ex(sec, "jump_max_height")
+    if max_h and math_abs(dy) > max_h then return false end
+    local max_a = ini_sys:r_float_ex(sec, "jump_max_angle")
+    local flat = math_sqrt(dx * dx + dz * dz)
+    if max_a and flat > 0.01 then
+        local dir = mob:direction()
+        local dir_len = math_sqrt(dir.x * dir.x + dir.z * dir.z)
+        if dir_len > 0.01 then
+            local cos_a = (dir.x * dx + dir.z * dz) / (dir_len * flat)
+            if cos_a < -1 then cos_a = -1 elseif cos_a > 1 then cos_a = 1 end
+            if math_acos(cos_a) > max_a then return false end
+        end
+    end
+    return true
 end
 
 --- Deepest resolved monster FSM state id (EMonsterState), nil below the bind - an attacking monster reports its substate (Attack_Run), not eStateAttack.
@@ -136,18 +164,18 @@ function xmonster.set_monster_health(mob, fraction)
     mob.health = fraction
 end
 
---- Command a jump toward a world position through the monster jump control; the engine validates capture, never geometry.
---- THE CALLER BOUNDS THE TARGET and checks facing first: this path runs no distance/angle check, and the damage cone follows the body axis.
+--- Command the species' own jump at a target, after the interim can_jump mirror clears it - the return means feasible-and-started, so the caller believes it.
 --- @safety SAFE - nil-guarded, false below the bind; the engine refuses during an active jump, a foreign capture, or scheme ownership
---- @cost O(1) | 1 luabind medium (component capture attempt)
---- @src modded-exes/lua_help_ex.script (try_monster_jump), xray/ai/monsters/control_manager_custom.cpp:452-481 (script_try_jump)
+--- @cost O(1) | a few LTX reads + 1 luabind medium (component capture attempt)
+--- @src lua_help_ex.script (try_monster_jump), control_manager_custom.cpp:452-481 (script_try_jump), control_jump.cpp:640-678 (can_jump)
 --- @param mob game_object monster
 --- @param pos vector world target position
 --- @param factor number jump force factor
 --- @param opts table|nil { skip_prepare = true } launches without the crouch wind-up (ePrepareSkip)
---- @return boolean true when the jump was captured and started
+--- @return boolean true when the jump was feasible, captured and started
 function xmonster.try_monster_jump(mob, pos, factor, opts)
     if not mob or not pos or not _has_bind(mob, "try_monster_jump") then return false end
+    if not _can_jump(mob, pos) then return false end
     return mob:try_monster_jump(pos, factor, (opts and opts.skip_prepare) == true)
 end
 
