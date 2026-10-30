@@ -141,6 +141,17 @@ function xmonster.get_monster_home_info(mob)
     return mob:get_monster_home_info()
 end
 
+--- The monster movement record (velocity_current/target/real + path_completed/actual/active) for slow/stuck diagnosis, nil below the bind.
+--- @safety SAFE - nil-guarded, nil below the bind
+--- @cost O(1) | 1 luabind trivial (CControlMovement + CMovementManager reads)
+--- @src modded-exes/lua_help_ex.script (get_monster_movement_info)
+--- @param mob game_object monster
+--- @return userdata|nil the movement info, nil when unavailable
+function xmonster.get_monster_movement_info(mob)
+    if not mob or not _has_bind(mob, "get_monster_movement_info") then return nil end
+    return mob:get_monster_movement_info()
+end
+
 --- Monster health, a NORMALIZED fraction [0,1] - the condition update clamps to max_health()=1.0 so LTX Health points never surface here. 0 when unreadable.
 --- @safety SAFE - nil-guarded; the property read is engine-SAFE_WRAPped
 --- @cost O(1) | 1 luabind trivial (health property read)
