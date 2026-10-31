@@ -116,7 +116,24 @@ jobs:
           for m in $consumers; do
             git clone --quiet "https://github.com/damiansirbu-stalker/$m.git" "$ws/$m"
           done
-          # Overwrite the one-mod dev.yaml with this xlibs checkout plus every consumer clone.
+          # External dependents (other authors) = name + github url from the committed dev.yaml.
+          # Cloned best-effort: a renamed or dead third-party repo warns and is skipped, never reds
+          # the run; the compat lane checks each clone's working tree and WARNs on a dropped symbol.
+          ext_block=$(git -C pipeline show HEAD:stalker-manager/dev.yaml \
+            | sed -n '/^xlibs_consumers:/,/^[^[:space:]#]/p')
+          mapfile -t ext_names < <(printf '%s\n' "$ext_block" | sed -n 's/^  - name: "\(.*\)"$/\1/p')
+          mapfile -t ext_urls  < <(printf '%s\n' "$ext_block" | sed -n 's/^    url: "\(.*\)"$/\1/p')
+          ext_yaml=""
+          for i in "${!ext_urls[@]}"; do
+            url="${ext_urls[$i]}"; nm="${ext_names[$i]}"; slug="${url##*/}"; slug="${slug%.git}"
+            if git clone --quiet "$url" "$ws/$slug"; then
+              ext_yaml+="  - name: \"$nm\""$'\n'"    repo: \"$ws/$slug\""$'\n'
+            else
+              echo "::warning::external dependent clone failed: $nm ($url) -- skipped this run"
+            fi
+          done
+          # Overwrite the one-mod dev.yaml with this xlibs checkout, every consumer clone, and every
+          # external dependent clone.
           {
             echo "repo_path: \"$ws\""
             echo "mods_path: \"$ws\""
@@ -127,6 +144,10 @@ jobs:
               echo "  - name: \"$m\""
               echo "    repo: \"$ws/$m\""
             done
+            if [ -n "$ext_yaml" ]; then
+              echo "xlibs_consumers:"
+              printf '%s' "$ext_yaml"
+            fi
           } > pipeline/stalker-manager/dev.yaml
       - name: Validate
         shell: bash
