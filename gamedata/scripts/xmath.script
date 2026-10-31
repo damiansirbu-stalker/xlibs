@@ -63,6 +63,22 @@ function shuffle_partial(t, n)
     return t
 end
 
+--- Shuffle the first n elements of an array in-place, backward (Fisher-Yates: swap each position with a random earlier-or-equal one).
+--- Draws math_random(i) over [1,i]; kept distinct from shuffle_partial, whose different draw order is not per-seed identical to this backward form.
+--- @safety SAFE - pure Lua, mutates input table
+--- @cost O(n) | 0 luabind (pure Lua loop + math.random per step)
+--- @param t table Array to shuffle
+--- @param n number|nil Number of elements to shuffle (default: all)
+--- @return table Same array, shuffled
+function shuffle_back(t, n)
+    n = n or #t
+    for i = n, 2, -1 do
+        local j = math_random(i)
+        if j ~= i then t[i], t[j] = t[j], t[i] end
+    end
+    return t
+end
+
 --- Select a uniformly random NUMBER of elements from an array: k = random(1, min(n, #t)), the random-sized take being the contract.
 --- For an exact-count take, use shuffle_partial directly and slice.
 --- @safety SAFE - pure Lua, mutates input table
