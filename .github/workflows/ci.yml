@@ -105,6 +105,7 @@ jobs:
         shell: bash
         run: |
           set -e
+          export GIT_TERMINAL_PROMPT=0  # a 404 or private clone fails fast, never hangs on a credential prompt
           ws="${GITHUB_WORKSPACE//\\//}"
           # Consumers = every dev_mod except xlibs, from the committed dev.yaml (auto-tracks add/remove).
           consumers=$(git -C pipeline show HEAD:stalker-manager/dev.yaml \
@@ -112,9 +113,12 @@ jobs:
             | sed -n 's/^  - name: "\(.*\)"$/\1/p' | grep -vx xlibs)
           # No consumers derived means the read broke; fail loud instead of a vacuous green.
           [ -n "$consumers" ] || { echo "compat prep: no consumers derived from dev.yaml"; exit 1; }
-          # Clone each (public; full clone brings the tags the shipped-release check reads).
+          # Clone each (public; full clone brings the tags the shipped-release check reads). A dev_mod
+          # with no damiansirbu-stalker repo (the foreign xagna) warns and is skipped, never aborts;
+          # run_compat_check filters a consumer whose clone is absent.
           for m in $consumers; do
-            git clone --quiet "https://github.com/damiansirbu-stalker/$m.git" "$ws/$m"
+            git clone --quiet "https://github.com/damiansirbu-stalker/$m.git" "$ws/$m" \
+              || echo "::warning::consumer clone failed: $m -- skipped this run"
           done
           # External dependents (other authors) = name + github url from the committed dev.yaml.
           # Cloned best-effort: a renamed or dead third-party repo warns and is skipped, never reds
