@@ -119,6 +119,8 @@ Profiled continuously with JitProfiler, an engine-native profiler. Manual tests 
 Every commit runs the full pipeline locally and in CI: luacheck, a Selene build built for STALKER with flags the public build lacks, and a load test running every script against engine stubs.
 Rule layers then check crash safety, hotpath cost, engine correctness, complexity, architecture contracts, security, and the docs.
 It sits directly on X-Ray and depends on no mod. Every other mod depends on it.
+The pipeline checks every mod built on xlibs, other authors' included, against the real exported API.
+A consumer that still calls a dropped symbol fails the build before any release carries the break.
 
 That pipeline runs on every commit and publishes what it finds. The header links a live health page and a JitProfiler capture of the mod's real CPU and allocation cost.
 
