@@ -364,6 +364,30 @@ function xmonster.set_bloodsucker_invisibility_delay(mob, min_delay_ms)
     return true
 end
 
+--- Force a bloodsucker's visibility state at once, overriding the natural flicker: 0 fully cloaked, 1 partial, 2 visible, -1 release back to the flicker.
+--- @safety SAFE - nil-guarded, false below the bind; bloodsucker only (the engine error-logs other species, so gate on species first)
+--- @cost O(1) | 1 luabind trivial (field write)
+--- @src vanilla game_object:force_visibility_state (xr_effects.script:4294), xray bloodsucker.cpp (m_force_visibility_state)
+--- @param mob game_object bloodsucker
+--- @param state number 0 no_visibility, 1 partial, 2 full, -1 release
+--- @return boolean true when the engine path applied
+function xmonster.force_visibility_state(mob, state)
+    if not mob or not _has_bind(mob, "force_visibility_state") then return false end
+    mob:force_visibility_state(state)
+    return true
+end
+
+--- A bloodsucker's current visibility state (0 none, 1 partial, 2 full): the forced value when one is set, else the natural flicker; nil below the bind.
+--- @safety SAFE - nil-guarded, nil below the bind
+--- @cost O(1) | 1 luabind trivial (field read)
+--- @src vanilla game_object:get_visibility_state (xr_conditions.script:1926), xray bloodsucker.cpp get_visibility_state
+--- @param mob game_object bloodsucker
+--- @return number|nil 0/1/2, or nil below the bind
+function xmonster.get_visibility_state(mob)
+    if not mob or not _has_bind(mob, "get_visibility_state") then return nil end
+    return mob:get_visibility_state()
+end
+
 --- Force or release the burer's gravity attack - the WHEN lever for the gravi trigger (a vanilla modded-exes bind, present pre-floor).
 --- @safety SAFE - nil-guarded, false below the bind; burer only (engine error-logs other species)
 --- @cost O(1) | 1 luabind trivial (flag write)
