@@ -1,5 +1,5 @@
 1.9.2-snapshot
-  Summary: the get_best_cover and get_quick_cover cover primitives, hazard vs artefact anomaly detection in xsmart, the hands-only weapon read
+  Summary: the get_best_cover and get_quick_cover cover primitives, hazard vs artefact anomaly detection in xsmart, the hands-only weapon read, the takeover graft logic-ready guard
 
   xcombat
     - Added get_best_cover, get_quick_cover, and get_safe_cover, cover primitives built from a line-by-line reverse-engineering of the xray cover graph; find_flee_lane is renamed find_free_lane.
@@ -11,6 +11,10 @@
   xsmart
     - Added has_hazard_anomaly and is_hazard_anomaly_near for the anomaly fields that hurt, and has_artefact_anomaly for the zones that spawn artefacts.
       Two distinct anomaly queries where there was one; a consumer asks for danger or for artefacts by name. Replaces has_anomaly and is_anomaly_near.
+
+  xgraft
+    - Changed register_takeover to install only once the NPC's logic is configured, returning false until then so the consumer retries, and to resolve each blocked planner to its own action before blocking it.
+      A graft attempted before the wounded evaluator binds, or against a planner the NPC does not carry, is held or skipped, so the takeover attaches only where its preconditions and block land on the right action.
 
 1.9.1
   Summary: shared last-news clock for a PDA quiet window

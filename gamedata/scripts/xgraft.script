@@ -25,6 +25,24 @@ local function _get_scheme_id(module_ref, field)
     return module_ref[field]
 end
 
+-- Graft only once logic is configured; db.storage[id].wounded marks the bind that adds the wounded evaluator.
+-- @cost O(1) | 1 db.storage index
+local function _is_logic_ready(id)
+    local st = db.storage[id]
+    return st ~= nil and st.wounded ~= nil
+end
+
+-- The action the manager holds for aid, else nil; engine action(id) returns the next operator up for a missing id.
+-- @cost O(1) | up to 2 action lookups
+local SCRIPT_FLOOR = stalker_ids.action_script
+local function _find_action(manager, aid)
+    local act = manager:action(aid)
+    if not act then return nil end
+    if aid < SCRIPT_FLOOR or aid + 1 > TAKEOVER_ID then return act end
+    if rawequal(act, manager:action(aid + 1)) then return nil end
+    return act
+end
+
 --- GOAP action ids the takeover precondition-blocks while a transaction is open (built once, cached).
 --- An action NOT listed satisfies the brain's goal directly and bypasses the takeover, so the list is enumerated, never sampled.
 --- @safety SAFE - every entry is type-checked; a scheme absent from the install is skipped
@@ -99,7 +117,7 @@ end
 --- @src anomaly/xr_actions_id.script, anomaly/xr_evaluators_id.script:17 (sidor_wounded_base); xray/stalker_planner.cpp:68-69,128,149-163 (goal chain)
 --- @param npc game_object stalker
 --- @param spec table { gate = fn(npc) -> boolean, on_begin = fn(npc) on control granted, on_release = fn(npc)|nil on control taken away }
---- @return boolean true when grafted or already grafted, false when the NPC has no action manager
+--- @return boolean true when grafted or already grafted; false when no manager or logic not configured yet (caller retries)
 function xgraft.register_takeover(npc, spec)
     if not npc or not spec then return false end
     assert(_takeover_spec == nil or _takeover_spec == spec,
@@ -108,6 +126,7 @@ function xgraft.register_takeover(npc, spec)
     if _takeover_installed[id] then return true end
     local manager = npc:motivation_action_manager()
     if not manager then return false end
+    if not _is_logic_ready(id) then return false end
     _takeover_spec = spec
     _takeover_installed[id] = true
 
@@ -141,7 +160,7 @@ function xgraft.apply_takeover_block(npc)
     local blocked = xgraft.get_blocked_planners()
     for i = 1, #blocked do
         local aid = blocked[i]
-        local act = not done[aid] and manager:action(aid) or nil
+        local act = not done[aid] and _find_action(manager, aid) or nil
         if not act then goto continue end
         act:add_precondition(world_property(TAKEOVER_ID, false))
         done[aid] = true
