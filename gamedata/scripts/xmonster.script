@@ -141,7 +141,7 @@ function xmonster.get_monster_home_info(mob)
     return mob:get_monster_home_info()
 end
 
---- The monster movement record (velocity_current/target/real + path_completed/actual/active) for slow/stuck diagnosis, nil below the bind.
+--- The monster movement record (velocity_current/target/real + path_completed/actual + path_capturer) for slow/stuck diagnosis, nil below the bind.
 --- @safety SAFE - nil-guarded, nil below the bind
 --- @cost O(1) | 1 luabind trivial (CControlMovement + CMovementManager reads)
 --- @src modded-exes/lua_help_ex.script (get_monster_movement_info)
