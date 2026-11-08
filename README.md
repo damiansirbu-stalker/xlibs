@@ -4,7 +4,7 @@ The library every Alife mod is built on: entity queries, squad operations, smart
 Every function wraps an engine quirk, guards against nil, and handles the edge case each mod would otherwise solve again on its own.
 Pure Lua where possible, with no central loader. Call the function and it works.
 
-[ModDB](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) | [Releases](https://github.com/damiansirbu-stalker/xlibs/releases) | [Bugs, suggestions](https://github.com/damiansirbu-stalker/xlibs/issues)
+[![ModDB](https://img.shields.io/badge/ModDB-c8102e)](https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001) [![Nexus Mods](https://img.shields.io/badge/Nexus_Mods-da8e35)](https://www.nexusmods.com/stalkeranomaly/mods/102) [![Releases](https://img.shields.io/badge/Releases-24292f?logo=github&logoColor=white)](https://github.com/damiansirbu-stalker/xlibs/releases) [![Bugs, suggestions](https://img.shields.io/badge/Bugs%2C_suggestions-24292f?logo=github&logoColor=white)](https://github.com/damiansirbu-stalker/xlibs/issues) [![Ko-fi](https://img.shields.io/badge/Ko--fi-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/damiansirbu)
 
 [![ci](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/ci.yml/badge.svg)](https://github.com/damiansirbu-stalker/xlibs/actions/workflows/ci.yml) [![Project Health](https://img.shields.io/badge/project_health-dashboard-00ced1)](https://damiansirbu-stalker.github.io/xlibs/)
 
