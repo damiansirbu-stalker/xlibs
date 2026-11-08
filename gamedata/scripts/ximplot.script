@@ -1,0 +1,85 @@
+--- ximplot: capability-gated wrapper over the modded-exes ImPlot bind.
+
+local type = type
+
+-- AXIS and COND mirror the engine ImAxis_ and ImGuiCond_ enum values.
+AXIS_X1 = 0
+AXIS_Y1 = 3
+COND_ALWAYS = 1
+COND_ONCE = 2
+
+local _available = nil
+
+--- Is the ImPlot bind present on this exe?
+--- @safety SAFE - pure type() reads, result cached after first probe
+--- @cost O(1) | 0 luabind (type() is a VM primitive, result cached)
+--- @return bool true iff ImPlot.BeginPlot is bound
+function has_plot()
+    if _available == nil then
+        _available = type(ImPlot) == "table" and type(ImPlot.BeginPlot) == "function"
+    end
+    return _available
+end
+
+--- Open a plot region; returns false when ImPlot is absent or the plot is clipped.
+--- @cost O(1) | 1 luabind (ImPlot.BeginPlot), inert when absent
+--- @param title string plot id, prefix ## to hide the title
+--- @param width number pixels, -1 fills the content width
+--- @param height number pixels, 0 auto-sizes
+--- @param flags number ImPlotFlags
+--- @return bool visible
+function start_plot(title, width, height, flags)
+    if not has_plot() then return false end
+    return ImPlot.BeginPlot(title, vector2():set(width or -1, height or 0), flags or 0)
+end
+
+--- Close the plot region opened by a start_plot that returned true.
+--- @cost O(1) | 1 luabind (ImPlot.EndPlot), inert when absent
+function stop_plot()
+    if not has_plot() then return end
+    ImPlot.EndPlot()
+end
+
+--- Label and configure the X and Y axes, once after a true start_plot.
+--- @cost O(1) | 1 luabind (ImPlot.SetupAxes), inert when absent
+--- @param x_label string
+--- @param y_label string
+--- @param x_flags number ImPlotAxisFlags
+--- @param y_flags number ImPlotAxisFlags
+function set_axes(x_label, y_label, x_flags, y_flags)
+    if not has_plot() then return end
+    ImPlot.SetupAxes(x_label or "", y_label or "", x_flags or 0, y_flags or 0)
+end
+
+--- Pin one axis to a fixed range so the scale is stable across frames.
+--- @cost O(1) | 1 luabind (ImPlot.SetupAxisLimits), inert when absent
+--- @param axis number AXIS_X1 or AXIS_Y1
+--- @param v_min number
+--- @param v_max number
+--- @param cond number COND_ALWAYS or COND_ONCE
+function set_axis_limits(axis, v_min, v_max, cond)
+    if not has_plot() then return end
+    ImPlot.SetupAxisLimits(axis, v_min, v_max, cond or COND_ALWAYS)
+end
+
+--- Plot a line series from two 1-based number arrays.
+--- @cost O(n) in the C marshaller | 1 luabind (ImPlot.PlotLine), inert when absent
+--- @param label string legend entry
+--- @param xs table 1-based x values
+--- @param ys table 1-based y values
+--- @param count number elements to read
+function add_line(label, xs, ys, count)
+    if not has_plot() then return end
+    ImPlot.PlotLine(label, xs, ys, count)
+end
+
+--- Plot points without a connecting line, for a value-versus-value scatter.
+--- @cost O(n) in the C marshaller | 1 luabind (ImPlot.PlotScatter), inert when absent
+--- @param label string legend entry
+--- @param xs table 1-based x values
+--- @param ys table 1-based y values
+--- @param count number elements to read
+function add_scatter(label, xs, ys, count)
+    if not has_plot() then return end
+    ImPlot.PlotScatter(label, xs, ys, count)
+end
