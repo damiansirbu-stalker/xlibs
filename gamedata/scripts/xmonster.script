@@ -2,7 +2,7 @@
 
 local type, rawget = type, rawget
 local math_abs, math_sqrt, math_acos = math.abs, math.sqrt, math.acos
-local ini_sys = ini_sys
+local ini_sys, RegisterScriptCallback = ini_sys, RegisterScriptCallback
 
 xmonster = xmonster or {}
 
@@ -413,6 +413,29 @@ function xmonster.set_burer_gravi_params(mob, opts)
     mob:set_burer_gravi_params(_get_keep(opts.cooldown_ms), _get_keep(opts.min_dist), _get_keep(opts.max_dist),
         _get_keep(opts.speed), _get_keep(opts.radius), _get_keep(opts.hit_power))
     return true
+end
+
+--- True when this exe carries the post-floor #798 monster read/trace surface (the probe sibling of the fired-event relays below).
+--- @safety SAFE - false when the bind is absent; probe this before wiring the relays, so they stay inert on a baseline exe
+--- @param mob game_object any monster
+--- @return boolean true when the trace getters and the fired-event relays exist
+function xmonster.has_trace_surface(mob)
+    return mob ~= nil and _has_bind(mob, "get_monster_jump_flags")
+end
+
+--- Register fn(mob) for the engine run-attack (charge) completion; the engine fires it only on a supported exe.
+function xmonster.on_run_attack_end(fn)
+    RegisterScriptCallback("monster_on_run_attack_end", fn)
+end
+
+--- Register fn(mob) for the engine melee-jump (rear backstrike) completion.
+function xmonster.on_melee_jump_end(fn)
+    RegisterScriptCallback("monster_on_melee_jump_end", fn)
+end
+
+--- Register fn(burer) for a burer gravi blast, autonomous or forced.
+function xmonster.on_burer_gravi(fn)
+    RegisterScriptCallback("burer_on_gravi", fn)
 end
 
 --- Burer telekinesis family (object count, find radius, distance band, fly velocity); nil component = keep.
