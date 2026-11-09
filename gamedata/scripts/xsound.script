@@ -187,9 +187,9 @@ end
 
 --- Play a one-shot with a RETAINED handle (the vanilla ambient call shape) so the sound CAN be stopped, unlike play().
 --- The object is held in the module until it finishes (swept on the shared tick), so the GC never cuts it mid-play.
---- @safety SAFE - nil-guarded on db.actor and the sound_object constructor
+--- @safety SAFE - nil-guarded on db.actor and the sound_object constructor; never reads volume back, the getter crashes on a voiceless sound
 --- @cost O(1) | 3-4 luabind heavy (ctor + play_at_pos + volume, s2d flag optional)
---- @src anomaly/sound_ambient.script:144-165 (the vanilla call shape); xray/xrGame/script_sound.cpp:30-37 (GC cuts an unheld playing sound)
+--- @src anomaly/sound_ambient.script:144-165 (call shape); xray script_sound.cpp:30-37 (GC cut); script_sound_inline.h:67-71 (GetVolume NULL deref)
 --- @param snd_path string Sound path (backslashes, no .ogg)
 --- @param opts table|nil { position (vector; required for 3D), volume (default 1.0), s2d (true = at-ear 2D) }
 --- @return number|nil Handle for stop_shot/stop_shots, nil when not playable
@@ -201,14 +201,15 @@ function play_at(snd_path, opts)
     if not snd then return nil end
     local flags = opts.s2d and sound_object_t.s2d or sound_object_t.s3d
     snd:play_at_pos(actor, opts.position or vector():set(0, 0, 0), 0, flags)
-    snd.volume = opts.volume or 1.0
+    local volume = opts.volume or 1.0
+    snd.volume = volume
     local handle = _NEXT_HANDLE
     _NEXT_HANDLE = _NEXT_HANDLE + 1
     _active[handle] = {
         sound         = snd,
         path          = snd_path,
-        volume        = snd.volume,
-        target_volume = snd.volume,
+        volume        = volume,
+        target_volume = volume,
         smoothing     = 1.0,
         releasing     = false,
         oneshot       = true,
