@@ -12,6 +12,9 @@
     - Added has_hazard_anomaly and is_hazard_anomaly_near for the anomaly fields that hurt, has_artefact_anomaly and is_artefact_anomaly_near for the zones that spawn artefacts.
       Two distinct anomaly queries where there was one, each in a smart-terrain form and a world-position form; a consumer asks for danger or for artefacts by name. Replaces has_anomaly and is_anomaly_near.
 
+  xmonster
+    - Removed get_monster_enemy, a pass-through of the vanilla get_enemy bind; call mob:get_enemy() directly.
+
   xgraft
     - Changed register_takeover to install only once the NPC's logic is configured, returning false until then so the consumer retries, and to resolve each blocked planner to its own action before blocking it.
       A graft attempted before the wounded evaluator binds, or against a planner the NPC does not carry, is held or skipped, so the takeover attaches only where its preconditions and block land on the right action.
