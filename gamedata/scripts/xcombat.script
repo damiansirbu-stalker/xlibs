@@ -8,7 +8,7 @@ local level_object_by_id = level.object_by_id
 local vector, level, GetEvent = vector, level, GetEvent
 local move, state_mgr, state_mgr_direction = move, state_mgr, state_mgr_direction
 local db, alife_object, ini_sys, IsWeapon, xmath = db, alife_object, ini_sys, IsWeapon, xmath
-local IsMonster = IsMonster
+local IsMonster, AC_ID = IsMonster, AC_ID
 
 xcombat = xcombat or {}
 
@@ -755,33 +755,35 @@ function xcombat.get_combat_action(npc)
     return _combat_actions[aid] or ("op" .. aid)
 end
 
---- Body facing as a unit direction vector - the heading/aim read.
---- Wraps npc:direction() so a consumer takes facing through xcombat instead of the raw engine field; get_facing_offset composes on it.
+--- Where a combatant looks, as a direction vector - the heading and aim read every facing helper composes on.
+--- The player looks along the camera: his body lags it by 16-29 deg while strafing (field probe 2026-11-11), so it is the wrong read.
 --- @safety SAFE - nil npc returns a zero vector
---- @cost O(1) | 1 luabind trivial (direction: field read)
---- @src xray/script_game_object_script2.cpp:98 (direction)
---- @param npc game_object
---- @return vector unit facing direction
+--- @cost O(1) | 1 luabind trivial (direction or camera field read)
+--- @src xray/script_game_object_script2.cpp:98 (direction), script_render_device_script.cpp:74 (cam_dir)
+--- @param npc game_object stalker, monster or actor
+--- @return vector facing direction (the camera's may tilt; get_facing_offset flattens it)
 function xcombat.get_facing(npc)
     if not npc then return vector() end
+    if npc:id() == AC_ID then return device().cam_dir end
     return npc:direction()
 end
 
---- Degrees the NPC's body facing is off the straight line to target_pos (0 = dead on, 180 = opposite).
+--- Degrees the combatant's facing is off the straight line to target_pos on the ground plane (0 = dead on, 180 = opposite).
 --- A combat NPC normally faces near its enemy, so a large offset is the body pointed away (the weird-aim cue).
---- @safety SAFE - returns 0 when the target sits on the NPC (degenerate direction)
---- @cost O(1) | 2 luabind trivial (direction, position field reads) + pure math
---- @src xray/script_game_object_script2.cpp:98 (direction)
---- @param npc game_object
---- @param target_pos vector world position the NPC should be facing
+--- @safety SAFE - returns 0 when the target sits on the combatant or the facing is vertical (degenerate direction)
+--- @cost O(1) | 2 luabind trivial (facing, position field reads) + pure math
+--- @src xray/script_game_object_script2.cpp:98 (direction), script_render_device_script.cpp:74 (cam_dir)
+--- @param npc game_object stalker, monster or actor
+--- @param target_pos vector world position the combatant should be facing
 --- @return number degrees in [0, 180]
 function xcombat.get_facing_offset(npc, target_pos)
     local dir = xcombat.get_facing(npc)
     local np = npc:position()
     local vx, vz = target_pos.x - np.x, target_pos.z - np.z
     local mag = math_sqrt(vx * vx + vz * vz)
-    if mag < 1 then return 0 end
-    local cos = (dir.x * vx + dir.z * vz) / mag
+    local dir_mag = math_sqrt(dir.x * dir.x + dir.z * dir.z)
+    if mag < 1 or dir_mag < 0.01 then return 0 end
+    local cos = (dir.x * vx + dir.z * vz) / (mag * dir_mag)
     if cos > 1 then cos = 1 elseif cos < -1 then cos = -1 end
     return math_deg(math_acos(cos))
 end
@@ -922,9 +924,10 @@ function xcombat.get_stand_openness(lvid, dir)
 end
 
 --- True when viewer has npc in his sight: facing within cone_deg of the NPC and the shot line between them clear.
---- The one sight primitive; call it on event edges or feasibility checks, never per frame (it pays a raycast).
+--- The one sight primitive; the player's line starts at the camera, so a crouch or a lean reads true.
 --- @safety SAFE - false when viewer is nil
---- @cost O(1) | 2 luabind (facing + positions) + 1 raycast
+--- @cost O(1) | 2 luabind (facing + positions) + 1 raycast; call it on event edges or feasibility checks, never per frame
+--- @src xray script_render_device_script.cpp:73 (cam_pos)
 --- @param viewer game_object the entity whose sight is asked (db.actor for the player)
 --- @param npc game_object the NPC asking whether viewer has him in his sight
 --- @param cone_deg number viewer's facing offset to the NPC must be within this many degrees
@@ -933,6 +936,7 @@ function xcombat.is_in_sight(viewer, npc, cone_deg)
     if not viewer then return false end
     local npos = npc:position()
     if xcombat.get_facing_offset(viewer, npos) > cone_deg then return false end
+    if viewer:id() == AC_ID then return not xcombat.has_shot_obstacle(device().cam_pos, npos, 0) end
     return not xcombat.has_shot_obstacle(viewer:position(), npos, BODY_Y.STAND_EYE)
 end
 
@@ -948,18 +952,6 @@ function xcombat.is_enemy_watching(enemy, npc, cone_deg)
     if not (enemy and npc) then return false end
     if xcombat.get_weapon_kind(enemy) == nil then return false end
     return xcombat.is_in_sight(enemy, npc, cone_deg)
-end
-
---- True when the enemy holds aim on this combatant RIGHT NOW - one stateless sample; the hold TIMER is the caller's.
---- The same sample serves every aim premise, the cone is what differs (a stare reads tight, a watch reads wide).
---- @safety SAFE - see is_enemy_watching
---- @cost O(1) | one is_enemy_watching read
---- @param enemy game_object the aiming enemy (stalker or actor)
---- @param npc game_object the combatant under the aim
---- @param cone_deg number the aim cone in degrees (tight for a held stare)
---- @return boolean true when the enemy is armed and aiming within the cone with a clear line
-function xcombat.is_aim_held(enemy, npc, cone_deg)
-    return xcombat.is_enemy_watching(enemy, npc, cone_deg)
 end
 
 --- True when the enemy stands above this combatant by more than delta_m - the elevation-exploit read.
@@ -989,6 +981,33 @@ function xcombat.is_off_navmesh(obj, gap_sqr)
     local lvid = obj:level_vertex_id()
     if lvid == INVALID_LVID then return false end
     return level.vertex_position(lvid):distance_to_sqr(obj:position()) > (gap_sqr or 6.2)
+end
+
+--- True when a world point is off the navmesh: no AI-graph cell lies under it, or the nearest floor below sits more than gap_sqr (sq. m) away.
+--- The point twin of is_off_navmesh, for a target nothing stands on yet (a predicted landing point).
+--- @safety SAFE - true when pos is nil; level.vertex_id returns INVALID for a point over no cell, which is checked before vertex_position
+--- @cost O(1) | 2 luabind trivial (vertex_id, vertex_position) + 1 distance_to_sqr
+--- @src xray level_graph.cpp:259-300 (vertex_id: the floor under the point, -1 when no cell), level_script.cpp:1303-1306,3116 (the bind)
+--- @param pos vector the world point asked
+--- @param gap_sqr number|nil squared-metre gap that counts as off-mesh (default 6.2, the is_off_navmesh value)
+--- @return boolean true when the point is off the navmesh
+function xcombat.is_point_off_navmesh(pos, gap_sqr)
+    if not pos then return true end
+    local lvid = level.vertex_id(pos)
+    if lvid >= INVALID_LVID then return true end
+    return level.vertex_position(lvid):distance_to_sqr(pos) > (gap_sqr or 6.2)
+end
+
+--- The player's physics velocity, nil for any other object.
+--- The bind hard-crashes (NODEFAULT) on anything neither a stalker nor the actor, and on a stalker before 2dba72c5ae (2026-10-03).
+--- @safety SAFE - nil for a nil or non-actor object, so the bind only ever sees the actor
+--- @cost O(1) | 1 luabind trivial (id) + 1 luabind trivial (physics velocity read)
+--- @src xray script_game_object2.cpp:492-507 (GetMovementSpeed), script_game_object_script2.cpp:356 (the bind)
+--- @param obj game_object the object whose velocity is asked
+--- @return vector|nil the velocity in m/s, nil when obj is not the actor
+function xcombat.get_actor_velocity(obj)
+    if not obj or obj:id() ~= AC_ID then return nil end
+    return obj:get_movement_speed()
 end
 
 --- True if any living squadmate sits roughly on the NPC -> enemy firing line within combat range.

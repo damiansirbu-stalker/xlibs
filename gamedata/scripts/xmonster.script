@@ -6,6 +6,13 @@ local ini_sys, RegisterScriptCallback = ini_sys, RegisterScriptCallback
 
 xmonster = xmonster or {}
 
+-- The fallback angle and height for a species whose jump config never loads (bloodsucker.cpp:77,87): the chimera's (m_chimera.ltx:138-139).
+local FALLBACK_JUMP_ANGLE  = 0.55
+local FALLBACK_JUMP_HEIGHT = 6.0
+
+-- World gravity, the one the jump solver divides by (Physics.cpp:54).
+local WORLD_GRAVITY = 2 * 9.81
+
 -- Bind availability by name, probed once and cached for the session (the bind set is a property of the exe, immutable at runtime).
 local _bind_ready = {}
 
@@ -26,21 +33,24 @@ local function _get_keep(value)
     return value
 end
 
--- The interim can_jump mirror (control_jump.cpp:640-678): the band/angle/height gates script_try_jump bypasses (accessibility + cooldown stay engine-owned).
--- @cost O(1) | a few LTX reads + vector math
+-- The interim can_jump mirror (control_jump.cpp:640-680): the restrictor, distance, height and angle gates script_try_jump skips.
+-- The cooldown is the caller's.
+-- @cost O(1) | 1 luabind medium (restrictor test) + a few LTX reads + vector math
 local function _can_jump(mob, pos)
+    if not mob:accessible(pos) then return false end
     local sec = mob:section()
-    local max_dist = ini_sys:r_float_ex(sec, "jump_max_distance")
-    if not max_dist then return true end
     local mp = mob:position()
     local dx, dy, dz = pos.x - mp.x, pos.y - mp.y, pos.z - mp.z
-    local dist = math_sqrt(dx * dx + dy * dy + dz * dz)
-    if dist > max_dist or dist < (ini_sys:r_float_ex(sec, "jump_min_distance") or 0) then return false end
-    local max_h = ini_sys:r_float_ex(sec, "jump_max_height")
-    if max_h and math_abs(dy) > max_h then return false end
-    local max_a = ini_sys:r_float_ex(sec, "jump_max_angle")
+    local max_dist = ini_sys:r_float_ex(sec, "jump_max_distance")
+    if max_dist then
+        local dist = math_sqrt(dx * dx + dy * dy + dz * dz)
+        if dist > max_dist or dist < (ini_sys:r_float_ex(sec, "jump_min_distance") or 0) then return false end
+    end
+    local max_h = ini_sys:r_float_ex(sec, "jump_max_height") or FALLBACK_JUMP_HEIGHT
+    if math_abs(dy) > max_h then return false end
+    local max_a = ini_sys:r_float_ex(sec, "jump_max_angle") or FALLBACK_JUMP_ANGLE
     local flat = math_sqrt(dx * dx + dz * dz)
-    if max_a and flat > 0.01 then
+    if flat > 0.01 then
         local dir = mob:direction()
         local dir_len = math_sqrt(dir.x * dir.x + dir.z * dir.z)
         if dir_len > 0.01 then
@@ -165,18 +175,33 @@ function xmonster.set_monster_health(mob, fraction)
 end
 
 --- Command the species' own jump at a target, after the interim can_jump mirror clears it - the return means feasible-and-started, so the caller believes it.
+--- A force of 0 or less falls back to jump_factor; a species with none (the bloodsucker) would launch at infinite speed, so it refuses.
 --- @safety SAFE - nil-guarded, false below the bind; the engine refuses during an active jump, a foreign capture, or scheme ownership
---- @cost O(1) | a few LTX reads + 1 luabind medium (component capture attempt)
---- @src lua_help_ex.script (try_monster_jump), control_manager_custom.cpp:452-481 (script_try_jump), control_jump.cpp:640-678 (can_jump)
+--- @cost O(1) | a few LTX reads + 2 luabind medium (restrictor test, component capture attempt)
+--- @src control_manager_custom.cpp:452-485 (script_try_jump), control_jump.cpp:447-453 (force fallback), :640-680 (can_jump)
 --- @param mob game_object monster
 --- @param pos vector world target position
---- @param factor number jump force factor
+--- @param factor number jump force factor; 0 or less takes the species jump_factor
 --- @param opts table|nil { skip_prepare = true } launches without the crouch wind-up (ePrepareSkip)
 --- @return boolean true when the jump was feasible, captured and started
 function xmonster.try_monster_jump(mob, pos, factor, opts)
-    if not mob or not pos or not _has_bind(mob, "try_monster_jump") then return false end
+    if not mob or not pos or not factor or not _has_bind(mob, "try_monster_jump") then return false end
+    if factor <= 0 and not ini_sys:r_float_ex(mob:section(), "jump_factor") then return false end
     if not _can_jump(mob, pos) then return false end
     return mob:try_monster_jump(pos, factor, (opts and opts.skip_prepare) == true)
+end
+
+--- The engine's flight time for a jump at pos and force: the minimum-velocity throw time over the 3D distance, divided by the force.
+--- @safety SAFE - nil-guarded, nil on a missing input or a force of 0 or less
+--- @cost O(1) | 1 luabind trivial (position) + vector math
+--- @src control_jump.cpp:447-453 (calculate_jump_time), MathUtils.h:314-316 (ThrowMinVelTime), Physics.cpp:54 (gravity 2 * 9.81)
+--- @param mob game_object monster
+--- @param pos vector world target position
+--- @param factor number jump force factor, above 0
+--- @return number|nil flight time in seconds
+function xmonster.compute_jump_time(mob, pos, factor)
+    if not mob or not pos or not factor or factor <= 0 then return nil end
+    return math_sqrt(2 * mob:position():distance_to(pos) / WORLD_GRAVITY) / factor
 end
 
 --- Start a rotation-jump from the species' loaded motion data - the instant turning juke (bloodsucker, dog, gigant, pseudodog, boar).
