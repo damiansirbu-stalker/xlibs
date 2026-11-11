@@ -1,6 +1,6 @@
 --- xinventory: NPC inventory categorization, slot semantics, item lifecycle
 
-local pairs, IsItem, tonumber = pairs, IsItem, tonumber
+local pairs, IsItem, IsWeapon, tonumber = pairs, IsItem, IsWeapon, tonumber
 local table_sort, math_floor = table.sort, math.floor
 local string_match, string_sub = string.match, string.sub
 local parse_list, alife_release_id, alife_create_item, alife_object = parse_list, alife_release_id, alife_create_item, alife_object
@@ -10,6 +10,7 @@ local table_concat = table.concat
 
 -- Item categorization vocabulary: produced by get_section_category / resolve_ammo_category, compared by consumers.
 local WEAPON_PREFIX = "WP_"
+local ADDON_ATTACHABLE = 2
 local FOOD_SECTIONS = { ["i_food"] = true, ["i_mutant_cooked"] = true }
 local DRINK_SECTION = "i_drink"
 local FLAG_UNTOUCHABLE = "untouchable"
@@ -65,6 +66,9 @@ local _grenade_set = {
     grenade_f1     = true, grenade_rgd5   = true,
     ["grenade_gd-05"] = true, grenade_smoke  = true,
 }
+
+-- Scope sections the engine accepts per attachable-scope weapon section, filled by _get_engine_scopes.
+local _engine_scope_cache = {}
 
 -- Untouchable blacklist from xr_corpse_detection.ltx [ignore_sections], loaded once at first call.
 local CORPSE_DETECTION_LTX = "ai_tweaks\\xr_corpse_detection.ltx"
@@ -255,6 +259,48 @@ end
 local function _add_count(sec, counts, order)
     counts[sec] = (counts[sec] or 0) + 1
     if counts[sec] == 1 then order[#order + 1] = sec end
+end
+
+-- Addon slot status of a weapon section as a number (0 none, 1 permanent, 2 attachable).
+-- @cost O(1) | 1 luabind heavy (r_string_ex)
+local function _get_addon_status(wsec, key)
+    return tonumber(ini_sys:r_string_ex(wsec, key))
+end
+
+-- Scope item sections the engine accepts on an attachable-scope gun, mirroring Weapon.cpp(801-827) and WeaponMagazined.cpp(1291-1306).
+-- @cost O(1) cached per weapon section; first call O(scopes) r_string_ex
+local function _get_engine_scopes(wsec)
+    local cached = _engine_scope_cache[wsec]
+    if cached then return cached end
+    local names = {}
+    if ini_sys:r_bool_ex(wsec, "modular_attachments") then
+        local group = ini_sys:r_string_ex(wsec, "modular_scope_group")
+        local list = group and parse_list(ini_sys, group, "scopes") or {}
+        for i = 1, #list do names[list[i]] = true end
+    else
+        local list = ini_sys:line_exist(wsec, "scopes_sect") and parse_list(ini_sys, wsec, "scopes_sect") or { wsec }
+        for i = 1, #list do
+            local name = ini_sys:r_string_ex(list[i], "scope_name")
+            if name then names[name] = true end
+        end
+    end
+    _engine_scope_cache[wsec] = names
+    return names
+end
+
+-- Scoped variant section of a base gun for one scope, or nil, as item_weapon.script(30-38,67-92) builds it.
+-- @cost O(scopes) | 1 parse_list + 1 section_exist
+local function _get_scope_variant(wsec, scope_sec)
+    local parent = ini_sys:r_string_ex(wsec, "parent_section")
+    if parent ~= wsec then return nil end
+    local list = parse_list(ini_sys, wsec, "scopes") or {}
+    for i = 1, #list do
+        if list[i] == scope_sec then
+            local variant = parent .. "_" .. scope_sec
+            return ini_sys:section_exist(variant) and variant or nil
+        end
+    end
+    return nil
 end
 
 --- Get item section name. Wraps item:section() to keep mods from calling the engine method directly.
@@ -787,6 +833,58 @@ function release_item_id(id)
     if not id then return false end
     alife_release_id(id)
     return true
+end
+
+--- True if an attachment section fits this gun now, through a free matching engine addon slot or an Anomaly scoped variant.
+--- Reads config and the gun's addon flags only.
+--- @safety SAFE - nil-guarded; non-weapon objects return false before any weapon bind
+--- @cost O(1) cached | 2-4 r_string_ex + 1 flag bind; first scope check per gun section walks its scope list
+--- @src xray/xrGame/WeaponMagazined.cpp(1285-1321), xray/xrGame/WeaponMagazinedWGrenade.cpp(584-595), anomaly/item_weapon.script(67-92)
+--- @param weapon game_object Online gun
+--- @param sec string Attachment item section
+--- @return boolean
+function can_add_attachment(weapon, sec)
+    if not (weapon and sec and IsWeapon(weapon)) then return false end
+    local wsec = weapon:section()
+    if IsItem("sil", sec) then
+        return _get_addon_status(wsec, "silencer_status") == ADDON_ATTACHABLE
+            and ini_sys:r_string_ex(wsec, "silencer_name") == sec and not weapon:weapon_is_silencer()
+    end
+    if IsItem("gl", sec) then
+        return _get_addon_status(wsec, "grenade_launcher_status") == ADDON_ATTACHABLE
+            and ini_sys:r_string_ex(wsec, "grenade_launcher_name") == sec and not weapon:weapon_is_grenadelauncher()
+    end
+    if IsItem("scope", sec) then
+        if _get_addon_status(wsec, "scope_status") == ADDON_ATTACHABLE then
+            return not weapon:weapon_is_scope() and _get_engine_scopes(wsec)[sec] == true
+        end
+        return _get_scope_variant(wsec, sec) ~= nil
+    end
+    return false
+end
+
+--- Mount an attachment item on a gun and return the id of the gun that now carries it, or nil when it does not fit.
+--- A scope swaps the gun for its scoped variant with a new id, so a caller holding the old gun re-targets on the returned id.
+--- @safety SAFE - gated on can_add_attachment; nil on a missing server object or a failed clone
+--- @cost O(1) | can_add_attachment + 1 weapon_addon_attach, or alife_object + alife_clone_weapon (heavy) + 1 release
+--- @src xray/xrGame/script_game_object_inventory_owner.cpp(2291-2311), anomaly/_g.script(2257-2289), anomaly/item_weapon.script(67-92)
+--- @param weapon game_object Online gun
+--- @param item game_object Attachment item, usually in the gun owner's inventory
+--- @return number|nil Gun id carrying the attachment
+function try_add_attachment(weapon, item)
+    if not (weapon and item) then return nil end
+    local sec = item:section()
+    if not can_add_attachment(weapon, sec) then return nil end
+    local wsec = weapon:section()
+    if IsItem("scope", sec) and _get_addon_status(wsec, "scope_status") ~= ADDON_ATTACHABLE then
+        local se_gun = alife_object(weapon:id())
+        local se_new = se_gun and alife_clone_weapon(se_gun, _get_scope_variant(wsec, sec))
+        if not se_new then return nil end
+        alife_release_id(item:id())
+        return se_new.id
+    end
+    weapon:weapon_addon_attach(item)
+    return weapon:id()
 end
 
 --- Load an LTX policy file with the uniform {min, max}-per-key shape; each named section yields { entries, rules, specials }.

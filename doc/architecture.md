@@ -338,6 +338,11 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
 - `transfer_item(from_npc, item, to_npc)` - move item between owners.
 - `release_item(item)` - alife_release_id wrapper (needs a live game_object).
 - `release_item_id(id)` - id-based release sibling. Works offline (no game_object required).
+- `can_add_attachment(weapon, sec)` - true if the attachment section fits the gun now. Silencers and launchers need an attachable free slot whose name matches, as the engine's `CanAttach` checks.
+  A scope fits an attachable-scope gun through the engine scope set, or a base gun through its Anomaly scoped variant `<parent_section>_<scope>`. It reads config and the gun's flags only.
+- `try_add_attachment(weapon, item)` - mounts the item and returns the id of the gun that carries it, or nil when it does not fit.
+  Engine addons keep the gun (`weapon_addon_attach`). An Anomaly scope swaps the gun through `alife_clone_weapon`, which gives it a new id, and releases the scope item.
+  Nothing calls these inside xlibs. A caller that holds the gun (a cached id, a queued action) re-targets on the returned id.
 
 **Policy primitives** (uniform shape across consumers):
 - `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`.
