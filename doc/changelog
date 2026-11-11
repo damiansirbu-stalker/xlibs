@@ -1,5 +1,5 @@
 1.9.2-snapshot
-  Summary: the get_best_cover and get_quick_cover cover primitives, hazard vs artefact anomaly detection in xsmart, the hands-only weapon read, the takeover graft logic-ready guard
+  Summary: the get_best_cover and get_quick_cover cover primitives, hazard vs artefact anomaly detection in xsmart, the hands-only weapon read, the takeover graft logic-ready guard, the attachment item category
 
   xcombat
     - Added get_best_cover, get_quick_cover, and get_safe_cover, cover primitives built from a line-by-line reverse-engineering of the xray cover graph; find_flee_lane is renamed find_free_lane.
@@ -14,6 +14,10 @@
 
   xmonster
     - Removed get_monster_enemy, a pass-through of the vanilla get_enemy bind; call mob:get_enemy() directly.
+
+  xinventory
+    - Added the attachment category for silencers, scopes and grenade launchers, read from the vanilla item lists.
+      These items carry a weapon class and used to count against a policy's weapon cap. A policy now caps them on a row of their own.
 
   xgraft
     - Changed register_takeover to install only once the NPC's logic is configured, returning false until then so the consumer retries, and to resolve each blocked planner to its own action before blocking it.

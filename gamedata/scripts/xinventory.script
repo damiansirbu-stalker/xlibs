@@ -469,7 +469,8 @@ local _SECTION_BUILDERS = {
     grenade_ammo      = function() return _build_bucket_list("grenade_ammo") end,
     ammo_not_equipped = _get_spawnable_ammo,
 
-    crafting = function() return _merge_buckets({ "tool", "part", "upgrade" }) end,
+    crafting   = function() return _merge_buckets({ "tool", "part", "upgrade" }) end,
+    attachment = function() return _merge_buckets({ "sil", "scope", "gl" }) end,
 
     food  = function() return _filter_by_kind({ i_food = true, i_mutant_cooked = true }) end,
     drink = function() return _filter_by_kind({ i_drink = true }) end,
@@ -580,6 +581,7 @@ function get_section_category(sec)
     if IsItem("device",       sec) then return "device"   end
     if IsItem("money",        sec) then return "money"    end
     if IsItem("tool", sec) or IsItem("part", sec) or IsItem("upgrade", sec) then return "crafting" end
+    if IsItem("sil", sec) or IsItem("scope", sec) or IsItem("gl", sec) then return "attachment" end
 
     local cls = _get_class(sec)
     if cls and cls:sub(1, 3) == WEAPON_PREFIX then return "weapon" end

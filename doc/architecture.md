@@ -304,7 +304,7 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
   A floor tier returns 0 below its rank, otherwise the first cost band whose `cost >= ` the section cost wins.
   Unconfigured opens (chance 1). Caller rolls and fail-closes.
 - `get_category_sections(category)` - reverse: category -> list of sections.
-  Builders dispatch to hand-maintained sets (medical 5 + grenade), `_ITM[bucket]` reads, an `_ITM["eatable"]` kind filter (food / drink), or `_ITM` unions (crafting = tool + part + upgrade).
+  Builders dispatch to hand-maintained sets (medical 5 + grenade), `_ITM[bucket]` reads, an `_ITM["eatable"]` kind filter (food / drink), or `_ITM` unions (crafting = tool + part + upgrade, attachment = sil + scope + gl).
   No `ini_sys:section_for_each` walks. Per-NPC categories (equipped, ammo_slot_*) and `weapon` return empty (weapon is per-item only).
   Lazy per-category build, weak-keyed cache, addon-aware for Parse_ITM bucket sources. grenade addons need an entry in `_grenade_set`.
 
@@ -322,12 +322,12 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
   It caches per `(weapon_sec, n_tiers)`, and defaults to `n_tiers=2`.
 - `get_box_size(sec)` - rounds per ammo stack (cached)
 
-**Category set returned by `get_category`** (24 values):
+**Category set returned by `get_category`** (25 values):
 - Sentinels: `untouchable` (quest / anim / blacklisted, always filtered), `equipped` (per-NPC via `opts.equipped_ids`), `other` (fallthrough)
 - Consumables: `medkit`, `bandage`, `antirad`, `stim`, `pill`, `food`, `drink`
 - Throwables: `grenade`, `grenade_ammo`
 - Ammo: `ammo_slot_2_t1` / `ammo_slot_2_t2` (pistol tiers), `ammo_slot_3_t1` / `ammo_slot_3_t2` (rifle tiers), `ammo_not_equipped` (ammo not in any equipped weapon's ammo_class)
-- Gear: `weapon`, `outfit`, `helmet`, `artefact`, `device`, `money`, `crafting`
+- Gear: `weapon`, `outfit`, `helmet`, `artefact`, `device`, `money`, `crafting`, `attachment` (vanilla silencer / scope / launcher lists; checked before the `WP_` weapon class, which those items also carry)
 - Consumer dispatch should short-circuit on `untouchable` and `equipped` before any policy lookup.
 
 **Item lifecycle**:
