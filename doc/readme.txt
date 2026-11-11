@@ -69,7 +69,7 @@ Entity & Items:
   xcreature    Creature identification, type checks, translated names, money primitives
   xobject      Server object and online game object resolution from any input type
   xactor       Actor info portions, talking/trading partner, state queries
-  xinventory   Item categorization (per-NPC ammo tier), slot semantics, ammo config, item lifecycle, LTX policy primitives (load + classify + iterate surplus)
+  xinventory   Item categorization (per-NPC ammo tier and attachment fit), slot semantics, ammo config, item lifecycle, attachment fit check and mount, LTX policy primitives (load + classify + iterate surplus)
 
 Util:
   xtable       Count, shuffle, sort, set merge and subtract
