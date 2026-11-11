@@ -28,6 +28,10 @@
     - Added the attachment category for silencers, scopes and grenade launchers, read from the vanilla item lists.
       These items carry a weapon class and used to count against a policy's weapon cap. A policy now caps them on a row of their own.
     - Added can_add_attachment and try_add_attachment, which check and mount a silencer, launcher or scope on an NPC's gun.
+    - Added attachment_slot_2 and attachment_slot_3, the categories of a loose attachment that fits the NPC's own pistol or rifle, resolved like ammo.
+      get_fitting_attachments lists what fits a gun now, and get_category_opts now carries the two guns.
+    - Changed try_add_attachment to return nil unless the mount reads back, and to clone a scoped gun only for a live owner and a gun nobody claims.
+      can_add_attachment reads the slot status live, so an upgraded gun that takes a silencer reads as fitting.
       A scope swaps the gun for its scoped variant under a new id, and try_add_attachment returns that id.
 
   xgraft

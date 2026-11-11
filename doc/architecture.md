@@ -314,7 +314,8 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
 **NPC slot accessors**:
 - `get_equipped_knife(npc)`, `get_equipped_pistol(npc)`, `get_equipped_rifle(npc)`, `get_equipped_grenade(npc)`, `get_equipped_outfit(npc)`, `get_equipped_helmet(npc)`
 - `get_equipped_ids(npc)` - set of item ids across slots 1..LAST_MAIN_SLOT
-- `get_category_opts(npc)` - canonical opts builder: `{ equipped_ids, equipped_pistol_sec, equipped_rifle_sec, npc_id }` for `get_category`
+- `get_category_opts(npc)` - canonical opts builder: `{ equipped_ids, equipped_pistol, equipped_rifle, equipped_pistol_sec, equipped_rifle_sec, npc_id }` for `get_category`.
+  The two gun objects feed the attachment fit check. Opts is a snapshot: build it, use it in the same Lua call, drop it.
 
 **Weapon config**:
 - `get_ammo_sections(weapon_sec)` - ordered array of ammo sections accepted (cached)
@@ -322,12 +323,13 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
   It caches per `(weapon_sec, n_tiers)`, and defaults to `n_tiers=2`.
 - `get_box_size(sec)` - rounds per ammo stack (cached)
 
-**Category set returned by `get_category`** (25 values):
+**Category set returned by `get_category`** (27 values):
 - Sentinels: `untouchable` (quest / anim / blacklisted, always filtered), `equipped` (per-NPC via `opts.equipped_ids`), `other` (fallthrough)
 - Consumables: `medkit`, `bandage`, `antirad`, `stim`, `pill`, `food`, `drink`
 - Throwables: `grenade`, `grenade_ammo`
 - Ammo: `ammo_slot_2_t1` / `ammo_slot_2_t2` (pistol tiers), `ammo_slot_3_t1` / `ammo_slot_3_t2` (rifle tiers), `ammo_not_equipped` (ammo not in any equipped weapon's ammo_class)
 - Gear: `weapon`, `outfit`, `helmet`, `artefact`, `device`, `money`, `crafting`, `attachment` (vanilla silencer / scope / launcher lists; checked before the `WP_` weapon class, which those items also carry)
+- Attachments per gun: `attachment_slot_2` / `attachment_slot_3` (a loose attachment that fits the equipped pistol / rifle now, by `resolve_attachment_category`, pistol first like ammo), `attachment` otherwise
 - Consumer dispatch should short-circuit on `untouchable` and `equipped` before any policy lookup.
 
 **Item lifecycle**:
@@ -339,10 +341,16 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
 - `release_item(item)` - alife_release_id wrapper (needs a live game_object).
 - `release_item_id(id)` - id-based release sibling. Works offline (no game_object required).
 - `can_add_attachment(weapon, sec)` - true if the attachment section fits the gun now. Silencers and launchers need an attachable free slot whose name matches, as the engine's `CanAttach` checks.
-  A scope fits an attachable-scope gun through the engine scope set, or a base gun through its Anomaly scoped variant `<parent_section>_<scope>`. It reads config and the gun's flags only.
-- `try_add_attachment(weapon, item)` - mounts the item and returns the id of the gun that carries it, or nil when it does not fit.
-  Engine addons keep the gun (`weapon_addon_attach`). An Anomaly scope swaps the gun through `alife_clone_weapon`, which gives it a new id, and releases the scope item.
-  Nothing calls these inside xlibs. A caller that holds the gun (a cached id, a queued action) re-targets on the returned id.
+  A scope fits an attachable-scope gun through the engine scope set, or a base gun through its Anomaly scoped variant `<parent_section>_<scope>`.
+  Names, scope sets and variants are cached per gun section. The slot status is read live (`weapon_*_status`), because an upgrade rewrites it on the gun (`WeaponUpgrade.cpp:302-315`).
+- `get_fitting_attachments(weapon)` - the attachment sections that fit the gun now, only those the vanilla item lists know, so any can be spawned.
+- `try_add_attachment(weapon, item)` - mounts the item and returns the id of the gun that carries it, or nil when nothing was mounted.
+  Engine addons keep the gun (`weapon_addon_attach`); the id comes back only when the gun's addon flag reads set afterwards, since the bind returns nothing.
+  An Anomaly scope swaps the gun through `alife_clone_weapon`, which gives it a new id, and releases the scope item.
+  The clone runs only when the variant exists and shares the base class (`spawn_item` asserts on an unknown section and leaks an ID on a class mismatch, `alife_simulator_base.cpp:101-107`, `alife_simulator_script.cpp:466-474`),
+  the owner's server object exists, and the gun is not untouchable (a companion assignment is keyed by the old id).
+  Never call it from an item-take callback: the engine attach does not check the item, and the item's destroy lands next frame, so one item can mount on two guns (`WeaponMagazined.cpp:1285-1321`, `GameObject.cpp:1088-1099`).
+  A caller that holds the gun (a cached id, a queued action) re-targets on the returned id.
 
 **Policy primitives** (uniform shape across consumers):
 - `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`.
