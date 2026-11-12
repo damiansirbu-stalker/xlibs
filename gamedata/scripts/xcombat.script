@@ -1,7 +1,7 @@
 --- xcombat: combat AI primitives - weapons, NPC control, geometry, targeting, cover, squad spread, fire-gate wrappers
 
 local math_sqrt, math_cos, math_sin, math_abs = math.sqrt, math.cos, math.sin, math.abs
-local math_acos, math_deg, math_huge = math.acos, math.deg, math.huge
+local math_acos, math_atan, math_deg, math_huge = math.acos, math.atan, math.deg, math.huge
 local time_global, tostring, tonumber = time_global, tostring, tonumber
 local type, rawget, assert, pairs = type, rawget, assert, pairs
 local level_object_by_id = level.object_by_id
@@ -64,6 +64,15 @@ local RQ_BOTH = 3
 local RQ_STATIC = 2
 local SELF_CLEARANCE_M       = 1.0
 local ENEMY_BODY_CLEARANCE_M = 0.75
+-- A human body's half width and half height around its center; the sight cone widens by their angular size.
+local BODY_HALF_WIDTH_M  = 0.4
+local BODY_HALF_HEIGHT_M = 0.9
+
+-- The weapon-hand and head bones a fire origin and an eye are read from.
+local FIRE_BONE = "bip01_r_finger02"
+local EYE_BONE  = "bip01_head"
+-- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
+local INVALID_BONE_ID = 65535
 
 -- Lateral half-width of the friendly firing lane for the can_kill_member fallback (the proven takeover doctrine value).
 local FRIENDLY_LANE_THRESH_M = 1.5
@@ -247,9 +256,6 @@ local function _has_bind(npc, name)
     return ready
 end
 
-local FIRE_BONE = "bip01_r_finger02"
--- u16 bone sentinel (BI_NONE); get_bone_id returns it when the skeleton lacks the bone.
-local INVALID_BONE_ID = 65535
 -- Fire origin: the weapon-hand bone position, STAND_EYE over the feet when the skeleton lacks the bone.
 -- @src xray/ai_stalker_fire.cpp:208 (the engine fires from eye_matrix.c); rx_ff.check_in_los + utils_obj.safe_bone_pos precedents
 -- @cost O(1) | 2-3 luabind trivial (get_bone_id + bone_position, or position)
@@ -258,6 +264,17 @@ local function _get_fire_origin(npc)
         return npc:bone_position(FIRE_BONE)
     end
     local pos = npc:position()
+    return vector():set(pos.x, pos.y + BODY_Y.STAND_EYE, pos.z)
+end
+
+-- The eye a combatant looks from: the player's camera, a stalker's head bone (STAND_EYE over the feet without one), a monster's center.
+-- @src xray script_render_device_script.cpp:73 (cam_pos), CustomMonster.cpp:614-629 (the eye on the head)
+-- @cost O(1) | 2-3 luabind trivial
+local function _get_eye(obj)
+    if obj:id() == AC_ID then return device().cam_pos end
+    if not IsStalker(obj) then return obj:center() end
+    if obj:get_bone_id(EYE_BONE) ~= INVALID_BONE_ID then return obj:bone_position(EYE_BONE) end
+    local pos = obj:position()
     return vector():set(pos.x, pos.y + BODY_Y.STAND_EYE, pos.z)
 end
 
@@ -771,15 +788,16 @@ function xcombat.get_facing(npc)
 end
 
 --- Degrees the combatant's facing is off the straight line to target_pos on the ground plane (0 = dead on, 180 = opposite).
---- A point-blank target reads its true angle; only a target within 0.1m of the combatant reads 0.
---- @safety SAFE - returns 0 when the target sits on the combatant or the facing is vertical (degenerate direction)
---- @cost O(1) | get_facing's reads + 1 position field read + pure math
+--- Measured from the eye (the player's camera, so third person and a lean read true); only a target within 0.1m reads 0.
+--- @safety SAFE - 0 for a nil combatant, a target on the eye, or a vertical facing (degenerate direction)
+--- @cost O(1) | get_facing's reads + the eye read + pure math
 --- @param npc game_object stalker, monster or actor
 --- @param target_pos vector world position the combatant should be facing
 --- @return number degrees in [0, 180]
 function xcombat.get_facing_offset(npc, target_pos)
+    if not npc then return 0 end
     local dir = xcombat.get_facing(npc)
-    local np = npc:position()
+    local np = _get_eye(npc)
     local vx, vz = target_pos.x - np.x, target_pos.z - np.z
     local mag = math_sqrt(vx * vx + vz * vz)
     local dir_mag = math_sqrt(dir.x * dir.x + dir.z * dir.z)
@@ -924,21 +942,38 @@ function xcombat.get_stand_openness(lvid, dir)
     return level.high_cover_in_direction(lvid, dir) or 0
 end
 
---- True when viewer has npc in his sight: facing within cone_deg of the NPC and the shot line between them clear.
---- The one sight primitive; the player's line starts at the camera, so a crouch or a lean reads true.
---- @safety SAFE - false when viewer is nil
---- @cost O(1) | 2 luabind (facing + positions) + 1 raycast; call it on event edges or feasibility checks, never per frame
---- @src xray script_render_device_script.cpp:73 (cam_pos)
+--- True when viewer has npc in his sight: his facing on npc's body within cone_deg, and a clear line from his eye to its center.
+--- The cone widens by the body's angular size, so a crosshair anywhere on the body counts; the ray skips both bodies.
+--- @safety SAFE - false when either side is nil
+--- @cost O(1) | ~6 luabind (eye, center, facing) + 1 raycast; call it on event edges or feasibility checks, never per frame
+--- @src xray script_game_object.cpp:59-71 (center), raypick.h:117-124 (set_ignore_object), CustomMonster.cpp:614-620 (the eye)
 --- @param viewer game_object the entity whose sight is asked (db.actor for the player)
 --- @param npc game_object the NPC asking whether viewer has him in his sight
---- @param cone_deg number viewer's facing offset to the NPC must be within this many degrees
+--- @param cone_deg number viewer's facing offset to the body must be within this many degrees
 --- @return boolean
 function xcombat.is_in_sight(viewer, npc, cone_deg)
-    if not viewer then return false end
-    local npos = npc:position()
-    if xcombat.get_facing_offset(viewer, npos) > cone_deg then return false end
-    if viewer:id() == AC_ID then return not xcombat.has_shot_obstacle(device().cam_pos, npos, 0) end
-    return not xcombat.has_shot_obstacle(viewer:position(), npos, BODY_Y.STAND_EYE)
+    if not (viewer and npc) then return false end
+    local eye, center, dir = _get_eye(viewer), npc:center(), xcombat.get_facing(viewer)
+    local dx, dy, dz = center.x - eye.x, center.y - eye.y, center.z - eye.z
+    local flat = math_sqrt(dx * dx + dz * dz)
+    local dir_flat = math_sqrt(dir.x * dir.x + dir.z * dir.z)
+    if flat < 0.1 or dir_flat < 0.01 then return true end
+    local cos = (dir.x * dx + dir.z * dz) / (flat * dir_flat)
+    if cos > 1 then cos = 1 elseif cos < -1 then cos = -1 end
+    if math_deg(math_acos(cos)) > cone_deg + math_deg(math_atan(BODY_HALF_WIDTH_M / flat)) then return false end
+    local pitch_gap = math_abs(math_deg(math_atan(dy / flat) - math_atan(dir.y / dir_flat)))
+    if pitch_gap > cone_deg + math_deg(math_atan(BODY_HALF_HEIGHT_M / flat)) then return false end
+    local dist = math_sqrt(flat * flat + dy * dy)
+    local ray = ray_pick()
+    ray:set_flags(RQ_BOTH)
+    ray:set_position(eye)
+    ray:set_direction(vector():set(dx / dist, dy / dist, dz / dist))
+    ray:set_range(dist)
+    ray:set_ignore_object(viewer)
+    ray:set_ignore_object(npc)
+    ray:query()
+    local hit = ray:get_distance()
+    return not (hit > 0 and hit < dist)
 end
 
 --- True when the enemy is WATCHING this combatant: a weapon in hand AND the combatant in his sight (facing cone + clear line).

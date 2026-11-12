@@ -166,6 +166,7 @@ Registers no callbacks and holds no game state. Caches are transient (TTL, level
 - `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held).
   These are engine beliefs (cover state the planner tracked), nil when there is no planner to ask.
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
+- `is_facing(obj, pos, cone)`, `is_in_sight(viewer, target, cone)`, `is_enemy_watching(enemy, target, cone)` - the facing cone, then the eye-to-center line with both bodies skipped and the cone widened by the body's size, then a weapon in hand
 - `has_obstacle_between(a, b)`, `has_shot_obstacle(a, b)`, `has_friendly_lane(npc, a, b, thresh)` - Chest-height object-aware rays.
   Movement lane, shot line capped short of the target body, and the squad firing-lane check.
 - `get_crouch_openness(lvid, dir)`, `get_stand_openness(lvid, dir)` - Baked cover-graph openness toward a direction at crouch and standing height (0 walled, 1 open), the cheap posture reads.

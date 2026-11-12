@@ -13,6 +13,9 @@
       get_facing_offset flattens the facing first. Looking up or down no longer inflates the offset.
     - Changed get_facing to read a stalker's facing from his head, which aims and shoots up to 45 degrees ahead of his body.
       Every facing, watching, and aim read on a stalker now follows where he aims. get_facing_offset reads a point-blank target's true angle, and is_enemy_watching counts only a weapon in hand.
+    - Changed is_in_sight to trace from the viewer's eye to the target's center, skipping both bodies, and to count looking up or down.
+      The cone widens by the body's angular size, so a crosshair anywhere on the body counts. A dog behind a low wall no longer reads in sight, and staring at the sky no longer reads as aiming.
+      get_facing_offset measures the player from the camera, so third person and a lean read true.
     - Added is_point_off_navmesh, the point twin of is_off_navmesh, and get_actor_velocity, the player's velocity, nil for anything else so the crashing bind never sees an NPC.
     - Removed is_aim_held, a pass-through of is_enemy_watching. Call is_enemy_watching with the aim cone.
 
