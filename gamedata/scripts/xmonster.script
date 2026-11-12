@@ -129,6 +129,20 @@ function xmonster.get_monster_enemy_info(mob)
     return mob:get_monster_enemy_info()
 end
 
+--- Milliseconds since the monster last sensed its current enemy (sight, a hit, a dangerous sound, or the near feel), nil when unknown.
+--- The monster twin of xcombat.get_unseen_ms; the read its own attack states hunt on, where the instant see bit flickers off mid-fight.
+--- @safety SAFE - nil below the bind, with no enemy, or before the first sighting
+--- @cost O(1) | 1 luabind trivial (CMonsterEnemyManager read)
+--- @src xray script_game_object_use2.cpp:341-357 (the bind), ai/monsters/monster_enemy_memory.cpp:18-110 (what refreshes it)
+--- @param mob game_object monster
+--- @param tg number time_global() snapshot
+--- @return number|nil ms since the enemy was last sensed
+function xmonster.get_enemy_unseen_ms(mob, tg)
+    local info = xmonster.get_monster_enemy_info(mob)
+    if not (info and info.enemy and info.time_last_seen > 0) then return nil end
+    return tg - info.time_last_seen
+end
+
 --- The monster home-territory record (point and radii), nil below the bind.
 --- @safety SAFE - nil-guarded, nil below the bind
 --- @cost O(1) | 1 luabind trivial (CMonsterHome read)

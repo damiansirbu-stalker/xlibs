@@ -8,7 +8,7 @@ local level_object_by_id = level.object_by_id
 local vector, level, GetEvent = vector, level, GetEvent
 local move, state_mgr, state_mgr_direction = move, state_mgr, state_mgr_direction
 local db, alife_object, ini_sys, IsWeapon, xmath = db, alife_object, ini_sys, IsWeapon, xmath
-local IsMonster, AC_ID = IsMonster, AC_ID
+local IsMonster, IsStalker, AC_ID = IsMonster, IsStalker, AC_ID
 
 xcombat = xcombat or {}
 
@@ -45,7 +45,7 @@ local WEAPON_TTL_MS = 2000
 -- Sweep expired entries on an interval so an id-keyed TTL cache never grows unbounded (stalker-code.md hot path rule 5).
 local SWEEP_INTERVAL_MS = 60000
 
--- Ray heights above npc:position() (the feet), probe-grounded (2026-08-04); every combat ray takes its height from HERE, never a literal.
+-- Ray heights above npc:position() (the feet), measured in game; every combat ray takes its height from here, never a literal.
 xcombat.BODY_Y = {
     CROUCH_EYE = 0.93,
     LANE       = 1.20,
@@ -71,7 +71,7 @@ local FRIENDLY_LANE_THRESH_M = 1.5
 -- The ef_weapon_type classes the engine's unseen suppression window accepts (ai_stalker_fire.cpp:920-930); read from ini_sys, never a bind.
 local AUTO_WEAPON_TYPES = { [6] = true, [7] = true, [8] = true, [10] = true }
 
--- best_cover cost grows ~r^2 with the radius; measured ~15us r10, ~50us r20, 55-115us r30 per scan, flat under load (Anomaly, 2026-10-25).
+-- best_cover cost grows ~r^2 with the radius: ~15us at r10, ~50us at r20, 55-115us at r30 per scan, flat under load.
 local COVER_MIN_DIST = 1
 local COVER_MAX_DIST = 30
 -- Concealment floor on min(stand,crouch) openness toward the threat: STRICT near-solid, LENIENT decent partial.
@@ -91,7 +91,7 @@ local INDOOR_PROBE_Y     = BODY_Y.CHEST
 local INDOOR_ROOF_M      = 4
 local INDOOR_WALL_M      = 5
 local INDOOR_MIN_WALLS   = 2
--- get_enclosure reach, probe-crystallized (31 snapshots 2026-08-08): a high hall ceiling still hits, open sky/ground reads no hit.
+-- get_enclosure reach: a high hall ceiling still hits, open sky or ground reads no hit.
 local ENC_ROOF_RANGE     = 18
 local ENC_WALL_RANGE     = 40
 -- a wall within this counts toward "building" (>=3) vs "tunnel" (2)
@@ -201,7 +201,7 @@ local function _set_committed_sight(npc, aim)
 end
 
 -- The engine's fire discipline: seen fires as asked (the vanilla kill_enemy order), blind consults fire_make_sense, else READY; reload degrades first.
--- Never gate the seen branch on can_kill_enemy: the engine never does, and measured 2026-07-12 it muted 73% of reads through normal sight lag.
+-- Never gate the seen branch on can_kill_enemy: the engine never does, and normal sight lag would mute most shots.
 -- @cost O(1) | 1-2 luabind (reload state) + 1 luabind (see) when seen; + the fire_make_sense reads when blind
 -- @src xray/stalker_combat_actions.cpp:483-496 (seen -> fire), :906-914 (blind fire_make_sense); a fire goal on a reloading weapon cancels the reload
 local function _resolve_fire(npc, requested, enemy)
@@ -508,7 +508,7 @@ end
 --- A visual-memory read, not a fresh raycast; for sighting staleness use get_unseen_ms, for cover bookkeeping use get_cover_state.
 --- @safety SAFE - nil-guarded and dead-SUBJECT guarded (a dead npc makes the SAFE_WRAPped bind log "cannot check visibility of dead object!")
 --- @cost O(1) | 1 luabind (CheckObjectVisibility - visual memory read)
---- @src xray/script_game_object_script2.cpp:138 (see = CheckObjectVisibility, SAFE_WRAP)
+--- @src xray/script_game_object_script2.cpp:143 (see = CheckObjectVisibility, SAFE_WRAP)
 --- @param npc game_object the perceiving NPC
 --- @param obj game_object the object under test
 --- @return boolean true when visible now
@@ -522,7 +522,7 @@ end
 --- Range-limits :see for close-range checks where a full-vision hit across the level is wrong; occlusion and facing come from :see.
 --- @safety SAFE - nil-guarded; distance and :see are both engine-SAFE_WRAPped
 --- @cost O(1) | 2 position + 1 distance_to_sqr on the far bail; + 1 see (visual-memory read) when in range
---- @src xray/script_game_object_script2.cpp:138 (see = CheckObjectVisibility, SAFE_WRAP)
+--- @src xray/script_game_object_script2.cpp:143 (see = CheckObjectVisibility, SAFE_WRAP)
 --- @param npc game_object the perceiving NPC
 --- @param obj game_object the object under test
 --- @param radius number range in metres
@@ -755,24 +755,25 @@ function xcombat.get_combat_action(npc)
     return _combat_actions[aid] or ("op" .. aid)
 end
 
---- Where a combatant looks, as a direction vector - the heading and aim read every facing helper composes on.
---- The player looks along the camera: his body lags it by 16-29 deg while strafing (field probe 2026-11-11), so it is the wrong read.
---- @safety SAFE - nil npc returns a zero vector
---- @cost O(1) | 1 luabind trivial (direction or camera field read)
---- @src xray/script_game_object_script2.cpp:98 (direction), script_render_device_script.cpp:74 (cam_dir)
+--- Where a combatant looks and shoots, as a direction vector - the heading and aim read every facing helper composes on.
+--- The player looks along the camera, a stalker along his head (the body lags both); a monster's head is its body.
+--- @safety SAFE - nil npc returns a zero vector; head_orientation is reached only for a stalker (it logs an error on anything else)
+--- @cost O(1) | 1-2 luabind trivial (id, class, then a direction, head or camera field read)
+--- @src xray CustomMonster.cpp:614-620 (eye from the head), :1045-1048 (a monster's head is its body), ai_stalker_fire.cpp:171,208-218 (shots from the eye)
+--- @src xray script_game_object_script2.cpp:100 (direction), :345 (head_orientation), script_render_device_script.cpp:74 (cam_dir)
 --- @param npc game_object stalker, monster or actor
---- @return vector facing direction (the camera's may tilt; get_facing_offset flattens it)
+--- @return vector facing direction (the camera and the head may tilt; get_facing_offset flattens it)
 function xcombat.get_facing(npc)
     if not npc then return vector() end
     if npc:id() == AC_ID then return device().cam_dir end
+    if IsStalker(npc) then return npc:head_orientation() end
     return npc:direction()
 end
 
 --- Degrees the combatant's facing is off the straight line to target_pos on the ground plane (0 = dead on, 180 = opposite).
---- A combat NPC normally faces near its enemy, so a large offset is the body pointed away (the weird-aim cue).
+--- A point-blank target reads its true angle; only a target within 0.1m of the combatant reads 0.
 --- @safety SAFE - returns 0 when the target sits on the combatant or the facing is vertical (degenerate direction)
---- @cost O(1) | 2 luabind trivial (facing, position field reads) + pure math
---- @src xray/script_game_object_script2.cpp:98 (direction), script_render_device_script.cpp:74 (cam_dir)
+--- @cost O(1) | get_facing's reads + 1 position field read + pure math
 --- @param npc game_object stalker, monster or actor
 --- @param target_pos vector world position the combatant should be facing
 --- @return number degrees in [0, 180]
@@ -782,7 +783,7 @@ function xcombat.get_facing_offset(npc, target_pos)
     local vx, vz = target_pos.x - np.x, target_pos.z - np.z
     local mag = math_sqrt(vx * vx + vz * vz)
     local dir_mag = math_sqrt(dir.x * dir.x + dir.z * dir.z)
-    if mag < 1 or dir_mag < 0.01 then return 0 end
+    if mag < 0.1 or dir_mag < 0.01 then return 0 end
     local cos = (dir.x * vx + dir.z * vz) / (mag * dir_mag)
     if cos > 1 then cos = 1 elseif cos < -1 then cos = -1 end
     return math_deg(math_acos(cos))
@@ -840,7 +841,7 @@ end
 --- Heights are DATA (BODY_Y), never literals: opts.from_y / opts.to_y are required, opts.self_clear / opts.target_clear trim the ends.
 --- @safety SAFE - get_distance returns 0 when nothing is hit
 --- @cost O(1) | 6 luabind (ray_pick ctor + set_flags/position/direction/range + query spatial scan + get_distance)
---- @src xray/level_script.cpp:2633 (CRayPick), xray/xrCDB/xr_collide_defs.h:72-76 (rqtBoth = rqtObject | rqtStatic)
+--- @src xray/level_script.cpp:3120,3152 (ray_pick, the CRayPick bind), xray/xrCDB/xr_collide_defs.h:72-76 (rqtBoth = rqtObject | rqtStatic)
 --- @src xray/ai/stalker/ai_stalker_fire.cpp:171,208,232 (the engine fires from eye_matrix.c - why a shot ray starts at an eye height)
 --- @param a vector start position (feet); lifted by opts.from_y
 --- @param b vector end position (feet); lifted by opts.to_y
@@ -900,7 +901,7 @@ function xcombat.has_shot_obstacle(start_pos, target_pos, eye_y)
 end
 
 --- DEFENSIVE hide read: from lvid, is a static wall in the way at CROUCH height toward dir (0 = walled/hidden, 1 = open/exposed).
---- NOT a line of fire - it never traces to the enemy; confirm any shot with a raycast. Sign tested in game 2026-08-02.
+--- NOT a line of fire - it never traces to the enemy; confirm any shot with a raycast.
 --- @safety SAFE - the engine returns 0 for an invalid vertex; nil-guarded to 0
 --- @cost O(1) | 1 luabind trivial (baked quadtree lookup + yaw interpolation, ~40ns)
 --- @src xray/level_script.cpp:363 (bind), :371 (yaw-only getHP), xray/level_graph_vertex_inline.h:649-660 (interp NORMALIZE_NODE_COVER_LOW quadrant bytes)
@@ -940,8 +941,8 @@ function xcombat.is_in_sight(viewer, npc, cone_deg)
     return not xcombat.has_shot_obstacle(viewer:position(), npos, BODY_Y.STAND_EYE)
 end
 
---- True when the enemy is WATCHING this combatant: a weapon out AND the combatant in his sight (facing cone + clear line).
---- The predator read a wind-up answers: leaping telegraphed in front of a watching gun hands it a free second.
+--- True when the enemy is WATCHING this combatant: a weapon in hand AND the combatant in his sight (facing cone + clear line).
+--- A holstered or slung gun reads unarmed; the predator read a wind-up answers, a telegraphed leap before a watching gun hands it a free second.
 --- @safety SAFE - false when either side is nil; composes get_weapon_kind + is_in_sight
 --- @cost O(1) | get_weapon_kind (TTL-cached) + is_in_sight's 2 luabind + 1 raycast - an event-edge or beat read, never per frame
 --- @param enemy game_object the enemy whose attention is asked (stalker or actor)
@@ -950,7 +951,7 @@ end
 --- @return boolean true when the enemy is armed and has the combatant in sight
 function xcombat.is_enemy_watching(enemy, npc, cone_deg)
     if not (enemy and npc) then return false end
-    if xcombat.get_weapon_kind(enemy) == nil then return false end
+    if xcombat.get_weapon_kind(enemy, true) == nil then return false end
     return xcombat.is_in_sight(enemy, npc, cone_deg)
 end
 
@@ -1238,7 +1239,7 @@ function xcombat.apply_dispersion(temp_disp, factor)
 end
 
 --- True when the NPC's fire lane reaches the enemy: the engine's posture-aware shot clearance (PR #596) or a capped clearance-ray floor.
---- NEVER a fire gate - the engine never gates fire on this read (measured 2026-07-12: 73% blocked); a position/aim-quality question only.
+--- NEVER a fire gate - the engine never gates fire on this read, and normal sight lag blocks most of it; a position/aim-quality question only.
 --- @safety SAFE - nil-guarded; the bind returns false on a holstered NPC (ActiveItem guard in the bind)
 --- @cost O(1) | engine: 1 luabind (frame-cached recompute) | fallback: ~9 luabind (bone origin + ray)
 --- @src PR themrdemonized/xray-monolith#596; xray/ai/stalker/ai_stalker_fire.cpp:744-777 (safety fan), :802-823 (update_can_kill_info)
@@ -1677,7 +1678,6 @@ xcombat.INDOOR_LEVELS = {
 --- The caller classifies from the raw distances and MUST cache by a position cell - never call it per frame.
 --- @safety SAFE - world positions only, nil on a bad position
 --- @cost O(1) | up to 5 ray_pick queries
---- @src DiegeticDread probe 2026-08-08 (31 snapshots) - the ranges and thresholds
 --- @param pos vector world position
 --- @return table|nil { roof=dist|nil, walls={4 dists|nil}, nearest_wall=dist|nil, wall_count=int }
 function xcombat.get_enclosure(pos)

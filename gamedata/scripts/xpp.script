@@ -6,7 +6,7 @@ local _active = {}
 
 local level = level
 
---- Verified-safe .ppe filenames (all tested 2026-05-19 in a GAMMA install); the engine fatal-errors on a missing .ppe, uncatchable via pcall.
+--- Verified-safe .ppe filenames; the engine fatal-errors on a missing .ppe, uncatchable via pcall.
 PPE = {
     -- psi / horror
     PSI                  = "psi.ppe",
