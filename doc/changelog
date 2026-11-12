@@ -1,6 +1,6 @@
 1.9.2-snapshot
   Summary: the get_best_cover and get_quick_cover cover primitives, hazard vs artefact anomaly detection in xsmart, the hands-only weapon read, the takeover graft logic-ready guard, the attachment item category and mount calls,
-    the player's facing from the camera, the jump restrictor and fallback limits
+    the player's facing from the camera, the stalker's facing from the head, the jump restrictor and fallback limits
 
   xcombat
     - Added get_best_cover, get_quick_cover, and get_safe_cover, cover primitives built from a line-by-line reverse-engineering of the xray cover graph; find_flee_lane is renamed find_free_lane.
@@ -11,6 +11,8 @@
     - Changed get_facing to read the player's facing from the camera, and is_in_sight to trace the player's line from the camera.
       The player's body lags the camera by 16-29 degrees while strafing. Every facing, watching, and aim read on the player now follows where he looks.
       get_facing_offset flattens the facing first. Looking up or down no longer inflates the offset.
+    - Changed get_facing to read a stalker's facing from his head, which aims and shoots up to 45 degrees ahead of his body.
+      Every facing, watching, and aim read on a stalker now follows where he aims. get_facing_offset reads a point-blank target's true angle, and is_enemy_watching counts only a weapon in hand.
     - Added is_point_off_navmesh, the point twin of is_off_navmesh, and get_actor_velocity, the player's velocity, nil for anything else so the crashing bind never sees an NPC.
     - Removed is_aim_held, a pass-through of is_enemy_watching. Call is_enemy_watching with the aim cone.
 
@@ -23,6 +25,7 @@
     - Changed try_monster_jump to also refuse a target outside the monster's space restrictors, as the game's own jump does.
       A species with no jump keys, the bloodsucker and psysucker, now takes the chimera's angle and height limits. A force of 0 or less is refused there.
     - Added compute_jump_time, the engine's own flight time for a jump at a point and force.
+    - Added get_enemy_unseen_ms, the time since the monster last sensed its enemy by sight, hit, sound or near feel, the monster twin of xcombat.get_unseen_ms.
 
   xinventory
     - Added the attachment category for silencers, scopes and grenade launchers, read from the vanilla item lists.
@@ -33,6 +36,10 @@
     - Changed try_add_attachment to return nil unless the mount reads back, and to clone a scoped gun only for a live owner and a gun nobody claims.
       can_add_attachment reads the slot status live, so an upgraded gun that takes a silencer reads as fitting.
       A scope swaps the gun for its scoped variant under a new id, and try_add_attachment returns that id.
+
+  xcreature
+    - Added is_companion, the player's companion check for one NPC by id or object, online or offline. The squad form stays xsquad.is_companion.
+    - Changed is_unscriptable to read companion status live. It cached it per NPC. A stalker checked before you recruited him stayed open to cleanup and loot trimming.
 
   xgraft
     - Changed register_takeover to install only once the NPC's logic is configured, returning false until then so the consumer retries, and to resolve each blocked planner to its own action before blocking it.

@@ -96,8 +96,11 @@ end
 -- Per-NPC weak-key cache: clsid (and so species) is invariant for a server entity's lifetime; false sentinel for a nil result.
 local _species_cache = setmetatable({}, { __mode = "k" })
 
--- Weak-key cache so entries drop when the object is GC'd.
+-- Weak-key cache of the fixed scripted identity, so entries drop when the object is GC'd; companion status is never cached.
 local _unscriptable_cache = setmetatable({}, { __mode = "k" })
+
+-- Vanilla's per-NPC companion info portion (axr_companions.script:345,388,418).
+local COMPANION_INFO = "npcx_is_companion"
 
 --- Get the class ID from an entity (ID, game_object, or server object), resolved via xobject.get_se + :clsid().
 --- @safety SAFE - returns nil for invalid/missing entities, :clsid() never crashes
@@ -187,16 +190,13 @@ local function _get_mutant_name(section)
     return name
 end
 
--- Check unscriptable identity: story_id, companion info, named NPC, squad story_id.
--- @cost O(1) | 3-5 luabind (id, story_id, IsStalker, has_info medium, section heavy)
+-- Check the fixed scripted identity: story_id, named NPC, squad story_id. Companion status changes at runtime and is read live by the callers.
+-- @cost O(1) | 2-4 luabind (id, story_id, IsStalker, section heavy)
 local function _check_unscriptable(obj)
     if not obj then return true end
     local id = obj:id()
     if get_object_story_id(id) then return true end
-    if IsStalker(obj) then
-        if obj:has_info("npcx_is_companion") then return true end
-        if xdata.unscriptable_npcs[obj:section()] then return true end
-    end
+    if IsStalker(obj) and xdata.unscriptable_npcs[obj:section()] then return true end
     local squad = get_object_squad(obj)
     if squad and get_object_story_id(squad.id) then return true end
     return false
@@ -572,15 +572,35 @@ function iterate_online_monsters()
     end
 end
 
+--- True if the entity is the player's companion now: vanilla's per-NPC companion flag, read from the alife info registry so it holds online and offline.
+--- xr_motivator rebuilds the flag on every spawn from the "companion" se var, and the online object reads the same registry by id.
+--- @safety SAFE - nil-guarded; false outside a running alife (main menu)
+--- @cost O(1) | 1 luabind medium (alife():has_info: registry find + linear find over the entity's known infos)
+--- @src anomaly/axr_companions.script(345,388,418), anomaly/xr_motivator.script(152-156), xray/xrGame/alife_simulator_script.cpp(384-394,685)
+--- @param input number|userdata|table Entity id, game object, or server object
+--- @return boolean
+function is_companion(input)
+    if not input then return false end
+    local sim = alife()
+    if not sim then return false end
+    local id = input
+    if type(input) ~= "number" then
+        id = input.id
+        if type(id) == "function" then id = input:id() end
+    end
+    return id ~= nil and sim:has_info(id, COMPANION_INFO)
+end
+
 --- Check if a creature is unscriptable (traders, leaders, companions, story chars fixed to their role/location).
---- Checks story_id, companion info, the xdata.unscriptable_npcs hash, and squad story_id; cached per game_object.
+--- Companion status is read live, since recruit and dismiss change it; the fixed identity (story_id, named NPC, squad story_id) is cached per game_object.
 --- @safety SAFE - returns true for nil (fail-safe), all APIs return nil for invalid objects
---- @cost O(1) cached | uncached: 3-5 luabind mixed (id trivial, IsStalker trivial, has_info medium known_info linear find, section heavy shared_str)
+--- @cost O(1) | is_companion (1 luabind medium) + the cached identity; uncached: 2-4 luabind (id trivial, IsStalker trivial, section heavy shared_str)
 --- @src anomaly/_g.script(2692) get_object_story_id, anomaly/_g.script(2437) get_object_squad
 --- @param obj game_object Game object
 --- @return boolean True if unscriptable (nil returns true for safety)
 function is_unscriptable(obj)
     if not obj then return true end
+    if is_companion(obj) then return true end
     local cached = _unscriptable_cache[obj]
     if cached ~= nil then return cached end
     local result = _check_unscriptable(obj)
@@ -588,8 +608,8 @@ function is_unscriptable(obj)
     return result
 end
 
---- Server-entity (offline-safe) variant of is_unscriptable: story_id registry, the unscriptable_npcs section hash, and squad story_id.
---- The companion has_info signal needs a game object and is omitted (companions follow the actor online anyway).
+--- The fixed scripted identity of a server entity, online or offline: story_id registry, the unscriptable_npcs section hash, and squad story_id.
+--- Companions are not included; a caller that protects companions also checks is_companion or xsquad.is_companion.
 --- @safety SAFE - returns true for nil (fail-safe), clsid/section_name/group_id nil-guarded
 --- @cost O(1) | 1-2 luabind (clsid trivial, section_name heavy shared_str only if stalker); story_id lookups 0 luabind (Lua registry)
 --- @src anomaly/_g.script(2692) get_object_story_id

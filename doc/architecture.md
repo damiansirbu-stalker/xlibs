@@ -101,7 +101,9 @@ local name = xcreature.get_name(entity_id)
 - `online_iter_with_id()` - Iterator over online game objects yielding (id, obj) pairs
 - `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog"). Handles modded exe clsid reuse via section prefix, with a player_id fast reject for stalkers.
 - `get_mutant_variant(input)` - Full NPC variant section ("bloodsucker_red_strong", "dog_weak_brown")
-- `is_unscriptable(obj)` - Check against xdata.unscriptable_npcs
+- `is_companion(input)` - The player's companion now: vanilla's `npcx_is_companion` flag read through `alife():has_info`, so it holds online and offline (`xr_motivator.script:152-156` rebuilds it on every spawn). The squad form is `xsquad.is_companion`.
+- `is_unscriptable(obj)` - Companion, story id, named NPC (xdata.unscriptable_npcs), or story squad. Companion status is read live; only the fixed identity is cached per object, since recruit and dismiss change companionship mid-session.
+- `is_unscriptable_se(se_obj)` - The fixed identity alone, online or offline, without companions
 - `is_task_giver(obj)` - Check NPC/squad ID against active tasks
 
 ### xsquad.script - Squad Queries & Operations
@@ -160,7 +162,7 @@ Registers no callbacks and holds no game state. Caches are transient (TTL, level
   Any-sense recency, and live-or-last-known position.
 - `show_enemy(npc, enemy, opts)` - Inject a known enemy into NPC memory and register in combat, relation-clean
 - `register_in_combat(npc)`, `unregister_in_combat(npc)` - Squad memory-sharing bookkeeping the blocked combat planner no longer performs
-- `get_operator(npc)`, `get_combat_action(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Current brain operator by name (engine entries, generic schemes, the takeover), the combat sub-planner's current action one level below "combat" (kill_enemy/take_cover/...), facing (the body for an NPC, the camera for the player), facing offset on the ground plane (degrees)
+- `get_operator(npc)`, `get_combat_action(npc)`, `get_facing(npc)`, `get_facing_offset(npc, pos)` - Current brain operator by name (engine entries, generic schemes, the takeover), the combat sub-planner's current action one level below "combat" (kill_enemy/take_cover/...), facing (the camera for the player, the head for a stalker, the body for a monster), facing offset on the ground plane (degrees)
 - `get_cover_state(npc)` - The combat planner's stored cover bookkeeping as one guarded read: (in_cover, looked_out, position_held).
   These are engine beliefs (cover state the planner tracked), nil when there is no planner to ask.
 - `set_combat(npc, opts)` - One command for weapon mode + posture + movement, resolved through the combat-state matrix so state and explicit posture/movement never contradict
@@ -216,6 +218,7 @@ The CBaseMonster combat surface over the modded-exes monster seam set (releases 
 
 - `get_monster_state(mob)`, `is_monster_jumping(mob)`, `get_monster_morale(mob)` - FSM state id (deepest substate), jump-in-flight, morale
 - `get_monster_hit_info(mob)`, `get_monster_sound_info(mob)`, `get_monster_enemy_info(mob)`, `get_monster_home_info(mob)` - the monster FSM's own memory records
+- `get_enemy_unseen_ms(mob, tg)` - ms since the monster last sensed its enemy by sight, hit, sound or near feel; the monster twin of `xcombat.get_unseen_ms`
 - `try_monster_jump(mob, pos, factor, opts)`, `try_monster_rotation_jump(mob)`, `try_monster_run_attack(mob)`, `try_monster_threaten(mob)` - engine-validated one-shot invokes; every refusal returns false
 - `set_monster_melee_strike(mob, anim_left, anim_right, rear_arc_deg)` - arm the dormant rear spin-strike with the model's own motions
 - `set_monster_attack_dist/jump_params/jump_flags/circle_params/rush_params/turn_factor/aura_params(mob, ...)` - the per-object combat-param families, nil = keep
