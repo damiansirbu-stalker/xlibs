@@ -507,13 +507,14 @@ Sound wrap:
 - the verified-safe path table `SND`
 - a per-sound metadata registry plus a delivered-loudness model (`load_meta`, `get_meta`, `compute_delivered_loudness`)
 
-Sound metadata - a write-once registry feeding a pure loudness model. A mod's build emits a generated table of
-per-sound measured facts; the mod loads it once with `load_meta(rows)` (path -> `{ lufs, crest, peak, bv, mn, mx }`,
-keys normalized to lowercase/backslash/no-.ogg), and any consumer reads a profile with `get_meta(path)` (pure
-table lookup, zero bridge). `compute_delivered_loudness(profile, dist)` returns the delivered dB at a distance
-(nil = at-ear): content LUFS attenuated by the blob's linear band fade and an inverse-distance rolloff, the
-runtime twin of the build-time loudness floor. Audio consumers feed it, and their review
-players render the est. dB readout from it.
+Sound metadata is a write-once registry feeding a pure loudness model.
+A mod's build emits a table of per-sound measured facts, and the mod loads it once with `load_meta(rows)` (path -> `{ lufs, crest, peak, bv, mn, mx }`, keys lowercase with backslashes, no .ogg).
+Any consumer reads a profile with `get_meta(path)`, a plain table lookup that makes no bridge call.
+`compute_delivered_loudness(profile, dist, volume)` returns the delivered dB of one play at a 3D distance (nil = at-ear) and a script volume (nil = 1.0).
+The model is the xray gain chain at effects slider 1.0, read from `SoundRender_Emitter_FSM.cpp` and `SoundRender_TargetA.cpp`.
+It multiplies base_volume by the band fade capped at the script volume and clamps the product at 1.0.
+A play under the 0.01 cull reads -120, and OpenAL's inverse rolloff from the min applies on top of the clamped gain.
+The function is the runtime twin of the build-time audit, and the review players of the audio mods render their est. dB readout from it.
 
 Engine ambient sound seams (themrdemonized/xray-monolith PR #644 and #661, pending merge): the engine calls a named `_G` global at each ambient play site when the global is set.
 xlibs owns those globals, so a consumer never touches `_G.*`.

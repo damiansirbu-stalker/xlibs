@@ -8,6 +8,7 @@ local _last_tick = 0
 local TICK_MS = 100
 local _meta = {}
 local LOUDNESS_ROLLOFF = 0.75
+local LOUDNESS_CULL = 0.01
 
 -- Forward declaration: play_at/create_sound call _register (defined below _update), so the name resolves at those earlier call sites.
 local _register
@@ -405,28 +406,30 @@ function get_meta(path)
     return _meta[_format_meta_key(path)]
 end
 
---- The delivered loudness in dB at a distance: content LUFS attenuated by the profile's rolloff curves.
---- Mirrors the pipeline _loudness_floor model; a nil distance means at-ear (no distance attenuation).
+--- The delivered loudness in dB of one play, the xray gain chain at effects slider 1.0 (doc/architecture.md, Sound metadata).
+--- A nil distance is the 2D path, where the script volume multiplies and nothing falls off (SoundRender_Emitter_FSM.cpp:351-359).
 --- @safety SAFE - nil when the profile has no lufs
 --- @cost O(1) | 0 luabind
 --- @param profile table A per-sound profile { lufs, bv, mn, mx } from get_meta
---- @param dist number|nil Distance in metres, or nil for at-ear
---- @return number|nil Delivered loudness in dB, or nil when lufs is unknown
-function compute_delivered_loudness(profile, dist)
+--- @param dist number|nil 3D distance in metres, or nil for at-ear
+--- @param volume number|nil The play's script volume, default 1.0
+--- @return number|nil Delivered loudness in dB, -120 when xray culls the play, nil when lufs is unknown
+function compute_delivered_loudness(profile, dist, volume)
     if not (profile and profile.lufs) then return nil end
-    local bv = profile.bv or 1.0
-    local gain = bv
+    local vol = volume or 1.0
+    local smooth = (profile.bv or 1.0) * vol
+    local al = 1.0
     local mn, mx = profile.mn, profile.mx
     if dist and mn and mx and mx > mn then
-        local clamped = dist
-        if clamped < mn then clamped = mn elseif clamped > mx then clamped = mx end
-        local va = (mx - clamped) / (mx - mn)
-        if va < 0 then va = 0 elseif va > 1 then va = 1 end
-        local al = clamped > mn and (mn / (mn + LOUDNESS_ROLLOFF * (clamped - mn))) or 1.0
-        gain = bv * va * al
+        if dist > mx then return -120.0 end
+        local va = (mx - dist) / (mx - mn)
+        if va < 0 then va = 0 elseif va > vol then va = vol end
+        smooth = (profile.bv or 1.0) * va
+        if dist > mn then al = mn / (mn + LOUDNESS_ROLLOFF * (dist - mn)) end
     end
-    if gain <= 1e-6 then return -120.0 end
-    return profile.lufs + 20.0 * math_log10(gain)
+    if smooth < LOUDNESS_CULL then return -120.0 end
+    if smooth > 1.0 then smooth = 1.0 end
+    return profile.lufs + 20.0 * math_log10(smooth * al)
 end
 
 --- Reset all state on save load, stopping any playing sounds still held.
