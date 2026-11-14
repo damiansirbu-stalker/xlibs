@@ -17,7 +17,7 @@ SQUADS_BY_FACTION = {
     greh = {"greh_sim_squad_novice","greh_sim_squad_advanced","greh_sim_squad_veteran"},
     isg = {"isg_sim_squad_novice","isg_sim_squad_advanced","isg_sim_squad_veteran"},
 }
---- Species -> single-species simulation squad section (species-pure for infest/conquest). See doc/library/xray/api/squad-factions.md.
+--- Species -> single-species simulation squad section (species-pure for infest/conquest).
 SQUADS_BY_SPECIES = {
     bloodsucker = {"simulation_bloodsucker"}, boar = {"simulation_boar"}, burer = {"simulation_burer"}, cat = {"simulation_cat"},
     chimera = {"simulation_chimera"}, controller = {"simulation_controller"}, dog = {"simulation_dog"}, flesh = {"simulation_flesh"},

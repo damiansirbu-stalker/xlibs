@@ -88,7 +88,7 @@ end
 
 --- Loot a stash's contents: split the contents string, mark it looted, and remove the map spot.
 --- The contents are parsed before the cache entry is overwritten with the looted marker, so the returned items are the last read of a stash now emptied.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch)
 --- @cost O(n) items (str_explode) | 1 luabind medium (map_remove_object_spot)
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(459,535)
 --- @param stash_id number Stash object ID
@@ -110,7 +110,7 @@ end
 
 --- Fill a stash with items (always safe to call): append to the existing contents string or create it, optionally adding a "treasure" map spot.
 --- Appending to an existing string merges into a stash already present, so repeated calls accumulate loot rather than replacing it; the marker is opt-in.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch)
 --- @cost O(n) items (table_concat) | 0-1 luabind heavy (map_add_object_spot if add_marker: CMapLocation construction + insert)
 --- @src anomaly/treasure_manager.script(33), xray/xrGame/level_script.cpp(434,535)
 --- @param stash_id number Stash object ID

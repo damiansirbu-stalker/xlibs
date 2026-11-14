@@ -1,6 +1,6 @@
 1.9.2-snapshot
   Summary: the get_best_cover and get_quick_cover cover primitives, hazard vs artefact anomaly detection in xsmart, the hands-only weapon read, the takeover graft logic-ready guard, the attachment item category and mount calls,
-    the player's facing from the camera, the stalker's facing from the head, the jump restrictor and fallback limits, the delivered-loudness readout on the xray gain clamp
+    the player's facing from the camera, the stalker's facing from the head, the jump restrictor and fallback limits, saved TTL row expiry, the delivered-loudness readout on the xray gain clamp
 
   xcombat
     - Added get_best_cover, get_quick_cover, and get_safe_cover, cover primitives built from a line-by-line reverse-engineering of the xray cover graph; find_flee_lane is renamed find_free_lane.
@@ -22,6 +22,9 @@
   xsmart
     - Added has_hazard_anomaly and is_hazard_anomaly_near for the anomaly fields that hurt, has_artefact_anomaly and is_artefact_anomaly_near for the zones that spawn artefacts.
       Two distinct anomaly queries where there was one, each in a smart-terrain form and a world-position form; a consumer asks for danger or for artefacts by name. Replaces has_anomaly and is_anomaly_near.
+    - Added is_service_npc, the one test for a live trader, barman, medic or mechanic.
+    - Fixed find_base_owner never finding Sidorovich or the Forester, and counting a dead seller as a base owner.
+      It now walks the stalker array plus the online traders, at 23.6 us a call where it took 254 us, and reports Sidorovich's community as trader where it read monster.
 
   xmonster
     - Removed get_monster_enemy, a pass-through of the vanilla get_enemy bind; call mob:get_enemy() directly.
@@ -43,10 +46,16 @@
   xcreature
     - Added is_companion, the player's companion check for one NPC by id or object, online or offline. The squad form stays xsquad.is_companion.
     - Changed is_unscriptable to read companion status live. It cached it per NPC. A stalker checked before you recruited him stayed open to cleanup and loot trimming.
+    - Added iterate_online_traders for Sidorovich and the Forester, the only two trader-class NPCs, which db.OnlineStalkers never lists.
+      A wrapper on db.add_obj and db.del_obj keeps the set. A walk over the stalker array plus this iterator covers every online NPC.
 
   xgraft
     - Changed register_takeover to install only once the NPC's logic is configured, returning false until then so the consumer retries, and to resolve each blocked planner to its own action before blocking it.
       A graft attempted before the wounded evaluator binds, or against a planner the NPC does not carry, is held or skipped, so the takeover attaches only where its preconditions and block land on the right action.
+
+  xttltable
+    - Changed the TTL table load to take an optional expiry function. A saved row keeps its real lifetime and a row already past it is dropped.
+      Load used to give every saved row a fresh lifetime. A table saved and reloaded often never expired anything.
 
   xsound
     - Changed the delivered-loudness readout to follow the xray gain chain. It caps the distance fade at the play's script volume, clamps the gain at 1.0, and reads -120 when xray culls the play.

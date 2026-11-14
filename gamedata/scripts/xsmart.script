@@ -1,7 +1,7 @@
 --- xsmart: Smart terrain queries and checks
 
 local pairs, ipairs, next, type, alife_object, tostring = pairs, ipairs, next, type, alife_object, tostring
-local pcall, math, table, tonumber = pcall, math, table, tonumber
+local math, table, tonumber = math, table, tonumber
 local string_match, table_concat = string.match, table.concat
 local character_community = character_community
 local xobject, xsquad, xlevel, xttltable, xmath, xdata = xobject, xsquad, xlevel, xttltable, xmath, xdata
@@ -176,6 +176,15 @@ local function _has_faction_recipe(smart, faction)
     return false
 end
 
+-- Keep obj as the best seller when it is a service NPC nearer than best_dist.
+-- @cost O(1) | is_service_npc + 1 position luabind
+local function _select_nearer_seller(obj, pos, best, best_dist)
+    if not is_service_npc(obj) then return best, best_dist end
+    local seller_dist = pos:distance_to(obj:position())
+    if seller_dist < best_dist then return obj, seller_dist end
+    return best, best_dist
+end
+
 -- Collect service-role NPC ids at a smart for diagnostic output. Reads role from xdata.npc_roles via the NPC's section name on the CSE. Offline-friendly.
 -- @cost O(n) n=npc_info entries | per entry: 1 medium (alife_object) + 1 heavy (section_name) + 1 hash
 local function _get_role_inventory(smart)
@@ -198,7 +207,7 @@ end
 
 --- @scope global - smart.props from simulation_objects_props.ltx loaded at on_register; same value on all levels regardless of online state
 --- @cost O(1) | 0 luabind
---- @src doc/library/modding/online-offline-scoping.md
+--- @src anomaly/configs/misc/simulation_objects_props.ltx, read as smart.props in anomaly/smart_terrain.script(1526-1583)
 --- @param smart smart_terrain
 --- @return boolean True if base (surge shelter, faction HQ)
 function is_base(smart) return _is_prop_truthy(smart, "base") end
@@ -235,7 +244,6 @@ function has_surge_shelter(smart) return _is_prop_truthy(smart, "surge") end
 --- @cost O(k) k=jobs on smart (~10-30) | 0 luabind (pure Lua array scan)
 --- @src anomaly/gulag_general.script(281-303) job_info_by_job_type_id
 --- @src anomaly/smart_terrain.script(457-464) load_jobs is_on_actor_level gate
---- @src doc/library/modding/online-offline-scoping.md current-level scope
 --- @param smart smart_terrain Smart terrain to check
 --- @param type_id number|nil Specific job_type_id, or nil for any non-empty
 --- @return boolean
@@ -339,6 +347,21 @@ function is_mechanic_npc(npc)
     return npc and get_npc_roles(npc).mechanic == true or false
 end
 
+--- Test if an online object is a live service NPC: a stalker or a trader-class object (Sidorovich, the Forester) holding the trader, medic or mechanic role.
+--- Barmen count as traders through the role signals; a dead seller does not count.
+--- @safety SAFE - nil-guarded; the class test runs before any role read
+--- @cost O(1) | 1 clsid + 1 alive luabind, plus get_npc_roles (cached)
+--- @src anomaly/_g.script(2838-2843, 2922-2927) IsStalker / IsTrader; anomaly/configs/creatures/m_person.ltx(4-9) m_trader is class AI_TRD_S
+--- @param obj game_object Online object
+--- @return boolean
+function is_service_npc(obj)
+    if not obj then return false end
+    if not (xcreature.is_stalker(obj) or xcreature.is_trader(obj)) then return false end
+    if not obj:alive() then return false end
+    local roles = get_npc_roles(obj)
+    return (roles.trader or roles.medic or roles.mechanic) and true or false
+end
+
 --- Resolve the trader NPC at a smart: the first online live NPC in npc_info whose get_npc_roles set contains "trader".
 --- @safety SAFE - nil-guarded; section_name is a standard CSE method
 --- @cost O(n) n=npc_info entries (typically 5-30) | per entry: 1 medium (xobject.get_go) + 1 trivial (alive) + cached role
@@ -400,28 +423,27 @@ function has_smart_mechanic(smart)
 end
 
 --- Owner faction of the nearest live SELLER (trader/barman, medic, mechanic) within radius of pos, measured to the seller itself.
---- Returns the OWNER community plus its distance, never a friendliness verdict; nil when no seller is within radius (not a base here).
---- @scope online - iterates online game objects via xcreature.iterate_online
---- @safety SAFE - nil-guarded on pos; skips non-stalkers; community nil-safe
---- @cost O(n) online objects | per stalker: get_npc_roles (cached) + 1 distance; + 1 community on the winner
---- @src anomaly/db.script online storage; anomaly/_g.script(2273,2437) community
+--- Returns the owner community, distance and seller, never a friendliness verdict; nil when no seller is within radius (not a base here).
+--- @scope online - walks db.OnlineStalkers plus the online trader-class objects, which that array never lists
+--- @safety SAFE - nil-guarded on pos; is_service_npc filters class, life and role
+--- @cost O(n) online stalkers + 2 | per stalker: is_service_npc + 1 distance; about 24 us with 33 stalkers online
+--- @src anomaly/db.script(70-83, 142-165) OnlineStalkers; anomaly/bind_trader.script(65) traders register through db.add_obj
 --- @param pos vector World position to measure from (the actor's position)
 --- @param radius number|nil Metres; default 60 (a base footprint)
---- @return string|nil owner community, number|nil its distance - both nil if no seller within radius
+--- @return string|nil owner community, number|nil its distance, game_object|nil the seller - all nil if no seller within radius
 function find_base_owner(pos, radius)
     if not pos then return nil end
-    radius = radius or SMART_RADIUS_M
-    local best_dist, best = radius, nil
-    for _, obj in xcreature.iterate_online() do
-        if not (obj and xcreature.is_stalker(obj)) then goto continue end
-        local roles = get_npc_roles(obj)
-        if not (roles.trader or roles.medic or roles.mechanic) then goto continue end
-        local seller_dist = pos:distance_to(obj:position())
-        if seller_dist < best_dist then best_dist, best = seller_dist, obj end
-        ::continue::
+    local best, best_dist = nil, radius or SMART_RADIUS_M
+    local online = db.OnlineStalkers or {}
+    for i = 1, #online do
+        local st = db.storage[online[i]]
+        best, best_dist = _select_nearer_seller(st and st.object, pos, best, best_dist)
+    end
+    for _, obj in xcreature.iterate_online_traders() do
+        best, best_dist = _select_nearer_seller(obj, pos, best, best_dist)
     end
     if not best then return nil end
-    return xcreature.get_community(best), best_dist
+    return best:character_community(), best_dist, best
 end
 
 --- Check if a smart has any non-stub stalker job: any conditional job_type_id, or any exclusive LTX job.
@@ -431,7 +453,6 @@ end
 --- @cost O(k) k=jobs on smart (~10-30) | 0 luabind (pure Lua array scan)
 --- @src anomaly/gulag_general.script(308,340,492-526) unconditional vs conditional inits
 --- @src anomaly/gulag_general.script(1183-1246) add_exclusive_job (LTX exclusive jobs)
---- @src doc/library/modding/job-system.md "Unconditional vs Conditional Inits"
 --- @param smart smart_terrain Smart terrain to check
 --- @return boolean
 function has_animated_jobs(smart)
@@ -455,7 +476,6 @@ end
 --- @safety SAFE - nil-guarded, next() guards empty sub-tables left by individual campfire net_destroy
 --- @cost O(1) | 1 luabind heavy (smart:name() shared_str alloc) + 2 pure-Lua hash reads
 --- @src anomaly/bind_campfire.script(272-278,295-302) online table; xray/ZoneCampfire.h campfire is immutable geometry
---- @src doc/library/modding/online-offline-scoping.md online scope (fallback path)
 --- @param smart smart_terrain Smart terrain to check
 --- @return boolean True if smart has campfire(s)
 function has_campfire(smart)
@@ -1024,8 +1044,8 @@ end
 --- Get the spatial proximity between a squad and a smart terrain - the diagnostic form of am_i_reached (distance, threshold, gvid match).
 --- A matching game vertex returns distance 0 and a different level returns -1, so a caller reads arrival state and the raw gap without calling am_i_reached.
 --- @scope global - reads game_graph + server-entity position; cross-level safe (returns dist=-1 on level mismatch)
---- @safety pcall: game_graph() is NULL singleton during transitions, see doc/library/modding/pcall-safety.md
---- @cost O(1) | gvid match: 0 luabind; cross-vertex: 2 luabind trivial (vertex + distance_to_sqr) + game_graph singleton lookup (pcall-guarded, cached)
+--- @safety SAFE - game_graph() is nil until a graph loads (xray/3rd party/luabind/detail/policy.hpp:893 mt, :879 st), and the nil is checked
+--- @cost O(1) | gvid match: 0 luabind; cross-vertex: 2 luabind trivial (vertex + distance_to_sqr) + game_graph singleton lookup (nil-checked)
 --- @src anomaly/smart_terrain.script(1440-1456)
 --- @param squad se_squad Squad to check
 --- @param smart se_smart_terrain Target smart terrain
@@ -1041,8 +1061,8 @@ function get_proximity(squad, smart)
     if sq_gvid == sm_gvid then
         return 0, threshold, true, true
     end
-    local ok, gg = pcall(game_graph)
-    if not ok or not gg then return -1, threshold, false, false end
+    local gg = game_graph()
+    if not gg then return -1, threshold, false, false end
     local same_level = gg:vertex(sq_gvid):level_id() == gg:vertex(sm_gvid):level_id()
     if not same_level then
         return -1, threshold, false, false

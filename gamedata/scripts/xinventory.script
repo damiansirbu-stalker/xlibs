@@ -970,7 +970,7 @@ function try_add_attachment(weapon, item)
 end
 
 --- Load an LTX policy file with the uniform {min, max}-per-key shape; each named section yields { entries, rules, specials }.
---- entries preserves declaration order (= BUY / LOOT priority), rules is the per-key hash, specials carries the specials_set numerics.
+--- entries is in key order (lines sorted by key at load, Xr_ini.cpp:414-424), rules the per-key hash, specials the specials_set numerics.
 --- @safety SAFE - missing file / section / line yields empty block; malformed lines skipped
 --- @cost O(lines) | per line: 1 luabind heavy r_line_ex
 --- @src anomaly/axr_trade_manager precedent (per-section buy_sell rows; this generalizes to per-category)

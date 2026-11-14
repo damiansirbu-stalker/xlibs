@@ -106,16 +106,18 @@ function _ttl_table_mt:get_snapshot()
     return result
 end
 
---- Import from save data (entries with default_ttl get a fresh TTL from load time).
-function _ttl_table_mt:load(data)
+--- Import from save data; expiry_of(value) returns a row's absolute expiry on the table clock, else default_ttl from load time applies.
+--- A row whose expiry has already passed is dropped, so a saved row keeps its real lifetime across loads.
+function _ttl_table_mt:load(data, expiry_of)
     if not data then return end
     self._entries, self._total[1] = {}, 0
-    local now = self._default_ttl and self._clock() or nil
+    local now = (expiry_of or self._default_ttl) and self._clock() or nil
     for key, value in pairs(data) do
-        local entry = { value = value }
-        if now then entry.expires = now + self._default_ttl end
-        self._entries[key] = entry
+        local expires = expiry_of and expiry_of(value) or (self._default_ttl and now + self._default_ttl)
+        if expires and expires <= now then goto continue end
+        self._entries[key] = { value = value, expires = expires }
         self._total[1] = self._total[1] + 1
+        ::continue::
     end
 end
 

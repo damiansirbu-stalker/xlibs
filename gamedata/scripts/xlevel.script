@@ -1,6 +1,6 @@
 --- xlevel: Level/map and time queries
 
-local pcall, pairs, type = pcall, pairs, type
+local pairs, type = pairs, type
 local math_floor, xmath = math.floor, xmath
 
 local gg = nil
@@ -11,11 +11,11 @@ local _neighbors_cache = {}
 local INVALID_LEVEL_VERTEX_ID = xconst.INVALID_LEVEL_VERTEX_ID
 local INVALID_GAME_VERTEX_ID = xconst.INVALID_GAME_VERTEX_ID
 
---- @safety pcall: game_graph() crashes during level transitions, see doc/library/modding/pcall-safety.md
+-- Cached game graph: game_graph() is nil until a graph loads (xray/3rd party/luabind/detail/policy.hpp:893 mt, :879 st).
+-- @cost O(1) | 1 luabind trivial until the first hit, then 0
 local function get_game_graph()
     if gg then return gg end
-    local ok, result = pcall(game_graph)
-    if ok and result then gg = result end
+    gg = game_graph()
     return gg
 end
 
@@ -200,7 +200,7 @@ end
 --- Check if a server object has a valid level vertex ID (offline or transitioning entities may carry 0xFFFFFFFF).
 --- @safety SAFE - nil-guarded; 1 luabind for the level vertex id userdata field read, otherwise pure Lua
 --- @cost O(1) | 1 luabind trivial (level vertex id field read on userdata)
---- @src doc/library/modding/alife-safety.md(38), anomaly/sim_squad_scripted.script(276)
+--- @src anomaly/sim_squad_scripted.script(276)
 --- @param se_obj cse_alife_object Server object
 --- @return boolean True if m_level_vertex_id is valid
 function is_valid_lvid(se_obj)

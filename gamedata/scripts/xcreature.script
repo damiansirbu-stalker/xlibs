@@ -1,6 +1,6 @@
 --- xcreature: Creature/entity identification and properties (stalkers, mutants, NPCs)
 
-local pairs, type, setmetatable = pairs, type, setmetatable
+local pairs, next, type, setmetatable = pairs, next, type, setmetatable
 local string = string
 local IsMonster, IsStalker, IsTrader, alife_character_community = IsMonster, IsStalker, IsTrader, alife_character_community
 local get_object_story_id, get_object_squad = get_object_story_id, get_object_squad
@@ -79,6 +79,9 @@ local _is_monster_faction = {
 -- Ambiguous clsids: modded creatures reusing a vanilla clsid when their _s clsid is unregistered; only these trigger the section_name fallback.
 local _ambiguous_clsids = {}
 local _ambiguous_prefixes = {}
+-- Online trader-class objects by id: Sidorovich and the Forester, never in db.OnlineStalkers (db.script:73).
+local _online_traders = {}
+local _orig_add_obj, _orig_del_obj = nil, nil
 if not clsid.lurker_s then
     _ambiguous_clsids[clsid.chimera_s] = true
     _ambiguous_prefixes.lurker = "lurker"
@@ -200,6 +203,28 @@ local function _check_unscriptable(obj)
     local squad = get_object_squad(obj)
     if squad and get_object_story_id(squad.id) then return true end
     return false
+end
+
+-- db.add_obj wrapper: the vanilla body, then a trader-class object joins _online_traders.
+-- @cost O(1) | the original + 1 clsid luabind
+local function _add_db_obj(obj)
+    _orig_add_obj(obj)
+    if IsTrader(obj) then _online_traders[obj:id()] = true end
+end
+
+-- db.del_obj wrapper: the object leaves _online_traders, then the vanilla body.
+-- @cost O(1) | 1 id luabind + the original
+local function _remove_db_obj(obj)
+    _online_traders[obj:id()] = nil
+    _orig_del_obj(obj)
+end
+
+-- Wrap db.add_obj / db.del_obj, which every binder calls on net_spawn / net_destroy, to keep _online_traders current.
+-- on_game_start runs in a fresh lua state before any object loads (script-loading.md, when on_game_start fires), so no trader is missed.
+local function _register_db_wrappers()
+    if _orig_add_obj then return end
+    _orig_add_obj, _orig_del_obj = db.add_obj, db.del_obj
+    db.add_obj, db.del_obj = _add_db_obj, _remove_db_obj
 end
 
 --- Check if an entity is a stalker (get_clsid + IsStalker(nil, cls) fast path).
@@ -572,6 +597,22 @@ function iterate_online_monsters()
     end
 end
 
+--- Iterator over online trader-class objects (clsid trader / script_trader) yielding (id, obj) pairs.
+--- db.OnlineStalkers never lists them, so a walk over it alone misses Sidorovich; the db.add_obj wrapper keeps the set.
+--- @safety SAFE - obj resolved through db.storage, a nil obj is yielded not raised
+--- @cost O(k) k online trader-class objects, 2 in the whole game | 0 luabind
+--- @src anomaly/db.script(70-83) add_obj/del_obj, anomaly/bind_trader.script(56-65,96)
+--- @return function Iterator yielding (id, game_object) pairs
+function iterate_online_traders()
+    local id = nil
+    return function()
+        id = next(_online_traders, id)
+        if not id then return nil end
+        local st = db.storage[id]
+        return id, st and st.object or nil
+    end
+end
+
 --- True if the entity is the player's companion now: vanilla's per-NPC companion flag, read from the alife info registry so it holds online and offline.
 --- xr_motivator rebuilds the flag on every spawn from the "companion" se var, and the online object reads the same registry by id.
 --- @safety SAFE - nil-guarded; false outside a running alife (main menu)
@@ -667,3 +708,6 @@ function start_particle(obj, name, bone)
     return true
 end
 
+function on_game_start()
+    _register_db_wrappers()
+end

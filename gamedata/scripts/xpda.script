@@ -23,7 +23,7 @@ end
 
 --- Remove a squad's map marker, guarding level.present() (Level() is a NULL deref during transitions, uncatchable by pcall).
 --- Removes the spot and clears the ledger.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch)
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot: Level().MapManager().RemoveMapLocation lookup + erase)
 --- @src xray/xrGame/level_script.cpp(459,535)
 --- @param squad_id number Squad ID
@@ -37,7 +37,7 @@ end
 
 --- Add a squad's map marker: remove any prior stored spot, add the new one, then verify the spot actually EXISTS (map_has_object_spot != 0).
 --- Returning existence rather than call success surfaces a rejected add.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch)
 --- @cost O(1) | 3 luabind heavy (map_remove + map_add + map_has verify)
 --- @src xray/xrGame/level_script.cpp(434,459,505,535)
 --- @param squad_id number Squad ID
@@ -61,7 +61,7 @@ end
 
 --- Clear all squad markers. Removes each stored spot (level.present()-guarded) and empties the ledger; used on a full reset.
 --- The ledger is reset even when no level is present, so a menu-time reset still drops the stale entries the next add would otherwise leak.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch)
 --- @cost O(n) markers | 1 luabind medium per marker (map_remove_object_spot)
 --- @src xray/xrGame/level_script.cpp(459,535)
 function clear_squad_markers()
@@ -75,7 +75,7 @@ end
 
 --- Mark an entity (a long-lived marker; the caller owns persistence): remove any existing spot of this type, add the new one, then verify existence.
 --- Returning map_has_object_spot != 0 surfaces a rejected add (bad spot type, invalid object) to the caller.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch)
 --- @cost O(1) | 3 luabind heavy (map_remove + map_add + map_has verify)
 --- @src xray/xrGame/level_script.cpp(434,459,505,535)
 --- @param id number Entity ID
@@ -94,7 +94,7 @@ end
 
 --- Remove entity marker. Guards level.present() then removes the object's spot of this type (no ledger; caller owns lifetime).
 --- It is a bare pass-through with no bookkeeping, so a caller tracking its own markers drops one without touching the squad ledger.
---- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch), see doc/library/modding/pcall-safety.md
+--- @safety SAFE - level.present() guard, no pcall (map_spot is a Level() NULL-singleton, C++ AV pcall can't catch)
 --- @cost O(1) | 1 luabind medium (map_remove_object_spot)
 --- @src xray/xrGame/level_script.cpp(459,535)
 --- @param id number Entity ID

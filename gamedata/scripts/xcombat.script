@@ -42,7 +42,7 @@ local HELD_WEAPON_KINDS = {
 
 local WEAPON_TTL_MS = 2000
 
--- Sweep expired entries on an interval so an id-keyed TTL cache never grows unbounded (stalker-code.md hot path rule 5).
+-- Sweep expired entries on an interval so an id-keyed TTL cache never grows unbounded.
 local SWEEP_INTERVAL_MS = 60000
 
 -- Ray heights above npc:position() (the feet), measured in game; every combat ray takes its height from here, never a literal.
@@ -1161,7 +1161,7 @@ end
 --- 1.0 = vanilla, higher = detection begins farther out; composes with the per-state max_view_distance LTX multiplier. Floor: no-op.
 --- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-CCustomMonster (the actor)
 --- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
---- @src n038 BIND_NPC_VIEW_DISTANCE (todo-demonized-exes.md); mirrors set_vision_speed
+--- @src demonized bind game_object:set_view_distance_factor; mirrors set_vision_speed
 --- @param npc game_object stalker or monster
 --- @param factor number multiplier on the effective visible distance (1.0 = vanilla)
 --- @return boolean true when the engine path applied, false on a floor exe (no-op)
@@ -1234,7 +1234,7 @@ end
 --- THE CALLER OWNS CLEARING IT: a stale true holds the NPC planted indefinitely (clear on death/offline/feature-off). Floor: no-op.
 --- @safety SAFE - nil-guarded, no-op below the bind; the bind error-logs on a non-stalker
 --- @cost O(1) | 1 luabind trivial (field write) on the engine path, 0 on the floor
---- @src n040 BIND_NPC_MOVEMENT_HOLD (todo-demonized-exes.md); xray/stalker_movement_manager_base.cpp:432 (the Stand-branch gate)
+--- @src demonized bind game_object:set_movement_hold; xray/stalker_movement_manager_base.cpp:432 (the Stand-branch gate)
 --- @param npc game_object stalker
 --- @param hold boolean true plants the NPC, false releases it
 --- @return boolean true when the engine path applied, false on a floor exe (no-op)
@@ -1587,7 +1587,7 @@ end
 --- Probed per compatibility standards; false on exes without the bind, so the term drops out of is_body_busy on release engines.
 --- @safety SAFE - nil-guarded, no-op probe below the bind
 --- @cost O(1) | 1 luabind trivial (clock compare in the engine) after the first probe
---- @src n037 HIT_ANIM_READ_VETO_AND_MOVE_HOLD (todo-demonized-exes.md); character_hit_animations stamp
+--- @src demonized bind game_object:is_hit_anim_playing; character_hit_animations stamp
 --- @param npc game_object stalker
 --- @return boolean true while a hit flinch is blending
 function xcombat.is_flinching(npc)

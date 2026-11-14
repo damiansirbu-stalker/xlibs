@@ -99,6 +99,8 @@ local name = xcreature.get_name(entity_id)
   Returns nil for nil entities and nameless stalkers - callers pick the fallback
 - `get_money(obj)`, `give_money(obj, amount)`, `transfer_money(from, amount, to)` - Ruble reads and moves, u32-underflow guarded
 - `online_iter_with_id()` - Iterator over online game objects yielding (id, obj) pairs
+- `iterate_online_traders()` - Iterator over the online trader-class NPCs, Sidorovich and the Forester, which `db.OnlineStalkers` never lists (`db.script:73`).
+  A wrapper on `db.add_obj` and `db.del_obj`, installed at `on_game_start` before any object spawns, keeps the set current.
 - `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog"). Handles modded exe clsid reuse via section prefix, with a player_id fast reject for stalkers.
 - `get_mutant_variant(input)` - Full NPC variant section ("bloodsucker_red_strong", "dog_weak_brown")
 - `is_companion(input)` - The player's companion now: vanilla's `npcx_is_companion` flag read through `alife():has_info`, so it holds online and offline (`xr_motivator.script:152-156` rebuilds it on every spawn). The squad form is `xsquad.is_companion`.
@@ -358,7 +360,7 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
 
 **Policy primitives** (uniform shape across consumers):
 - `load_policy(path, sections, specials_set)` - generic LTX loader. Each named section yields `{ entries, rules, specials }`.
-  `entries` preserves declaration order (BUY / LOOT priority). `rules` is the hash for O(1) per-category lookup.
+  `entries` is in key order, the order the engine stores a section's lines in (sorted by key at load, `Xr_ini.cpp:414-424`), never the file's line order; a consumer that walks it (BUY / LOOT priority) gets alphabetical priority. `rules` is the hash for O(1) per-category lookup.
   `specials` carries numeric keys named in `specials_set` (`profit_max`, `extras_max`, `fill_max`).
 - `classify(npc, opts, rules, max_items)` - per-category count walker for an online NPC. Single iterate, ammo categories in rounds, others in items.
   Skips untouchable + equipped via `get_category`. Optional `max_items` caps the walk and is returned as a second value on truncation.
@@ -459,6 +461,9 @@ Service NPC resolution (online + actor-level via npc_info walk):
   It reads four signals: community="trader", clsid=script_trader/trader, section substring patterns, and the trade= field in the active logic block.
   The trade= classifier is Demonized-style, per Trader Destockifier `trader_autoinject.script:85`. level_spot is NOT used (false-positives on quest NPCs).
 - `is_trader_npc(npc)`, `is_medic_npc(npc)`, `is_mechanic_npc(npc)` - Boolean wrappers checking `get_npc_roles(npc)[role]`
+- `is_service_npc(obj)` - A live stalker or trader-class NPC holding the trader, medic or mechanic role. Barmen count as traders.
+- `find_base_owner(pos, radius)` - The nearest live service NPC within radius: its community, its distance and the NPC itself.
+  It walks `db.OnlineStalkers` plus `xcreature.iterate_online_traders()`, 23.6 us a call with 33 stalkers online, where the full online walk took 254 us. It reads the community from the NPC, and Sidorovich reads "trader".
 - `get_smart_trader(smart)`, `get_smart_medic(smart)`, `get_smart_mechanic(smart)` - First online live NPC at smart with role in their set, or nil
 - `has_smart_trader(smart)`, `has_smart_medic(smart)`, `has_smart_mechanic(smart)` - Boolean variants
 
@@ -549,17 +554,18 @@ Use game time for gameplay-facing timers (decay windows, cooldowns) so they resp
 - `create_ttl_table(opts)` - TTL table with auto-expiry
   - `default_ttl` -> expiry seconds, `clock` -> clock function (default os.clock)
   - `:set(key, value, ttl)`, `:get(key)`, `:has(key)`, `:remove(key)` - false round-trips through :get (negative-cache convention, same as fifo_cache)
-  - `:remaining_ttl(key)` - calls clock function for accurate expiry
-  - `:size()`, `:all()`, `:clear()`
-  - `:export()`/`:import()` for save/load (imported entries get fresh TTL)
+  - `:get_remaining_ttl(key)` - calls clock function for accurate expiry
+  - `:get_size()`, `:get_all()`, `:clear()`
+  - `:get_snapshot()` / `:load(data, expiry_of)` for save/load. `expiry_of(value)` returns a row's absolute expiry.
+    A reload keeps each row's real lifetime and drops a row already past it. Without `expiry_of` the row gets `default_ttl` from load time.
 - `create_ttl_counter(opts)` - Sliding window counter
   - `clock` -> clock function (default os.clock)
-  - `:add(key, metadata)`, `:count(key)`, `:reset(key)`, `:clear()`, `:all()`
+  - `:add(key, metadata)`, `:get_count(key)`, `:reset(key)`, `:clear()`, `:get_all()`, `:get_snapshot()` / `:load(data)` for save/load
 - `create_token_bucket(opts)` - Per-key O(1) rate limiter with fractional accumulation
   - `capacity` -> max tokens, `rate` -> tokens per second, `clock` -> clock function (default os.clock)
-  - `:acquire(key)` - Consume a token, returns true if available
-  - `:peek(key)` - Check availability without consuming
-  - `:reset(key)`, `:clear()`
+  - `:get_token(key)` - Consume a token, returns true if available
+  - `:check(key)` - Check availability without consuming
+  - `:reset(key)`, `:clear()`, `:set_rate(rate)`
 - `create_fifo_cache(opts)` - Bounded FIFO cache with ring buffer eviction
   - `capacity` -> max entries (default 128)
   - `:get(key)`, `:set(key, value)`, `:has(key)` - O(1) hash lookup
