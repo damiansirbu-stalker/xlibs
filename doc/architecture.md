@@ -22,10 +22,10 @@ Shared utility library for STALKER Anomaly Lua modding. It is pure Lua and uses 
   The only engine-driven form allowed is a bounded, self-terminating job the caller explicitly starts and that then stops (xslice.start's per-frame drain, xpp.release's one-shot cleanup).
   A persistent or hidden self-subscription is forbidden: a per-frame handler behind a getter, or a lifecycle callback or periodic timer registered in on_game_start.
 - **Performance first.** Performance is the top priority and outranks features.
-  A wrapper adds no overhead beyond the bridge call it wraps. One that cannot stay within budget is reworked, or its cost is moved into an engine modification, never carried in script.
+  A wrapper adds no overhead beyond the bridge call it wraps. One that cannot stay within budget moves its cost into the engine where the engine can carry it, otherwise we rework it.
   See `doc/standards/stalker-code.md` "Performance is the priority".
 - **Use the engine, don't work around it.** xlibs is the release-safe wrapper over the engine's and Anomaly layer's native mechanisms. It never reimplements what they already do.
-  Callers escalate through the wrapper: use it, nudge or correct, and change the layer (an engine modification or a full-file override) only as a last resort.
+  Callers escalate through the wrapper: use it, then nudge or correct it. We fix a defect in the engine or a performance cost in the engine, seam first. A full-file override is the last resort.
   See `doc/standards/stalker-code.md` "Use the engine, don't work around it".
 
 ---
