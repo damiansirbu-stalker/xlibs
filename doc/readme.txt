@@ -99,7 +99,7 @@ Framework:
 
 Requirements:
 Anomaly 1.5.3
-Modded exes: themrdemonized 20250908 or newer, or AOEngine v0.55 or newer. The full feature set needs the latest demonized build. A feature that needs a newer one stays inactive on older exes.
+Modded exes: themrdemonized 20250908 or newer, or AOEngine v0.5.2 or newer. The full feature set needs the latest demonized build. A feature that needs a newer one stays inactive on older exes.
 
 Configuration:
 No configuration needed. xlibs is a passive library loaded on demand by other mods.
