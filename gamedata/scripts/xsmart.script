@@ -350,7 +350,7 @@ end
 --- Test if an online object is a live service NPC: a stalker or a trader-class object (Sidorovich, the Forester) holding the trader, medic or mechanic role.
 --- Barmen count as traders through the role signals; a dead seller does not count.
 --- @safety SAFE - nil-guarded; the class test runs before any role read
---- @cost O(1) | 1 clsid + 1 alive luabind, plus get_npc_roles (cached)
+--- @cost O(1) | 1 clsid luabind for a stalker, 2 for a trader-class object, + 1 alive, plus get_npc_roles (cached)
 --- @src anomaly/_g.script(2838-2843, 2922-2927) IsStalker / IsTrader; anomaly/configs/creatures/m_person.ltx(4-9) m_trader is class AI_TRD_S
 --- @param obj game_object Online object
 --- @return boolean

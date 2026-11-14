@@ -2,7 +2,7 @@
 
 local type, tostring, math_floor = type, tostring, math.floor
 
--- Latest demonized build this release is verified against; drives the MCM verdict only, never a floor (stalker-compatibility.md).
+-- Latest demonized build this release is verified against; drives the MCM verdict only, never a floor.
 local LATEST_DEMONIZED_VERSION = 20260912
 
 -- xray-monolith build (YYYYMMDD) as the themrdemonized tag style, no zero padding (20260912 -> "2026.9.12").

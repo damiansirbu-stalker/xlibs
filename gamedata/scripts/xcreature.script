@@ -220,7 +220,7 @@ local function _remove_db_obj(obj)
 end
 
 -- Wrap db.add_obj / db.del_obj, which every binder calls on net_spawn / net_destroy, to keep _online_traders current.
--- on_game_start runs in a fresh lua state before any object loads (script-loading.md, when on_game_start fires), so no trader is missed.
+-- on_game_start runs in a fresh lua state before the simulator loads any object (xray/alife_simulator.cpp:50,77,79 mt, :48,75,77 dev).
 local function _register_db_wrappers()
     if _orig_add_obj then return end
     _orig_add_obj, _orig_del_obj = db.add_obj, db.del_obj
@@ -231,7 +231,7 @@ end
 --- Passing the resolved clsid as the second arg skips IsStalker's own object lookup, leaving only the class compare.
 --- @safety SAFE - returns false for nil/invalid
 --- @cost O(log n) | 1 luabind medium (alife_object) + 1 luabind trivial (clsid); IsStalker is pure Lua compare
---- @src anomaly/_g.script(2820) IsStalker
+--- @src anomaly/_g.script(2838-2843) IsStalker
 --- @param input number|userdata|table Entity ID or object
 --- @return boolean
 function is_stalker(input) local cls = get_clsid(input) return cls and IsStalker(nil, cls) or false end
@@ -240,7 +240,7 @@ function is_stalker(input) local cls = get_clsid(input) return cls and IsStalker
 --- Iterate this filter to cover them at bounded cost vs the full alife pool.
 --- @safety SAFE - returns false for nil/invalid
 --- @cost O(log n) | 1 luabind medium (alife_object) + 1 luabind trivial (clsid); IsTrader is pure Lua compare
---- @src anomaly/_g.script(2904) IsTrader
+--- @src anomaly/_g.script(2922-2927) IsTrader
 --- @param input number|userdata|table Entity ID or object
 --- @return boolean
 function is_trader(input) local cls = get_clsid(input) return cls and IsTrader(nil, cls) or false end
