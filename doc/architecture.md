@@ -42,7 +42,7 @@ xlibs
 +- Diagnostics      xlog  xprofiler  xtrace  xinspect
 +- Effects          xpp  xsound
 +- Framework        xbus  xevent  xpda  xmcm  xchange
-+- Package          xlibs  xlibs_mcm
++- Package          xlibs  xlibs_mcm  xcompat
 ```
 
 ---
@@ -724,6 +724,12 @@ Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is
 ### xlibs_mcm.script - MCM Info Page
 
 MCM registration for xlibs. Banner slide, description, dynamic version text via `ui_hook_functor`.
+
+### xcompat.script - Compatibility Aliases
+
+The one home for aliases that keep a released mod running across an xlibs API change. `on_game_start` installs each alias into its module, and each names the mod it serves and when it goes.
+
+- `xsmart.has_anomaly` - alias of `has_artefact_anomaly` (identical body) for AlifePlus 1.8.9. Drop once the next AlifePlus release is out.
 
 ---
 

@@ -27,6 +27,10 @@
     - Fixed find_base_owner never finding Sidorovich or the Forester, and counting a dead seller as a base owner.
       It now walks the stalker array plus the online traders, at 23.6 us a call where it took 254 us, and reports Sidorovich's community as trader where it read monster.
 
+  xcompat
+    - Added xcompat, the one home for aliases that keep a released mod running across an xlibs API change.
+      It maps has_anomaly to has_artefact_anomaly, so AlifePlus 1.8.9 keeps working until its next release.
+
   xmonster
     - Removed get_monster_enemy, a pass-through of the vanilla get_enemy bind; call mob:get_enemy() directly.
     - Changed try_monster_jump to also refuse a target outside the monster's space restrictors, as the game's own jump does.

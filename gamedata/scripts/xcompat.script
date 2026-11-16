@@ -1,0 +1,7 @@
+--- xcompat: aliases that keep released consumers running across an xlibs API change; each names its consumer and its removal
+
+--- Install the aliases on every new game and save load, before any consumer's runtime call reaches them.
+--- has_anomaly: AlifePlus 1.8.9 calls it (ap_ext_causes_needs.script:286,306); drop once the next AlifePlus release is out.
+function on_game_start()
+    xsmart.has_anomaly = xsmart.has_artefact_anomaly
+end
