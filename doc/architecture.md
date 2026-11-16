@@ -104,6 +104,8 @@ local name = xcreature.get_name(entity_id)
 - `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog"). Handles modded exe clsid reuse via section prefix, with a player_id fast reject for stalkers.
 - `get_mutant_variant(input)` - Full NPC variant section ("bloodsucker_red_strong", "dog_weak_brown")
 - `is_companion(input)` - The player's companion now: vanilla's `npcx_is_companion` flag read through `alife():has_info`, so it holds online and offline (`xr_motivator.script:152-156` rebuilds it on every spawn). The squad form is `xsquad.is_companion`.
+- `is_wounded(npc, id)` - Down in vanilla's wounded state, `IsWounded`'s answer with the deciding `pstor.wounded_state` read first.
+  A standing stalker costs two table reads and no engine call, so a per-pass loop can ask every record. Only a set state pays `IsWounded`.
 - `is_unscriptable(obj)` - Companion, story id, named NPC (xdata.unscriptable_npcs), or story squad. Companion status is read live; only the fixed identity is cached per object, since recruit and dismiss change companionship mid-session.
 - `is_unscriptable_se(se_obj)` - The fixed identity alone, online or offline, without companions
 - `is_task_giver(obj)` - Check NPC/squad ID against active tasks

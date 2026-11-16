@@ -50,6 +50,7 @@
 
   xcreature
     - Added is_companion, the player's companion check for one NPC by id or object, online or offline. The squad form stays xsquad.is_companion.
+    - Added is_wounded, vanilla's down-wounded test. A standing stalker answers from a plain table read with no engine call, so a combat loop can ask every stalker on every pass.
     - Changed is_unscriptable to read companion status live. It cached it per NPC. A stalker checked before you recruited him stayed open to cleanup and loot trimming.
     - Added iterate_online_traders for Sidorovich and the Forester, the only two trader-class NPCs, which db.OnlineStalkers never lists.
       A wrapper on db.add_obj and db.del_obj keeps the set. A walk over the stalker array plus this iterator covers every online NPC.

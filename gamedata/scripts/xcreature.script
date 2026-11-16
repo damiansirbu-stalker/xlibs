@@ -2,7 +2,7 @@
 
 local pairs, next, type, setmetatable = pairs, next, type, setmetatable
 local string = string
-local IsMonster, IsStalker, IsTrader, alife_character_community = IsMonster, IsStalker, IsTrader, alife_character_community
+local IsMonster, IsStalker, IsTrader, IsWounded, alife_character_community = IsMonster, IsStalker, IsTrader, IsWounded, alife_character_community
 local get_object_story_id, get_object_squad = get_object_story_id, get_object_squad
 local xobject, xdata = xobject, xdata
 local INVALID_ENTITY_ID = xconst.INVALID_ENTITY_ID
@@ -630,6 +630,22 @@ function is_companion(input)
         if type(id) == "function" then id = input:id() end
     end
     return id ~= nil and sim:has_info(id, COMPANION_INFO)
+end
+
+--- True while a stalker is down in vanilla's wounded state: IsWounded's answer, with the pstor read that decides it moved first.
+--- A standing stalker returns after two table reads and no engine call, so a per-pass loop can ask every record; only a set state pays IsWounded.
+--- @safety SAFE - false without db.storage (offline) or pstor; a set state defers to IsWounded, so its stagger, smart cover and wounded_fight exits hold
+--- @cost O(1) | 0 luabind standing (db.storage[id].pstor, plain Lua); IsWounded's 5-6 luabind medium only while wounded_state is set
+--- @src anomaly/_g.script(2954-2971) IsWounded, anomaly/_g.script(2598-2611) load_var, anomaly/xr_wounded.script(263) the "nil" string write
+--- @param npc game_object stalker
+--- @param id number npc's id, held by the caller (skips the npc:id() crossing load_var pays)
+--- @return boolean
+function is_wounded(npc, id)
+    local st = db.storage[id]
+    local pstor = st and st.pstor
+    local wounded_state = pstor and pstor.wounded_state
+    if wounded_state == nil or wounded_state == "nil" then return false end
+    return IsWounded(npc)
 end
 
 --- Check if a creature is unscriptable (traders, leaders, companions, story chars fixed to their role/location).
