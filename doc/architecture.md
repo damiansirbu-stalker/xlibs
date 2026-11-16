@@ -173,6 +173,8 @@ Registers no callbacks and holds no game state. Caches are transient (TTL, level
   Movement lane, shot line capped short of the target body, and the squad firing-lane check.
 - `get_crouch_openness(lvid, dir)`, `get_stand_openness(lvid, dir)` - Baked cover-graph openness toward a direction at crouch and standing height (0 walled, 1 open), the cheap posture reads.
   Static geometry only, blind to bodies (contrast the object-aware rays). See `doc/library/modding/cover-and-los-queries.md`
+- `is_concealed(lvid, dir, floor)`, `COVER_FLOOR` (`STRICT` 0.3, `LENIENT` 0.5) - True when the baked cover at the vertex hides toward `dir`: `min(stand,crouch)` openness under the floor.
+  The same test the directional cover finders score a node by. A caller standing on a node they returned reads it concealed at the same floor.
 - `get_best_cover(npc, threat_pos, opts)`, `get_quick_cover(npc, threat_pos, opts)`, `get_safe_cover(npc, opts)`, `find_free_lane(npc, dir, m, arc, spread)` - cover and lane finders.
   get_best_cover is the most-hidden node (STRICT floor, escalating near->far, give-ground) for a committed hold; get_quick_cover the nearest decent one (LENIENT floor, small radius) for a brief duck; get_safe_cover an omnidirectional hide (safe_cover + an all-round floor sampled over SAFE_DIRS).
   All are claim-aware and search from the NPC's position; the directional two floor on `min(stand,crouch)` toward the threat, `opts.radius` required. find_free_lane is clear-lane fans. See `doc/library/modding/cover-and-los-queries.md`.
@@ -560,7 +562,8 @@ Use game time for gameplay-facing timers (decay windows, cooldowns) so they resp
     A reload keeps each row's real lifetime and drops a row already past it. Without `expiry_of` the row gets `default_ttl` from load time.
 - `create_ttl_counter(opts)` - Sliding window counter
   - `clock` -> clock function (default os.clock)
-  - `:add(key, metadata)`, `:get_count(key)`, `:reset(key)`, `:clear()`, `:get_all()`, `:get_snapshot()` / `:load(data)` for save/load
+  - `:add(key)`, `:get_count(key)`, `:reset(key)`, `:clear()`, `:get_all()`, `:get_snapshot()` / `:load(data)` for save/load
+  - `:get_count` prunes expired entries in place and allocates nothing. A per-row gate can read it on every check
 - `create_token_bucket(opts)` - Per-key O(1) rate limiter with fractional accumulation
   - `capacity` -> max tokens, `rate` -> tokens per second, `clock` -> clock function (default os.clock)
   - `:get_token(key)` - Consume a token, returns true if available
@@ -631,7 +634,7 @@ Source: xray-monolith/src/xrServerEntities/script_engine_script.cpp:127-196
 
 - `new()`, `new_if(condition)` -> `:start()`, `:stop()`, `:get_us()`, `:get_ms()`, `:reset()`
 - `new_if(false)` returns NOOP singleton (no overhead)
-- Uses `profile_timer` (CPU clock, microsecond resolution)
+- Uses `profile_timer`, the processor timestamp counter (`CPU::GetCLK` = `rdtsc`). It counts elapsed time at microsecond resolution, not process CPU time
 
 ### xtrace.script - Tracing
 

@@ -84,8 +84,12 @@ local AUTO_WEAPON_TYPES = { [6] = true, [7] = true, [8] = true, [10] = true }
 local COVER_MIN_DIST = 1
 local COVER_MAX_DIST = 30
 -- Concealment floor on min(stand,crouch) openness toward the threat: STRICT near-solid, LENIENT decent partial.
-local COVER_FLOOR_STRICT   = 0.3
-local COVER_FLOOR_LENIENT  = 0.5
+xcombat.COVER_FLOOR = {
+    STRICT  = 0.3,
+    LENIENT = 0.5,
+}
+local COVER_FLOOR_STRICT   = xcombat.COVER_FLOOR.STRICT
+local COVER_FLOOR_LENIENT  = xcombat.COVER_FLOOR.LENIENT
 local SAFE_DIRS            = 4
 local SAFE_ARC             = math.pi / 2
 local STEP_DECREMENT_M     = 2
@@ -361,15 +365,6 @@ local function _find_toward(npc, from_lvid, dir, step)
     return nil
 end
 
--- True when the baked cover point at `vid` hides from `dir`: min(stand,crouch) openness < floor.
--- min() takes the better stance (a waist-high wall, crouch ~0, passes any floor); floor sets how much is tolerated.
--- @cost O(1) | 2 baked cover reads
-local function _is_concealed(vid, dir, floor)
-    local hi = xcombat.get_stand_openness(vid, dir)
-    local lo = xcombat.get_crouch_openness(vid, dir)
-    return (hi < lo and hi or lo) < floor
-end
-
 -- One cover probe: best_cover at `radius`, floored toward cfg.threat_pos, unclaimed, no closer than cfg.give_ground.
 -- cfg = {threat_pos, search_pos, max_dist, give_ground, floor, owner_id}, built once by the caller.
 -- @cost O(covers-in-radius) | 1 best_cover heavy + 1 ledger read + 2 baked reads
@@ -382,7 +377,7 @@ local function _find_cover_at(npc, radius, cfg)
     local cpos = level.vertex_position(vid)
     if cfg.give_ground and cpos:distance_to_sqr(cfg.threat_pos) < cfg.give_ground * cfg.give_ground then return nil end
     local dir = vector():set(cfg.threat_pos.x - cpos.x, cfg.threat_pos.y - cpos.y, cfg.threat_pos.z - cpos.z)
-    if not _is_concealed(vid, dir, cfg.floor) then return nil end
+    if not xcombat.is_concealed(vid, dir, cfg.floor) then return nil end
     return vid
 end
 
@@ -942,6 +937,21 @@ function xcombat.get_stand_openness(lvid, dir)
     return level.high_cover_in_direction(lvid, dir) or 0
 end
 
+--- True when the baked cover at `vid` hides toward `dir`: min(stand,crouch) openness under floor, the test the cover finders score a node by.
+--- DEFENSIVE only: static geometry, yaw only, blind to bodies and to a threat above, never a line of fire.
+--- @safety SAFE - the engine returns 0 for an invalid vertex
+--- @cost O(1) | 2 luabind trivial (baked cover reads)
+--- @src xray/level_graph_vertex_inline.h:636-660 (quadrant bytes), xray/cover_evaluators.cpp:221,240 (the finders minimize min(high,low))
+--- @param vid number level vertex id
+--- @param dir vector direction toward the threat (yaw used)
+--- @param floor number xcombat.COVER_FLOOR.STRICT or .LENIENT; min() takes the better stance, so a waist-high wall passes
+--- @return boolean
+function xcombat.is_concealed(vid, dir, floor)
+    local hi = xcombat.get_stand_openness(vid, dir)
+    local lo = xcombat.get_crouch_openness(vid, dir)
+    return (hi < lo and hi or lo) < floor
+end
+
 --- True when viewer has npc in his sight: his facing on npc's body within cone_deg, and a clear line from his eye to its center.
 --- The cone widens by the body's angular size, so a crosshair anywhere on the body counts; the ray skips both bodies.
 --- @safety SAFE - false when either side is nil
@@ -1466,7 +1476,7 @@ function xcombat.get_safe_cover(npc, opts)
     local dir = vector()
     for i = 0, SAFE_DIRS - 1 do
         local angle = i * SAFE_ARC
-        if not _is_concealed(vid, dir:set(math_cos(angle), 0, math_sin(angle)), COVER_FLOOR_LENIENT) then return nil end
+        if not xcombat.is_concealed(vid, dir:set(math_cos(angle), 0, math_sin(angle)), COVER_FLOOR_LENIENT) then return nil end
     end
     return vid
 end
