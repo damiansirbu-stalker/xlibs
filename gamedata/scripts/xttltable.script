@@ -1,6 +1,6 @@
 --- xttltable: TTL table, sliding-window counter, token bucket, and FIFO cache primitives; all durations in seconds
 
-local pairs, type, setmetatable = pairs, type, setmetatable
+local pairs, setmetatable = pairs, setmetatable
 local clock, min = os.clock, math.min
 
 -- Shared cleanup buffer (collect keys, then remove).
@@ -11,22 +11,6 @@ local function _flush_buf(tbl, count)
         tbl[_remove_buf[idx]] = nil
         count[1] = count[1] - 1
         _remove_buf[idx] = nil
-    end
-end
-
-local function _collect_value(agg, key, val)
-    local vtype = type(val)
-    if vtype == "string" then
-        agg[key] = agg[key] or {}
-        agg[key][val] = (agg[key][val] or 0) + 1
-    elseif vtype == "number" then
-        agg[key] = (agg[key] or 0) + val
-    end
-end
-
-local function _collect_event(agg, event)
-    for key, val in pairs(event) do
-        if key ~= "time" then _collect_value(agg, key, val) end
     end
 end
 
@@ -136,36 +120,32 @@ function create_ttl_table(opts)
     }, _ttl_table_mt)
 end
 
---- TTL Counter: sliding-window occurrence counter with metadata aggregation.
+--- TTL Counter: sliding-window occurrence counter.
 local _ttl_counter_mt = {}
 _ttl_counter_mt.__index = _ttl_counter_mt
 
-function _ttl_counter_mt:add(key, metadata)
+function _ttl_counter_mt:add(key)
     if not self._buckets[key] then self._buckets[key] = {} end
-    local entry = { time = self._clock() }
-    if metadata then
-        for meta_key, meta_val in pairs(metadata) do entry[meta_key] = meta_val end
-    end
-    self._buckets[key][#self._buckets[key] + 1] = entry
+    self._buckets[key][#self._buckets[key] + 1] = { time = self._clock() }
 end
 
+--- Live count for the key; prunes expired entries in place, so a read allocates nothing.
+--- @cost O(n) over the key's bucket | 0 luabind with os.clock
 function _ttl_counter_mt:get_count(key)
     local entries = self._buckets[key]
-    if not entries or #entries == 0 then return 0, {} end
-    if not self._ttl then return #entries, {} end
-
-    local now = self._clock()
-    local valid_count, valid_entries, aggregated = 0, {}, {}
-    for idx = 1, #entries do
+    if not entries then return 0 end
+    local total = #entries
+    if not self._ttl or total == 0 then return total end
+    local now, kept = self._clock(), 0
+    for idx = 1, total do
         local event = entries[idx]
-        if now - event.time >= self._ttl then goto continue end
-        valid_count = valid_count + 1
-        valid_entries[valid_count] = event
-        _collect_event(aggregated, event)
-        ::continue::
+        if now - event.time < self._ttl then
+            kept = kept + 1
+            entries[kept] = event
+        end
     end
-    if valid_count < #entries then self._buckets[key] = valid_entries end
-    return valid_count, aggregated
+    for idx = kept + 1, total do entries[idx] = nil end
+    return kept
 end
 
 function _ttl_counter_mt:reset(key) self._buckets[key] = nil end
