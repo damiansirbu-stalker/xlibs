@@ -1,14 +1,15 @@
 --- xmonster: the CBaseMonster combat surface - FSM/memory readers, maneuver invokes, param setters, the decision-callback registrar
 
 local type, rawget = type, rawget
-local math_abs, math_sqrt, math_acos = math.abs, math.sqrt, math.acos
+local math_abs, math_sqrt, math_acos, math_min = math.abs, math.sqrt, math.acos, math.min
 local ini_sys, RegisterScriptCallback = ini_sys, RegisterScriptCallback
 
 xmonster = xmonster or {}
 
--- The fallback angle and height for a species whose jump config never loads (bloodsucker.cpp:77,87): the chimera's (m_chimera.ltx:138-139).
-local FALLBACK_JUMP_ANGLE  = 0.55
+-- The fallback height for a species whose jump config never loads (bloodsucker.cpp:77,87): the chimera's (m_chimera.ltx:138-139).
 local FALLBACK_JUMP_HEIGHT = 6.0
+-- A combat jump may start from 1m, under a species' own jump_min_distance (control_jump.cpp:657-659, the aggressive minimum).
+local AGGRESSIVE_JUMP_MIN_DIST = 1.0
 
 -- World gravity, the one the jump solver divides by (Physics.cpp:54).
 local WORLD_GRAVITY = 2 * 9.81
@@ -34,29 +35,30 @@ local function _get_keep(value)
 end
 
 -- The interim can_jump mirror (control_jump.cpp:640-680): the restrictor, distance, height and angle gates script_try_jump skips.
--- The cooldown is the caller's.
+-- A species with no jump_max_angle (the bloodsucker loads no jump config) skips the facing gate; a refusal also returns the failed gate.
 -- @cost O(1) | 1 luabind medium (restrictor test) + a few LTX reads + vector math
 local function _can_jump(mob, pos)
-    if not mob:accessible(pos) then return false end
+    if not mob:accessible(pos) then return false, "area" end
     local sec = mob:section()
     local mp = mob:position()
     local dx, dy, dz = pos.x - mp.x, pos.y - mp.y, pos.z - mp.z
     local max_dist = ini_sys:r_float_ex(sec, "jump_max_distance")
     if max_dist then
         local dist = math_sqrt(dx * dx + dy * dy + dz * dz)
-        if dist > max_dist or dist < (ini_sys:r_float_ex(sec, "jump_min_distance") or 0) then return false end
+        local min_dist = math_min(AGGRESSIVE_JUMP_MIN_DIST, ini_sys:r_float_ex(sec, "jump_min_distance") or 0)
+        if dist > max_dist or dist < min_dist then return false, "distance" end
     end
     local max_h = ini_sys:r_float_ex(sec, "jump_max_height") or FALLBACK_JUMP_HEIGHT
-    if math_abs(dy) > max_h then return false end
-    local max_a = ini_sys:r_float_ex(sec, "jump_max_angle") or FALLBACK_JUMP_ANGLE
+    if math_abs(dy) > max_h then return false, "height" end
+    local max_a = ini_sys:r_float_ex(sec, "jump_max_angle")
     local flat = math_sqrt(dx * dx + dz * dz)
-    if flat > 0.01 then
+    if max_a and flat > 0.01 then
         local dir = mob:direction()
         local dir_len = math_sqrt(dir.x * dir.x + dir.z * dir.z)
         if dir_len > 0.01 then
             local cos_a = (dir.x * dx + dir.z * dz) / (dir_len * flat)
             if cos_a < -1 then cos_a = -1 elseif cos_a > 1 then cos_a = 1 end
-            if math_acos(cos_a) > max_a then return false end
+            if math_acos(cos_a) > max_a then return false, "angle" end
         end
     end
     return true
@@ -198,11 +200,14 @@ end
 --- @param factor number jump force factor; 0 or less takes the species jump_factor
 --- @param opts table|nil { skip_prepare = true } launches without the crouch wind-up (ePrepareSkip)
 --- @return boolean true when the jump was feasible, captured and started
+--- @return string|nil the refusal: "unbound", "no_factor", a feasibility gate ("area", "distance", "height", "angle"), or "engine"
 function xmonster.try_monster_jump(mob, pos, factor, opts)
-    if not mob or not pos or not factor or not _has_bind(mob, "try_monster_jump") then return false end
-    if factor <= 0 and not ini_sys:r_float_ex(mob:section(), "jump_factor") then return false end
-    if not _can_jump(mob, pos) then return false end
-    return mob:try_monster_jump(pos, factor, (opts and opts.skip_prepare) == true)
+    if not mob or not pos or not factor or not _has_bind(mob, "try_monster_jump") then return false, "unbound" end
+    if factor <= 0 and not ini_sys:r_float_ex(mob:section(), "jump_factor") then return false, "no_factor" end
+    local can_jump, gate = _can_jump(mob, pos)
+    if not can_jump then return false, gate end
+    if not mob:try_monster_jump(pos, factor, (opts and opts.skip_prepare) == true) then return false, "engine" end
+    return true
 end
 
 --- The engine's flight time for a jump at pos and force: the minimum-velocity throw time over the 3D distance, divided by the force.
