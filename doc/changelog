@@ -1,4 +1,6 @@
-1.9.2-snapshot
+1.9.3-snapshot
+
+1.9.2
   The xmonster mutant surface, cover finders, attachments and truer sight reads
     The new xmonster module covers mutant combat. It reads a mutant's state and memory, fires the jumps and attacks X-Ray validates, and sets its combat numbers.
     The xcombat cover finders pick a node by the score X-Ray's cover graph gives it, and reserve each pick in the vanilla cover ledger.
