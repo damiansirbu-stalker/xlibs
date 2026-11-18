@@ -1,4 +1,4 @@
-Version: 1.10.0-snapshot (demonized latest)
+Version: 1.10.1-snapshot (demonized latest)
 Changelog: https://github.com/damiansirbu-stalker/xlibs/blob/main/doc/changelog
 Health: https://damiansirbu-stalker.github.io/xlibs/health/
 JitProfiler: https://damiansirbu-stalker.github.io/xlibs/jitprofiler/
