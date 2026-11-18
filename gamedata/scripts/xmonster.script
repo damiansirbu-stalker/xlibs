@@ -1,15 +1,13 @@
 --- xmonster: the CBaseMonster combat surface - FSM/memory readers, maneuver invokes, param setters, the decision-callback registrar
 
 local type, rawget = type, rawget
-local math_abs, math_sqrt, math_acos, math_min = math.abs, math.sqrt, math.acos, math.min
-local ini_sys, RegisterScriptCallback = ini_sys, RegisterScriptCallback
+local math_abs, math_sqrt, math_acos = math.abs, math.sqrt, math.acos
+local ini_sys, RegisterScriptCallback, time_global = ini_sys, RegisterScriptCallback, time_global
 
 xmonster = xmonster or {}
 
 -- The fallback height for a species whose jump config never loads (bloodsucker.cpp:77,87): the chimera's (m_chimera.ltx:138-139).
 local FALLBACK_JUMP_HEIGHT = 6.0
--- A combat jump may start from 1m, under a species' own jump_min_distance (control_jump.cpp:657-659, the aggressive minimum).
-local AGGRESSIVE_JUMP_MIN_DIST = 1.0
 
 -- World gravity, the one the jump solver divides by (Physics.cpp:54).
 local WORLD_GRAVITY = 2 * 9.81
@@ -34,10 +32,12 @@ local function _get_keep(value)
     return value
 end
 
--- The interim can_jump mirror (control_jump.cpp:640-680): the restrictor, distance, height and angle gates script_try_jump skips.
--- A species with no jump_max_angle (the bloodsucker loads no jump config) skips the facing gate; a refusal also returns the failed gate.
+-- The non-aggressive can_jump mirror (control_jump.cpp:640-680): the rest, the restrictor, distance, height and angle; a refusal names its gate.
+-- The rest counts from the caller's landing stamp, later than the engine's glide-start stamp, so the mirror is never looser than the engine.
 -- @cost O(1) | 1 luabind medium (restrictor test) + a few LTX reads + vector math
-local function _can_jump(mob, pos)
+local function _can_jump(mob, pos, opts)
+    local rest = opts and opts.rest_ms
+    if rest and rest > 0 and opts.landed_at and time_global() - opts.landed_at < rest then return false, "rest" end
     if not mob:accessible(pos) then return false, "area" end
     local sec = mob:section()
     local mp = mob:position()
@@ -45,7 +45,7 @@ local function _can_jump(mob, pos)
     local max_dist = ini_sys:r_float_ex(sec, "jump_max_distance")
     if max_dist then
         local dist = math_sqrt(dx * dx + dy * dy + dz * dz)
-        local min_dist = math_min(AGGRESSIVE_JUMP_MIN_DIST, ini_sys:r_float_ex(sec, "jump_min_distance") or 0)
+        local min_dist = ini_sys:r_float_ex(sec, "jump_min_distance") or 0
         if dist > max_dist or dist < min_dist then return false, "distance" end
     end
     local max_h = ini_sys:r_float_ex(sec, "jump_max_height") or FALLBACK_JUMP_HEIGHT
@@ -198,13 +198,13 @@ end
 --- @param mob game_object monster
 --- @param pos vector world target position
 --- @param factor number jump force factor; 0 or less takes the species jump_factor
---- @param opts table|nil { skip_prepare = true } launches without the crouch wind-up (ePrepareSkip)
+--- @param opts table|nil { skip_prepare, landed_at, rest_ms }: skip_prepare launches without the crouch; landed_at and rest_ms gate the rest
 --- @return boolean true when the jump was feasible, captured and started
---- @return string|nil the refusal: "unbound", "no_factor", a feasibility gate ("area", "distance", "height", "angle"), or "engine"
+--- @return string|nil the refusal: "unbound", "no_factor", a feasibility gate ("rest", "area", "distance", "height", "angle"), or "engine"
 function xmonster.try_monster_jump(mob, pos, factor, opts)
     if not mob or not pos or not factor or not _has_bind(mob, "try_monster_jump") then return false, "unbound" end
     if factor <= 0 and not ini_sys:r_float_ex(mob:section(), "jump_factor") then return false, "no_factor" end
-    local can_jump, gate = _can_jump(mob, pos)
+    local can_jump, gate = _can_jump(mob, pos, opts)
     if not can_jump then return false, gate end
     if not mob:try_monster_jump(pos, factor, (opts and opts.skip_prepare) == true) then return false, "engine" end
     return true
