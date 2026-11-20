@@ -695,8 +695,11 @@ The single sanctioned filesystem home. Consumers call xfs for file io, so the fs
 - `read_files_deep(mount, dir, ext)` - The recursive file list, subpath-qualified names
 - `read_file(path)` - Whole file as a string, nil when unreadable (libc io on a real path)
 - `write_file(path, text, append)` - Write or append, false on an open failure or a failed write
-- `remove_file(path)` - Delete through the engine FS (os.remove is absent in the game's Lua sandbox), true when the file is gone
+- `remove_file(path)` - Delete through the engine FS, or through kernel32 when the index does not know the file (os.remove is absent in the game's Lua sandbox), true when the file is gone
 - `resolve_path(mount, rel)` - Mount-relative path to the full VFS path (wraps getFS():update_path)
+- `has_file(mount, rel)` / `update_index(mount)` - Whether the engine's file index knows a file, and a rescan of a mount's loose files so it sees new ones
+- `read_disk_entries(path)` / `read_drives()` / `is_file(path)` / `is_folder(path)` / `create_folder(path)` / `clone_file(src, dest)` - Real folders and files on disk through kernel32 over LuaJIT ffi.
+  The declarations carry `xfs_*` names through `__asm__`, and no other mod's ffi.cdef can clash with them. lfs.dir is never used, because it keeps the Win64 find handle in a 32-bit long and corrupts memory.
 
 ### xconst.script - Engine Sentinel Constants
 

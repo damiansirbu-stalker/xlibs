@@ -1,6 +1,46 @@
---- xfs: virtual filesystem enumeration - clean folder/file lists over getFS():file_list_open + the FS.* flag bits (results unsorted)
+--- xfs: the filesystem home - VFS lists over getFS():file_list_open, the engine index, and real folders on disk through kernel32 (results unsorted)
 
 local getFS, bit_or, FS = getFS, bit_or, FS
+local bit_band, bit_lshift, string_char, rawget, pcall = bit.band, bit.lshift, string.char, rawget, pcall
+
+-- kernel32 under xfs_* names (__asm__ redirect, LuaJIT ext_ffi_semantics), so no declaration clashes with another mod's ffi.cdef.
+local KERNEL32_CDEF = [[
+typedef struct { uint32_t attributes; uint32_t created[2]; uint32_t accessed[2]; uint32_t written[2]; uint32_t size_high;
+    uint32_t size_low; uint32_t reserved0; uint32_t reserved1; char name[260]; char short_name[14]; } xfs_find_data;
+void* xfs_find_first(const char* pattern, xfs_find_data* data) __asm__("FindFirstFileA");
+int xfs_find_next(void* handle, xfs_find_data* data) __asm__("FindNextFileA");
+int xfs_find_close(void* handle) __asm__("FindClose");
+uint32_t xfs_get_drives(void) __asm__("GetLogicalDrives");
+uint32_t xfs_get_attributes(const char* path) __asm__("GetFileAttributesA");
+int xfs_create_folder(const char* path, void* security) __asm__("CreateDirectoryA");
+int xfs_copy_file(const char* src, const char* dest, int fail_if_exists) __asm__("CopyFileA");
+int xfs_delete_file(const char* path) __asm__("DeleteFileA");
+]]
+local ATTR_DIRECTORY, ATTR_HIDDEN, ATTR_INVALID = 0x10, 0x2, 0xFFFFFFFF
+
+local _ffi = package.loaded.ffi or rawget(_G, "ffi") or (package.preload.ffi and require("ffi"))
+local _kernel32 = nil
+
+--- The kernel32 namespace through LuaJIT ffi, bound once and held so the library stays loaded; nil where ffi is absent.
+--- lfs.dir is never used: it keeps the Win64 find handle in a 32-bit long and corrupts memory.
+--- @src xray/3rd party/lua-extensions/lfs.c:82 (the long hFile), xray/xrServerEntities/script_storage.cpp:409,424 (ffi opened)
+--- @safety pcall: a second ffi.cdef of the same declarations raises on a module reload, xray/xrServerEntities/script_storage.cpp:424
+--- @novalidate(xray.unapproved_pcall, reason:"ffi.cdef raises on a redeclaration; the reload case is harmless")
+--- @cost 0 after the first call | first call: 1 cdef + 1 library load
+local function _get_kernel32()
+    if _kernel32 ~= nil then return _kernel32 or nil end
+    if not _ffi then _kernel32 = false; return nil end
+    pcall(_ffi.cdef, KERNEL32_CDEF)
+    _kernel32 = _ffi.load("kernel32")
+    return _kernel32
+end
+
+local function _get_attributes(path)
+    local k32 = _get_kernel32()
+    local attributes = k32 and k32.xfs_get_attributes(path)
+    if not attributes or attributes == ATTR_INVALID then return nil end
+    return attributes
+end
 
 --- List the subfolder names directly under a directory in a mount, cleaned of separators and . / .. entries.
 --- Root-only (not recursive). A missing directory yields an empty list.
@@ -97,16 +137,18 @@ function write_file(path, text, append)
     return written ~= nil and written ~= false
 end
 
---- Delete a file on disk through the engine FS, because os.remove is absent in the game's Lua sandbox.
---- The sanctioned filesystem home: consumers route here instead of a raw getFS() call so the fs surface stays in one place.
---- @src xray/xrGame/fs_registrator_script.cpp(263) file_delete binding
+--- Delete a file on disk (os.remove is absent in the game's Lua sandbox): the engine FS deletes and unindexes a file it knows.
+--- A file the index does not know, written since the last scan or outside every mount, goes through kernel32.
+--- @src xray/xrGame/fs_registrator_script.cpp(263) file_delete binding, xray/xrCore/LocatorAPI.cpp:1514-1528 (deletes indexed files only)
 --- @safety SAFE - false when the file survives the delete, never raises.
 --- @novalidate(security.fs_access, reason:"xfs is the single sanctioned filesystem home; consumers route here instead of raw io")
---- @cost 1 luabind (file_delete) + 1 libc open probe
+--- @cost 1 luabind (file_delete) + 1 libc open probe, + 1 kernel32 call when the engine did not know the file
 --- @param path string The file path
 --- @return boolean True when the file is gone
 function remove_file(path)
     getFS():file_delete(path)
+    local k32 = _get_attributes(path) and _get_kernel32()
+    if k32 then k32.xfs_delete_file(path) end
     local file = io.open(path, "r")
     if file then file:close(); return false end
     return true
@@ -121,4 +163,106 @@ end
 --- @return string The full VFS path
 function resolve_path(mount, rel)
     return getFS():update_path(mount, rel)
+end
+
+--- Whether the engine's file index knows a file under a mount; a file written since the last scan is unknown until update_index.
+--- @src xray/xrCore/LocatorAPI.cpp:537-562 (the index stores names lowercase)
+--- @safety SAFE - an index lookup, nil-safe on a missing file.
+--- @cost 1 luabind (exist)
+--- @param mount string The FS mount point (e.g. "$game_sounds$")
+--- @param rel string The file path under the mount, with its extension
+--- @return boolean True when the index has the file
+function has_file(mount, rel)
+    return getFS():exist(mount, rel:lower()) ~= nil
+end
+
+--- Rescan the loose files under a mount so the index sees files written since the game started; archives stay as they are.
+--- The cost grows with the loose files under the mount: about 500 ms for $game_sounds$ on a modded install.
+--- @src xray/xrGame/fs_registrator_script.cpp:25-28 (rescan_path only flags), xray/xrCore/LocatorAPI.cpp:1655-1694 (rescan_pathes walks the disk)
+--- @safety SAFE - a flagged path rescans in place; an unknown mount alias asserts, so pass only a mount from fsgame.ltx.
+--- @cost 2 luabind + a disk walk of the mount's loose files
+--- @param mount string The FS mount point (e.g. "$game_sounds$")
+function update_index(mount)
+    local fs = getFS()
+    fs:rescan_path(mount)
+    fs:rescan_pathes()
+end
+
+--- List the subfolders and files directly inside a real folder on disk, hidden entries skipped; empty lists for a missing folder or no ffi.
+--- @src xray/3rd party/lua-extensions/lfs.c:82 (why not lfs.dir: its 32-bit handle corrupts memory on x64)
+--- @safety SAFE - kernel32 find calls with a pointer-sized handle; a missing folder returns the invalid handle and empty lists.
+--- @cost 1 ffi call per entry + 2
+--- @param path string Absolute folder path, no trailing backslash
+--- @return table The subfolder names
+--- @return table The file names
+function read_disk_entries(path)
+    local folders, files = {}, {}
+    local k32 = _get_kernel32()
+    if not k32 then return folders, files end
+    local data = _ffi.new("xfs_find_data")
+    local handle = k32.xfs_find_first(path .. "\\*", data)
+    if _ffi.cast("intptr_t", handle) == -1 then return folders, files end
+    repeat
+        local name = _ffi.string(data.name)
+        local is_listed = name ~= "." and name ~= ".." and bit_band(data.attributes, ATTR_HIDDEN) == 0
+        if is_listed and bit_band(data.attributes, ATTR_DIRECTORY) ~= 0 then folders[#folders + 1] = name
+        elseif is_listed then files[#files + 1] = name end
+    until k32.xfs_find_next(handle, data) == 0
+    k32.xfs_find_close(handle)
+    return folders, files
+end
+
+--- The drive letters present, as "C:" style names; empty without ffi.
+--- @safety SAFE - one kernel32 call that cannot fail.
+--- @cost 1 ffi call
+--- @return table The drive names
+function read_drives()
+    local drives = {}
+    local k32 = _get_kernel32()
+    local mask = k32 and k32.xfs_get_drives() or 0
+    for i = 0, 25 do
+        if bit_band(mask, bit_lshift(1, i)) ~= 0 then drives[#drives + 1] = string_char(65 + i) .. ":" end
+    end
+    return drives
+end
+
+--- Whether a real path on disk is a file.
+--- @safety SAFE - false on a missing path or no ffi.
+--- @cost 1 ffi call
+--- @param path string Absolute path
+--- @return boolean
+function is_file(path)
+    local attributes = _get_attributes(path)
+    return attributes ~= nil and bit_band(attributes, ATTR_DIRECTORY) == 0
+end
+
+--- Whether a real path on disk is a folder.
+--- @safety SAFE - false on a missing path or no ffi.
+--- @cost 1 ffi call
+--- @param path string Absolute path
+--- @return boolean
+function is_folder(path)
+    local attributes = _get_attributes(path)
+    return attributes ~= nil and bit_band(attributes, ATTR_DIRECTORY) ~= 0
+end
+
+--- Create one folder on disk; its parent must exist. Under MO2 a write into gamedata lands in the overwrite folder and stays visible to the game.
+--- @safety SAFE - false when it already exists, the parent is missing, or no ffi.
+--- @cost 1 ffi call
+--- @param path string Absolute folder path, no trailing backslash
+--- @return boolean True when the folder was created
+function create_folder(path)
+    local k32 = _get_kernel32()
+    return k32 ~= nil and k32.xfs_create_folder(path, nil) ~= 0
+end
+
+--- Copy a file on disk byte for byte, replacing the destination.
+--- @safety SAFE - false on a missing source, a missing destination folder, or no ffi.
+--- @cost 1 ffi call + the copy
+--- @param src string Absolute source path
+--- @param dest string Absolute destination path
+--- @return boolean True when the copy succeeded
+function clone_file(src, dest)
+    local k32 = _get_kernel32()
+    return k32 ~= nil and k32.xfs_copy_file(src, dest, 0) ~= 0
 end
