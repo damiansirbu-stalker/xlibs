@@ -1,10 +1,7 @@
---- xcui: X-Ray game UI helpers (the CUI window family, not ImGui) - build a window from its layout, keep a box's true shape on any screen
+--- xcui: X-Ray game UI helpers (the CUI window family, not ImGui) - build a window from its layout
 
-local device, table_insert = device, table.insert
+local table_insert = table.insert
 
--- X-Ray lays every CUI window out on a 1024x768 grid and stretches it to the screen (xray/xrGame/ui_base.cpp:114).
-local GRID_W, GRID_H = 1024, 768
-local ANCHOR_X = { left = 0, center = GRID_W / 2, right = GRID_W }
 -- The CScriptXmlInit builder per control kind, and whether the window registers it for callbacks (xray/xrGame/ScriptXMLInit.cpp:416-442).
 local BUILDERS = {
     static = { init = "InitStatic" },
@@ -17,31 +14,6 @@ local BUILDERS = {
 }
 -- Colors built on first use: GetARGB is absent at module load under the validator.
 local _colors = {}
-
---- The width factor that keeps a box's true shape on this screen: 1 on 4:3, 0.75 on 16:9, 0.57 on 21:9.
---- @src xray/xrGame/ui_base.cpp:114 (the grid scales to the screen width), anomaly/utils_xml.script:230 (the same ratio)
---- @safety SAFE - pure arithmetic on the device size.
---- @cost 1 luabind (device)
---- @return number The factor to multiply a 4:3 width by
-function get_aspect_scale()
-    local dev = device()
-    return (GRID_W / GRID_H) / (dev.width / dev.height)
-end
-
---- Fit a horizontal span drawn in 4:3 units to this screen, pinned to its anchor so a docked band stays docked.
---- Only for plain boxes placed from Lua, never a list box, whose scrollbar is placed once when it is built (xray/xrGame/ui/UIScrollView.cpp:84-90).
---- @safety SAFE - pure arithmetic.
---- @cost 1 luabind (device)
---- @param x number The left edge in 4:3 units
---- @param width number The width in 4:3 units
---- @param anchor string|nil "left" (default), "center" or "right"
---- @return number The left edge on the grid
---- @return number The width on the grid
-function compute_span(x, width, anchor)
-    local scale = get_aspect_scale()
-    local pin = ANCHOR_X[anchor] or 0
-    return pin + (x - pin) * scale, width * scale
-end
 
 --- Build a window's controls from its parsed layout, in spec order, which is also the draw order: a later control draws on an earlier one.
 --- Kinds: static, text (a static, returned as its text control), frame, line (a frame line), button, edit and list; the last three register for callbacks.
@@ -107,7 +79,17 @@ function get_color(r, g, b, a)
     return color
 end
 
---- Put a line at the top of a bounded list, clipped with a trailing ~ to width, and drop what falls past count.
+--- The text cut to width characters, its last one a ~ when cut, so a fixed-width box never overflows.
+--- @safety SAFE - pure.
+--- @cost O(1) | 0 luabind
+--- @param text string The text
+--- @param width number The most characters the box holds
+--- @return string The text, clipped when longer than width
+function get_clipped(text, width)
+    return #text > width and (text:sub(1, width - 1) .. "~") or text
+end
+
+--- Put a line at the top of a bounded list, clipped to width, and drop what falls past count.
 --- @safety SAFE - pure table work.
 --- @cost O(1) | 0 luabind
 --- @param lines table The lines, newest first; changed in place
@@ -115,7 +97,7 @@ end
 --- @param count number How many lines the list keeps
 --- @param width number The most characters a line holds
 function push_line(lines, text, count, width)
-    table_insert(lines, 1, #text > width and (text:sub(1, width - 1) .. "~") or text)
+    table_insert(lines, 1, get_clipped(text, width))
     lines[count + 1] = nil
 end
 
