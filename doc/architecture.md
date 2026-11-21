@@ -41,7 +41,7 @@ xlibs
 +- Util             xtable  xttltable  xmath  xslice  xstring  xtime  xconst  xfs
 +- Diagnostics      xlog  xprofiler  xtrace  xinspect
 +- Effects          xpp  xsound
-+- Framework        xbus  xevent  xpda  xmcm  xchange
++- Framework        xbus  xevent  xpda  xmcm  xchange  xcui
 +- Package          xlibs  xlibs_mcm  xcompat
 ```
 
@@ -700,6 +700,23 @@ The single sanctioned filesystem home. Consumers call xfs for file io, so the fs
 - `has_file(mount, rel)` / `update_index(mount)` - Whether the engine's file index knows a file, and a rescan of a mount's loose files so it sees new ones
 - `read_disk_entries(path)` / `read_drives()` / `is_file(path)` / `is_folder(path)` / `create_folder(path)` / `clone_file(src, dest)` - Real folders and files on disk through kernel32 over LuaJIT ffi.
   The declarations carry `xfs_*` names through `__asm__`, and no other mod's ffi.cdef can clash with them. lfs.dir is never used, because it keeps the Win64 find handle in a 32-bit long and corrupts memory.
+
+### xcui.script - Game UI
+
+Primitives for X-Ray's game UI, the CUI window family, never ImGui. They build any window from its layout and know nothing of the window they build.
+X-Ray lays every window out on a 1024x768 grid and stretches it to the screen, so a box looks a third wider on 16:9 (xray/xrGame/ui_base.cpp:114).
+
+- `build(xml, wnd, spec)` - Every control a layout lists, built in spec order, which is the draw order, and returned by layout name.
+  The kinds are static, text, frame, frame line, button, edit box and list box, and the window registers the last three for callbacks.
+- `get_names(prefix, count)` / `get_controls(controls, names)` - Numbered layout names such as rows, and the controls behind a list of names
+- `get_color(r, g, b, a)` - A color built once per value, safe in code that runs in game
+- `push_line(lines, text, count, width)` / `set_lines(controls, lines)` - A bounded list of lines, newest first, and its display on a set of text controls
+- `is_close_key(is_taken, dik, action)` - An Esc press nothing in the window took
+- `get_aspect_scale()` - The width factor that keeps a box's true shape on this screen: 1 on 4:3, 0.75 on 16:9
+- `compute_span(x, width, anchor)` - A span drawn in 4:3 units fitted to this screen and pinned to the left, center or right edge
+
+A box built from XML gets its fit from the layout's `_16` and `_21` copies, which X-Ray loads by screen shape (xray/xrGame/ui_base.cpp:298-330). `compute_span` is for plain boxes placed from Lua.
+A list box is never resized after it is built, because its scrollbar is placed once, at the width it had then (xray/xrGame/ui/UIScrollView.cpp:84-90).
 
 ### xconst.script - Engine Sentinel Constants
 

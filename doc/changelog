@@ -1,4 +1,9 @@
 1.10.1-snapshot
+  xcui
+    - Added the xcui module for X-Ray's game UI. build makes every control a layout lists, in draw order, and returns them by name.
+      get_color, push_line, set_lines and is_close_key cover the colors, line lists and Esc that every window needs.
+      get_aspect_scale and compute_span keep a box placed from Lua at its true shape on any screen.
+
   xfs
     - Added read_disk_entries, read_drives, is_file, is_folder, create_folder and clone_file for real folders and files on disk.
     - Added has_file, which tells whether the engine knows a file, and update_index, which rescans a mount after a mod writes one.

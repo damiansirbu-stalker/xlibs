@@ -1,0 +1,140 @@
+--- xcui: X-Ray game UI helpers (the CUI window family, not ImGui) - build a window from its layout, keep a box's true shape on any screen
+
+local device, table_insert = device, table.insert
+
+-- X-Ray lays every CUI window out on a 1024x768 grid and stretches it to the screen (xray/xrGame/ui_base.cpp:114).
+local GRID_W, GRID_H = 1024, 768
+local ANCHOR_X = { left = 0, center = GRID_W / 2, right = GRID_W }
+-- The CScriptXmlInit builder per control kind, and whether the window registers it for callbacks (xray/xrGame/ScriptXMLInit.cpp:416-442).
+local BUILDERS = {
+    static = { init = "InitStatic" },
+    text   = { init = "InitStatic", is_text = true },
+    frame  = { init = "InitFrame" },
+    line   = { init = "InitFrameLine" },
+    button = { init = "Init3tButton", is_registered = true },
+    edit   = { init = "InitEditBox", is_registered = true },
+    list   = { init = "InitListBox", is_registered = true },
+}
+-- Colors built on first use: GetARGB is absent at module load under the validator.
+local _colors = {}
+
+--- The width factor that keeps a box's true shape on this screen: 1 on 4:3, 0.75 on 16:9, 0.57 on 21:9.
+--- @src xray/xrGame/ui_base.cpp:114 (the grid scales to the screen width), anomaly/utils_xml.script:230 (the same ratio)
+--- @safety SAFE - pure arithmetic on the device size.
+--- @cost 1 luabind (device)
+--- @return number The factor to multiply a 4:3 width by
+function get_aspect_scale()
+    local dev = device()
+    return (GRID_W / GRID_H) / (dev.width / dev.height)
+end
+
+--- Fit a horizontal span drawn in 4:3 units to this screen, pinned to its anchor so a docked band stays docked.
+--- Only for plain boxes placed from Lua, never a list box, whose scrollbar is placed once when it is built (xray/xrGame/ui/UIScrollView.cpp:84-90).
+--- @safety SAFE - pure arithmetic.
+--- @cost 1 luabind (device)
+--- @param x number The left edge in 4:3 units
+--- @param width number The width in 4:3 units
+--- @param anchor string|nil "left" (default), "center" or "right"
+--- @return number The left edge on the grid
+--- @return number The width on the grid
+function compute_span(x, width, anchor)
+    local scale = get_aspect_scale()
+    local pin = ANCHOR_X[anchor] or 0
+    return pin + (x - pin) * scale, width * scale
+end
+
+--- Build a window's controls from its parsed layout, in spec order, which is also the draw order: a later control draws on an earlier one.
+--- Kinds: static, text (a static, returned as its text control), frame, line (a frame line), button, edit and list; the last three register for callbacks.
+--- @safety SAFE - every name must exist in the layout; X-Ray asserts on a missing node (xray/xrGame/ui/UIXmlInit.cpp).
+--- @cost O(n) | 1-2 luabind per control
+--- @param xml CScriptXmlInit The parsed layout
+--- @param wnd CUIScriptWnd The window that owns the controls
+--- @param spec table Ordered { { kind = "static", names = { ... } }, ... }
+--- @return table The controls by layout name
+function build(xml, wnd, spec)
+    local controls = {}
+    for i = 1, #spec do
+        local builder = BUILDERS[spec[i].kind]
+        local names = spec[i].names
+        for k = 1, #names do
+            local control = xml[builder.init](xml, names[k], wnd)
+            if builder.is_registered then wnd:Register(control, names[k]) end
+            controls[names[k]] = builder.is_text and control:TextControl() or control
+        end
+    end
+    return controls
+end
+
+--- The names prefix1 to prefix<count>, for numbered layout elements such as rows.
+--- @safety SAFE - pure.
+--- @cost O(count) | 0 luabind
+--- @param prefix string The name before the number
+--- @param count number How many
+--- @return table The names in order
+function get_names(prefix, count)
+    local names = {}
+    for i = 1, count do names[i] = prefix .. i end
+    return names
+end
+
+--- The controls with these names, in the same order.
+--- @safety SAFE - pure.
+--- @cost O(n) | 0 luabind
+--- @param controls table From build
+--- @param names table Layout names
+--- @return table The controls in order
+function get_controls(controls, names)
+    local picked = {}
+    for i = 1, #names do picked[i] = controls[names[i]] end
+    return picked
+end
+
+--- A color for SetTextureColor or SetTextColor, built once per value.
+--- @safety SAFE - call it from code that runs in game, never at module load.
+--- @cost O(1) | 1 luabind on the first call per value
+--- @param r number Red, 0 to 255
+--- @param g number Green, 0 to 255
+--- @param b number Blue, 0 to 255
+--- @param a number Alpha, 0 to 255
+--- @return number The color
+function get_color(r, g, b, a)
+    local key = ((a * 256 + r) * 256 + g) * 256 + b
+    local color = _colors[key]
+    if not color then
+        color = GetARGB(a, r, g, b)
+        _colors[key] = color
+    end
+    return color
+end
+
+--- Put a line at the top of a bounded list, clipped with a trailing ~ to width, and drop what falls past count.
+--- @safety SAFE - pure table work.
+--- @cost O(1) | 0 luabind
+--- @param lines table The lines, newest first; changed in place
+--- @param text string The new line
+--- @param count number How many lines the list keeps
+--- @param width number The most characters a line holds
+function push_line(lines, text, count, width)
+    table_insert(lines, 1, #text > width and (text:sub(1, width - 1) .. "~") or text)
+    lines[count + 1] = nil
+end
+
+--- Show lines on text controls, one each, and blank the controls with no line.
+--- @safety SAFE - text only.
+--- @cost O(controls) | 1 luabind per control
+--- @param controls table Text controls in order
+--- @param lines table The lines in the same order
+function set_lines(controls, lines)
+    for i = 1, #controls do controls[i]:SetText(lines[i] or "") end
+end
+
+--- True for an Esc press nothing in the window took; an edit box with focus takes its keys first.
+--- @safety SAFE - pure comparison.
+--- @cost O(1) | 0 luabind
+--- @param is_taken boolean What CUIScriptWnd.OnKeyboard returned
+--- @param dik number The key
+--- @param action number The key event
+--- @return boolean True when the window should close
+function is_close_key(is_taken, dik, action)
+    return action == ui_events.WINDOW_KEY_PRESSED and not is_taken and dik == DIK_keys.DIK_ESCAPE
+end

@@ -93,6 +93,7 @@ Framework:
   xevent       Runtime function hooking for synthetic callbacks
   xpda         PDA messages and map markers (squad and entity)
   xmcm         MCM config bundle (pre-seeded table, getter, loader)
+  xcui         Game UI building blocks: a window built from its layout, colors, line lists, and the true box shape on any screen
   xchange      Liquibase-style save data migration registry, each changeset runs once per save
 
 Requirements:
