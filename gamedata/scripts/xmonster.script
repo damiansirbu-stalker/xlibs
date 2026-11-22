@@ -245,10 +245,11 @@ function xmonster.try_monster_run_attack(mob)
     return mob:try_monster_run_attack()
 end
 
---- Play the species threaten display - a free telegraph (data carriers today: snork, gigant; others refuse).
---- @safety SAFE - nil-guarded, false below the bind; the engine refuses without threaten data
+--- Start the species threaten action. Only the gigant runs it: the HugeKick stomp, which strikes and throws everything within 15 m.
+--- It also hits the player when he is the gigant's enemy and not jumping. The snork's gate always refuses, and other species lack the component.
+--- @safety SAFE - nil-guarded, false below the bind; the gigant's band (HugeKick_MinMaxDist), its delay and 30 deg facing still gate it
 --- @cost O(1) | 1 luabind medium (component capture attempt)
---- @src modded-exes/lua_help_ex.script (try_monster_threaten)
+--- @src xray/ai/monsters/control_manager_custom.cpp:523-543, snork/snork.cpp:273-283 (refuses), pseudogigant/pseudo_gigant.cpp:250-263,292-420
 --- @param mob game_object monster
 --- @return boolean true when started
 function xmonster.try_monster_threaten(mob)
