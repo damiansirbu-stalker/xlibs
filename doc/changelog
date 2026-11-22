@@ -9,6 +9,9 @@
     - Added has_file, which tells whether the engine knows a file, and update_index, which rescans a mount after a mod writes one.
     - Changed remove_file to delete a file the engine has not indexed yet.
 
+  xsound
+    - Added get_output_loudness, the loudness of the final mix the player hears, on modded exes that carry the mix meter. On other exes it reports the meter absent.
+
 1.10.0
   The xmonster mutant surface, cover finders, attachments and truer sight reads
     The new xmonster module covers mutant combat. It reads a mutant's state and memory, fires the jumps and attacks X-Ray validates, and sets its combat numbers.

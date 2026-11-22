@@ -515,6 +515,7 @@ Sound wrap:
 - duration without playing (`length`)
 - the verified-safe path table `SND`
 - a per-sound metadata registry plus a delivered-loudness model (`load_meta`, `get_meta`, `compute_delivered_loudness`)
+- the measured loudness of the final mix (`get_output_loudness`)
 
 Sound metadata is a write-once registry feeding a pure loudness model.
 A mod's build emits a table of per-sound measured facts, and the mod loads it once with `load_meta(rows)` (path -> `{ lufs, crest, peak, bv, mn, mx }`, keys lowercase with backslashes, no .ogg).
@@ -524,6 +525,8 @@ The model is the xray gain chain at effects slider 1.0, read from `SoundRender_E
 It multiplies base_volume by the band fade capped at the script volume and clamps the product at 1.0.
 A play under the 0.01 cull reads -120, and OpenAL's inverse rolloff from the min applies on top of the clamped gain.
 The function is the runtime twin of the build-time audit, and the review players of the audio mods render their est. dB readout from it.
+`get_output_loudness()` returns what that model predicts against: `ok, momentary, short_term, peak`, the EBU R128 loudness of the final mix, from xray's meter (themrdemonized/xray-monolith PR #874).
+The first call starts the meter, and `ok` is false for 3 s after each start. On an exe without the reader `ok` is nil and every value -70, which tells a consumer the meter is absent.
 
 Engine ambient sound seams (themrdemonized/xray-monolith PR #644 and #661, pending merge): the engine calls a named `_G` global at each ambient play site when the global is set.
 xlibs owns those globals, so a consumer never touches `_G.*`.

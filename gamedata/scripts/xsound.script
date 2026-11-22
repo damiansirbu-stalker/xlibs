@@ -432,6 +432,21 @@ function compute_delivered_loudness(profile, dist, volume)
     return profile.lufs + 20.0 * math_log10(smooth * al)
 end
 
+--- The EBU R128 loudness of the final mix the player hears: effects, music and rain, measured by xray where the exe carries the meter.
+--- The first call starts the meter, and ok stays false for 3 s after each start, with no sound device and under -nosound.
+--- @safety SAFE - ok is nil and every value -70 on an exe without the reader
+--- @cost O(1) | 1 luabind where the reader exists, 0 where it does not
+--- @src xray/xrGame/level_script.cpp:1098-1103,3107 (level.get_output_loudness, themrdemonized/xray-monolith PR #874)
+--- @return boolean|nil ok, nil when the exe has no meter
+--- @return number momentary LUFS over 400 ms
+--- @return number short_term LUFS over 3 s
+--- @return number peak dBFS over the last 400 ms
+function get_output_loudness()
+    local read = level.get_output_loudness
+    if type(read) ~= "function" then return nil, -70, -70, -70 end
+    return read()
+end
+
 --- Reset all state on save load, stopping any playing sounds still held.
 --- Sound-seam handlers are intentionally NOT cleared here (on_game_start ordering would wipe them).
 function on_game_start()
