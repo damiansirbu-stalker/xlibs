@@ -702,6 +702,7 @@ The single sanctioned filesystem home. Consumers call xfs for file io, so the fs
 - `resolve_path(mount, rel)` - Mount-relative path to the full VFS path (wraps getFS():update_path)
 - `has_file(mount, rel)` / `update_index(mount)` - Whether the engine's file index knows a file, and a rescan of a mount's loose files so it sees new ones
 - `read_disk_entries(path)` / `read_drives()` / `is_file(path)` / `is_folder(path)` / `create_folder(path)` / `clone_file(src, dest)` - Real folders and files on disk through kernel32 over LuaJIT ffi.
+- `format_dir(path)` / `get_parent_dir(dir)` - A folder path with backslashes and one trailing backslash, and its parent, `""` above a drive root.
   The declarations carry `xfs_*` names through `__asm__`, and no other mod's ffi.cdef can clash with them. lfs.dir is never used, because it keeps the Win64 find handle in a 32-bit long, and on an exe without the fix the first call stops the calling script.
 
 ### xcui.script - Game UI

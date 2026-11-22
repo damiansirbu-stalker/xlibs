@@ -166,6 +166,25 @@ function resolve_path(mount, rel)
     return getFS():update_path(mount, rel)
 end
 
+--- A folder path in the disk form the kernel32 calls and the tools use: backslashes and one trailing backslash.
+--- @safety SAFE - pure string work.
+--- @cost O(path length)
+--- @param path string A folder path, with forward or back slashes
+--- @return string The folder path ending in a backslash
+function format_dir(path)
+    local dir = path:gsub("/", "\\")
+    return dir:sub(-1) == "\\" and dir or (dir .. "\\")
+end
+
+--- The parent of an absolute folder in format_dir form, or "" above a drive root, which a browser shows as the drive list.
+--- @safety SAFE - pure string work.
+--- @cost O(path length)
+--- @param dir string An absolute folder path ending in a backslash
+--- @return string The parent folder ending in a backslash, or ""
+function get_parent_dir(dir)
+    return dir:match("^(.*\\)[^\\]+\\$") or ""
+end
+
 --- Whether the engine's file index knows a file under a mount; a file written since the last scan is unknown until update_index.
 --- @src xray/xrCore/LocatorAPI.cpp:537-562 (the index stores names lowercase)
 --- @safety SAFE - an index lookup, nil-safe on a missing file.
