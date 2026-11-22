@@ -712,6 +712,7 @@ X-Ray lays every window out on a 1024x768 grid and stretches it to the screen, s
 - `get_color(r, g, b, a)` - A color built once per value, safe in code that runs in game
 - `get_clipped(text, width)` - Text cut to a fixed width with a trailing ~
 - `push_line(lines, text, count, width)` / `set_lines(controls, lines)` - A bounded list of clipped lines, newest first, and its display on a set of text controls
+- `get_list_place(list)` / `set_list_place(list, place)` - A list's selected row and scroll position, read on close and put back once the rows are in
 - `is_close_key(is_taken, dik, action)` - An Esc press nothing in the window took
 
 A box gets its true shape on a wide screen from the layout's `_16` and `_21` copies, which X-Ray loads by screen shape (xray/xrGame/ui_base.cpp:298-330), never from Lua.

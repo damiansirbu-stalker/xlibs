@@ -110,6 +110,25 @@ function set_lines(controls, lines)
     for i = 1, #controls do controls[i]:SetText(lines[i] or "") end
 end
 
+--- Where a list stands: its selected row and its scroll position, to put it back when the window reopens.
+--- @safety SAFE - reads only.
+--- @cost O(1) | 2 luabind
+--- @param list CUIListBox The list
+--- @return table { index, scroll }
+function get_list_place(list)
+    return { index = list:GetSelectedIndex(), scroll = list:GetCurrentScrollPos() }
+end
+
+--- Put a list back where get_list_place found it; call it once the rows are in.
+--- @safety SAFE - a row past the end selects nothing (xray/xrGame/ui/UIListBox.cpp:273-285); the scroll clamps (ui/UIScrollView.cpp:344-351).
+--- @cost O(rows) | 2 luabind
+--- @param list CUIListBox The list
+--- @param place table From get_list_place
+function set_list_place(list, place)
+    if place.index and place.index >= 0 then list:SetSelectedIndex(place.index) end
+    list:SetScrollPos(place.scroll or 0)
+end
+
 --- True for an Esc press nothing in the window took; an edit box with focus takes its keys first.
 --- @safety SAFE - pure comparison.
 --- @cost O(1) | 0 luabind

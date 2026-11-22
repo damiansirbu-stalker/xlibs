@@ -2,6 +2,7 @@
   xcui
     - Added the xcui module for X-Ray's game UI. build makes every control a layout lists, in draw order, and returns them by name.
       get_color, get_clipped, push_line, set_lines and is_close_key cover the colors, line lists and Esc that every window needs.
+      get_list_place and set_list_place let a window reopen with its list where it was.
 
   xfs
     - Added read_disk_entries, read_drives, is_file, is_folder, create_folder and clone_file for real folders and files on disk.
