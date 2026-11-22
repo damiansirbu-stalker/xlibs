@@ -22,7 +22,7 @@ local _ffi = package.loaded.ffi or rawget(_G, "ffi") or (package.preload.ffi and
 local _kernel32 = nil
 
 --- The kernel32 namespace through LuaJIT ffi, bound once and held so the library stays loaded; nil where ffi is absent.
---- lfs.dir is never used: it keeps the Win64 find handle in a 32-bit long and corrupts memory.
+--- lfs.dir is never used: it keeps the Win64 find handle in a 32-bit long, and on an exe without the fix the first call stops the calling script.
 --- @src xray/3rd party/lua-extensions/lfs.c:82 (the long hFile), xray/xrServerEntities/script_storage.cpp:409,424 (ffi opened)
 --- @safety pcall: a second ffi.cdef of the same declarations raises on a module reload, xray/xrServerEntities/script_storage.cpp:424
 --- @novalidate(xray.unapproved_pcall, reason:"ffi.cdef raises on a redeclaration; the reload case is harmless")
@@ -190,7 +190,7 @@ function update_index(mount)
 end
 
 --- List the subfolders and files directly inside a real folder on disk, hidden entries skipped; empty lists for a missing folder or no ffi.
---- @src xray/3rd party/lua-extensions/lfs.c:82 (why not lfs.dir: its 32-bit handle corrupts memory on x64)
+--- @src xray/3rd party/lua-extensions/lfs.c:82 (why not lfs.dir: its 32-bit handle stops the calling script on x64)
 --- @safety SAFE - kernel32 find calls with a pointer-sized handle; a missing folder returns the invalid handle and empty lists.
 --- @cost 1 ffi call per entry + 2
 --- @param path string Absolute folder path, no trailing backslash
