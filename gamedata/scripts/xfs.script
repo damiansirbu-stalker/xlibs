@@ -24,8 +24,8 @@ local _kernel32 = nil
 --- The kernel32 namespace through LuaJIT ffi, bound once and held so the library stays loaded; nil where ffi is absent.
 --- lfs.dir is never used: it keeps the Win64 find handle in a 32-bit long, and on an exe without the fix the first call stops the calling script.
 --- @src xray/3rd party/lua-extensions/lfs.c:82 (the long hFile), xray/xrServerEntities/script_storage.cpp:409,424 (ffi opened)
---- @safety pcall: a second ffi.cdef of the same declarations raises on a module reload, xray/xrServerEntities/script_storage.cpp:424
---- @novalidate(xray.unapproved_pcall, reason:"ffi.cdef raises on a redeclaration; the reload case is harmless")
+--- @safety pcall: ffi.cdef ignores a redeclared name (xray/3rd party/luajit-2/src/lj_cparse.c:1787) and raises only on a malformed declaration
+--- @novalidate(xray.unapproved_pcall, reason:"ffi.cdef raises only on a malformed declaration; xfs then stays without kernel32 instead of raising")
 --- @novalidate(security.dynamic_code, reason:"ffi.load opens kernel32.dll; it runs no Lua code")
 --- @cost 0 after the first call | first call: 1 cdef + 1 library load
 local function _get_kernel32()
@@ -57,6 +57,7 @@ function read_folders(mount, dir)
         local name = fl:GetAt(i - 1):gsub("[\\/]", "")
         if name ~= "" and name ~= "." and name ~= ".." then out[#out + 1] = name end
     end
+    if fl then fl:Free() end
     return out
 end
 
@@ -80,6 +81,7 @@ function read_files(mount, dir, ext)
             out[#out + 1] = fname:sub(1, -ext_len - 1)
         end
     end
+    if fl then fl:Free() end
     return out
 end
 
@@ -103,6 +105,7 @@ function read_files_deep(mount, dir, ext)
             out[#out + 1] = fname:sub(1, -ext_len - 1)
         end
     end
+    if fl then fl:Free() end
     return out
 end
 
