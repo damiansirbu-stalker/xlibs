@@ -12,4 +12,40 @@
     <string id="ui_mcm_xmcm_footer">
         <text>Detecting platform...</text>
     </string>
+    <string id="st_xlibs_update_footer">
+        <text>, update %s on moddb</text>
+    </string>
+    <string id="st_xlibs_update_news_caption">
+        <text>Mod updates</text>
+    </string>
+    <string id="st_xlibs_update_news">
+        <text>Newer versions on moddb: %s</text>
+    </string>
+    <string id="st_xlibs_update_newer">
+        <text>%s %s is on moddb: %s</text>
+    </string>
+    <string id="st_xlibs_update_current">
+        <text>%s is up to date</text>
+    </string>
+    <string id="st_xlibs_update_failed">
+        <text>Update check failed: %s</text>
+    </string>
+    <string id="st_xlibs_update_offline">
+        <text>no connection</text>
+    </string>
+    <string id="st_xlibs_update_limited">
+        <text>GitHub limit reached, try again later</text>
+    </string>
+    <string id="st_xlibs_update_no_release">
+        <text>no release found</text>
+    </string>
+    <string id="st_xlibs_update_unavailable">
+        <text>GitHub unavailable</text>
+    </string>
+    <string id="st_xlibs_update_out_of_time">
+        <text>no time left in this load</text>
+    </string>
+    <string id="st_xlibs_update_no_network">
+        <text>no network support</text>
+    </string>
 </string_table>

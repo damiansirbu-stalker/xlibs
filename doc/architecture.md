@@ -41,7 +41,7 @@ xlibs
 +- Util             xtable  xttltable  xmath  xslice  xstring  xtime  xconst  xfs
 +- Diagnostics      xlog  xprofiler  xtrace  xinspect
 +- Effects          xpp  xsound
-+- Framework        xbus  xevent  xpda  xmcm  xchange  xcui
++- Framework        xbus  xevent  xpda  xmcm  xchange  xcui  xnet
 +- Package          xlibs  xlibs_mcm  xcompat
 ```
 
@@ -101,7 +101,8 @@ local name = xcreature.get_name(entity_id)
 - `get_name(input)` - Translated name. Translate-first for mutants (inv_name, then section key, then the English hash), memoized per section.
   Returns nil for nil entities and nameless stalkers - callers pick the fallback
 - `get_money(obj)`, `give_money(obj, amount)`, `transfer_money(from, amount, to)` - Ruble reads and moves, u32-underflow guarded
-- `online_iter_with_id()` - Iterator over online game objects yielding (id, obj) pairs
+- `iterate_online()` - Iterator over online objects with a script binder (`db.storage`), yielding (id, obj) pairs. Every stalker and monster binder registers there, so it covers all online creatures at about a third of the size of `gameobjects_registry`, which also holds every inventory item
+- `iterate_online_monsters()` - The same walk filtered to mutants, uncapped
 - `iterate_online_traders()` - Iterator over the online trader-class NPCs, Sidorovich and the Forester, which `db.OnlineStalkers` never lists (`db.script:73`).
   A wrapper on `db.add_obj` and `db.del_obj`, installed at `on_game_start` before any object spawns, keeps the set current.
 - `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog"). Handles modded exe clsid reuse via section prefix, with a player_id fast reject for stalkers.
@@ -417,9 +418,9 @@ local valid = xlevel.is_valid_lvid(se_obj)
 - `get_neighbor_levels(source_id, hops)` - Level-id set within N graph hops. Returns the cached set BY REFERENCE: read-only, never mutate or hold across sessions
 - `is_valid_lvid(se_obj)` - Check level vertex validity (0xFFFFFFFF = invalid)
 - `is_surge()` - True while a surge or psi-storm is underway (pure Lua module reads via xr_conditions.surge_started)
-
 - `find_ray_hit(pos, dir, range, flags)` - One ray against the level's collision set through one shared `ray_pick`: distance, normal and object of the first hit, or nil. A hit at or under 1 mm counts as none.
   `xcombat` and `xprops` cast through it.
+
 ### xsmart.script - Smart Terrain Queries
 
 ```lua
@@ -521,7 +522,6 @@ Sound wrap:
 - the verified-safe path table `SND`
 - a per-sound metadata registry plus a delivered-loudness model (`load_meta`, `get_meta`, `compute_delivered_loudness`)
 - the measured loudness of the final mix (`get_output_loudness`)
-
 - the trace tail of one play (`compute_verdict`, `format_play_detail`)
 - vanilla's Lua channel play and channel config (`compute_spawn_dist`, `compute_spawn_pos`, `compute_channel_volume`, `get_channel_index`, `get_ambient_state`, `read_active_channels`)
 - the falloff blob of an ogg read from its bytes (`parse_blob`), and the canonical path key (`format_key`)
@@ -537,6 +537,7 @@ It holds `channels[name]` (the raw pool, `ambient\no_sound` kept as vanilla pick
 `read_active_channels(level, state)` is the channel list vanilla's loop rotates, repeats and undefined names dropped. A per-hour cache stays with the caller.
 `format_play_detail(path, dist, volume, floor)` is the shared trace tail, distance, delivered dB, verdict and profile, and the floor is the caller's.
 `parse_blob(bytes)` reads the comment header's first comment, versions 0x0001 to 0x0003, from `xfs.read_bytes`. A sound's falloff is never read from a `sound_object`.
+
 Sound metadata is a write-once registry feeding a pure loudness model.
 A mod's build emits a table of per-sound measured facts, and the mod loads it once with `load_meta(rows)` (path -> `{ lufs, crest, peak, bv, mn, mx }`, keys lowercase with backslashes, no .ogg).
 Any consumer reads a profile with `get_meta(path)`, a plain table lookup that makes no bridge call.
@@ -697,8 +698,8 @@ end)
 
 ### xpda.script - PDA/Map
 
-- `send(caption, msg, icon)` - PDA message
 - `show_tip(msg, ms)` - A plain HUD tip through `news_manager.send_tip`, false without an actor
+- `send(caption, msg, icon)` - PDA message
 - `npc_tip(npc, msg, opts)` - NPC-attributed tip
 - `mark_squad(id, opts)`, `unmark_squad(id)`, `clear_squad_markers()`
 - `mark_entity(id, opts)`, `unmark_entity(id, type)`
@@ -722,14 +723,32 @@ The single sanctioned filesystem home. Consumers call xfs for file io, so the fs
 - `read_folders(mount, dir)` / `read_files(mount, dir, ext)` - Clean name lists over the engine VFS, root-only
 - `read_files_deep(mount, dir, ext)` - The recursive file list, subpath-qualified names
 - `read_file(path)` - Whole file as a string, nil when unreadable (libc io on a real path)
-- `write_file(path, text, append)` - Write or append, false on an open failure or a failed write
 - `read_bytes(path, count)` - The first bytes of a file in binary mode. `read_file` is text mode, and a Windows text read stops at a 0x1A byte
+- `write_file(path, text, append)` - Write or append, false on an open failure or a failed write
 - `remove_file(path)` - Delete through the engine FS, or through kernel32 when the index does not know the file (os.remove is absent in the game's Lua sandbox), true when the file is gone
 - `resolve_path(mount, rel)` - Mount-relative path to the full VFS path (wraps getFS():update_path)
 - `has_file(mount, rel)` / `update_index(mount)` - Whether the engine's file index knows a file, and a rescan of a mount's loose files so it sees new ones
 - `read_disk_entries(path)` / `read_drives()` / `is_file(path)` / `is_folder(path)` / `create_folder(path)` / `clone_file(src, dest)` - Real folders and files on disk through kernel32 over LuaJIT ffi.
 - `format_dir(path)` / `get_parent_dir(dir)` - A folder path with backslashes and one trailing backslash, and its parent, `""` above a drive root.
   The declarations carry `xfs_*` names through `__asm__`, and no other mod's ffi.cdef can clash with them. lfs.dir is never used, because it keeps the Win64 find handle in a 32-bit long, and on an exe without the fix the first call stops the calling script.
+
+### xnet.script - HTTP
+
+xnet sends HTTP(S) requests from Lua through the OS `winhttp.dll` over LuaJIT ffi, inside the game process, and xlibs ships no binary for it.
+The earlier xnet shipped `xnet.exe`, which antivirus flagged, and `7598686` removed it.
+On 2026-11-24 the owner ruled Lua over the OS `winhttp.dll` allowed, and ruled out a shipped exe or dll and an HTTP client in the engine.
+Windows and Wine/Proton both carry `winhttp.dll`. xnet loads it from the system folder Windows reports and never by bare name, because a bare name searches the game's bin folder first.
+A request blocks the game thread until the reply. `timeout_ms`, 10 s by default, caps each step: resolve, connect, send, receive, the response headers and every read.
+WinHTTP waits 90 s for the response headers unless told otherwise, and xnet sets that wait to the step cap as well.
+`budget_ms` limits the whole request, and xnet cuts each step's cap to the time left, and a request ends about one step past the budget at worst. Without a budget the total has no bound.
+WinHTTP follows at most 3 redirects and never leaves HTTPS for HTTP. xnet refuses a header name or value that holds a line break.
+On Windows 8.1 and later the session reads the system and browser proxy, and it falls back to the WinHTTP registry proxy where Windows refuses that mode.
+Wine accepts the mode and connects without a proxy. Its declarations carry `xnet_*` names through `__asm__`, as xfs does.
+
+- `is_ready()` - Whether ffi and `winhttp.dll` are available
+- `run_request(opts)` - One request the caller composes: url, method, headers, body, timeout_ms, budget_ms. Returns ok on a 2xx, the HTTP status, the reply body, or a reason
+- `push_github(opts)` - Commit one file to a GitHub repo through the Contents API: repo, path, content, token, branch, message, budget_ms
+  The current sha comes from the folder listing, which works for files of any size, and a failed listing stops before the write. xnet keeps the token in memory only.
 
 ### xcui.script - Game UI
 
@@ -772,10 +791,31 @@ Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is
 
 - `get_version()` - Version string (e.g. "1.2.3")
 - `is_compatible(required)` - Semver check: same major, actual >= required
+- `find_update(manifest)` - A newer release of a mod from the stored check, with the moddb page built from `manifest.moddb`, or nil. It never makes a request
+- `run_update_check(manifest, force)` - Whether a newer release of one mod exists: one GitHub request (`damiansirbu-stalker/<name>`), stored. Returns the message for the player
+- `show_update_check(manifest, gui)` - The Check for update button: runs the check with `force`, closes MCM, and shows the answer on the menu's message line and as a tip in game
+- `get_manifest()` - The xlibs manifest, which lets xlibs check itself like a mod
+- `show_update_news()` - The day's PDA message listing every mod with a newer release, posted once a day
+
+Each published mod checks itself. The shared `_init` gate calls `run_update_check(manifest)` in `on_game_start`, during the loading screen, and writes the answer to the mod's log.
+The gate's `show_update_check` forwards the Check for update button in the mod's Development tab.
+MCM hides the main menu that owns the message line while it is open. The button closes MCM first, as the xmcm reset does.
+A request blocks the game thread. The automatic checks of one load share a 5 s budget and run once per launch per mod, and a click gets a separate 5 s budget.
+Every load and level change builds a fresh Lua VM. The launch is therefore the process start stamp `os.time() - os.clock()`, and the load's budget starts unset on every load.
+Each mod keeps its state in a separate file on the appdata root, `<name>_update.txt` (`alifeplus_update.txt`), with its release `tag` and the launch it was `checked`.
+`xlibs_update.txt` holds the tag and check of xlibs, plus two marks xlibs keeps for every mod.
+`offline` is the launch that found no network, and `notified` is the day of the last PDA message.
+A reply with no status code marks the launch offline and skips the rest of its automatic checks. A forced check that succeeds clears the mark.
+403 or 429 reads as GitHub's limit, 404 or a tag that is not x.y.z as no release, and any other failure as GitHub unavailable.
+The compatibility line at the foot of the mod's MCM page names the newer version. A PDA message on entering the game, once a day, lists every mod with a newer release.
+Each gate also runs the check for xlibs, whose launch mark lets only the first gate ask, and arms `show_update_news` for the first frame.
+xlibs itself registers no callback, as the xlibs Rules require, and its day mark keeps the PDA message to one.
+The list comes from manifests already loaded, read with `rawget(_G, name)`. The check never loads another author's script.
+Every player text lives in `ui_st_mcm_xlibs.xml` under `st_xlibs_update_*`, in English and Russian.
 
 ### xlibs_mcm.script - MCM Info Page
 
-MCM registration for xlibs. Banner slide, description, dynamic version text via `ui_hook_functor`.
+MCM registration for xlibs. Banner slide, description, and dynamic version text via `ui_hook_functor`, with the update notice for xlibs.
 
 ### xcompat.script - Compatibility Aliases
 

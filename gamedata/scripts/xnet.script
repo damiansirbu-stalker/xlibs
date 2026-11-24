@@ -1,0 +1,278 @@
+--- xnet: HTTP(S) requests from Lua through the OS winhttp.dll over LuaJIT ffi, in process, with no shipped binary.
+
+local pcall, tostring, tonumber, pairs, rawget, require = pcall, tostring, tonumber, pairs, rawget, require
+local string_byte, string_char, string_format, table_concat = string.byte, string.char, string.format, table.concat
+local bit_band, bit_rshift = bit.band, bit.rshift
+local os_clock, math_floor, math_min, math_max, math_huge = os.clock, math.floor, math.min, math.max, math.huge
+
+-- winhttp and kernel32 under xnet_* names (__asm__ redirect, LuaJIT ext_ffi_semantics), so no declaration clashes with another mod's ffi.cdef.
+local WINHTTP_CDEF = [[
+void* xnet_open(const uint16_t* agent, uint32_t access, const uint16_t* proxy, const uint16_t* bypass, uint32_t flags) __asm__("WinHttpOpen");
+int xnet_set_timeouts(void* handle, int resolve, int connect, int send, int receive) __asm__("WinHttpSetTimeouts");
+int xnet_set_option(void* handle, uint32_t option, void* buffer, uint32_t length) __asm__("WinHttpSetOption");
+void* xnet_connect(void* session, const uint16_t* host, uint16_t port, uint32_t reserved) __asm__("WinHttpConnect");
+void* xnet_open_request(void* connect, const uint16_t* verb, const uint16_t* path, const uint16_t* version, const uint16_t* referrer,
+    const uint16_t** accept, uint32_t flags) __asm__("WinHttpOpenRequest");
+int xnet_send_request(void* request, const uint16_t* headers, uint32_t headers_len, const char* body, uint32_t body_len, uint32_t total_len,
+    uintptr_t context) __asm__("WinHttpSendRequest");
+int xnet_receive_response(void* request, void* reserved) __asm__("WinHttpReceiveResponse");
+int xnet_query_headers(void* request, uint32_t level, const uint16_t* name, void* buffer, uint32_t* buffer_len, uint32_t* index) __asm__("WinHttpQueryHeaders");
+int xnet_query_data(void* request, uint32_t* available) __asm__("WinHttpQueryDataAvailable");
+int xnet_read_data(void* request, void* buffer, uint32_t size, uint32_t* read) __asm__("WinHttpReadData");
+int xnet_close_handle(void* handle) __asm__("WinHttpCloseHandle");
+]]
+local KERNEL32_CDEF = [[
+int xnet_widen(uint32_t codepage, uint32_t flags, const char* src, int src_len, uint16_t* dest, int dest_len) __asm__("MultiByteToWideChar");
+uint32_t xnet_get_last_error(void) __asm__("GetLastError");
+uint32_t xnet_get_system_dir(char* buffer, uint32_t size) __asm__("GetSystemDirectoryA");
+]]
+local CP_UTF8, FLAG_SECURE = 65001, 0x00800000
+-- AUTOMATIC reads the system and browser proxy (Windows 8.1+, no proxy under Wine); DEFAULT, the WinHTTP registry proxy, is the fallback.
+local ACCESS_AUTOMATIC_PROXY, ACCESS_DEFAULT_PROXY = 4, 0
+local QUERY_STATUS_NUMBER = 19 + 0x20000000
+local OPTION_RECEIVE_RESPONSE_TIMEOUT = 7
+local OPTION_MAX_REDIRECTS = 89
+local MAX_REDIRECTS = 3
+local HEADERS_NUL_TERMINATED = 0xFFFFFFFF
+local SYSTEM_DIR_CHARS = 260
+-- One cap in ms for each step: resolve, connect, send, receive, and the response headers (WinHTTP's own default for that last one is 90 s).
+local DEFAULT_TIMEOUT_MS = 10000
+local REASON_TIMED_OUT = "timed out"
+local SCHEME_SECURE, PORT_SECURE, PORT_PLAIN = "https", 443, 80
+local GITHUB_API = "https://api.github.com/repos/"
+local GITHUB_API_VERSION = "2022-11-28"
+local USER_AGENT = "xlibs-xnet"
+local REASON_BODY_CHARS = 200
+local HTTP_NOT_FOUND = 404
+
+local BASE64_CODES = { string_byte("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", 1, 64) }
+local PAD = string_byte("=")
+local JSON_ESCAPES = { ['"'] = '\\"', ["\\"] = "\\\\", ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t" }
+
+local _ffi = package.loaded.ffi or rawget(_G, "ffi") or (package.preload.ffi and require("ffi"))
+local _winhttp, _kernel32 = nil, nil
+
+-- Declare the calls and load winhttp.dll from the system folder, never by bare name, which searches the game's bin folder first (lj_clib.c:202).
+-- ffi.cdef ignores a name another mod already declared (xray/3rd party/luajit-2/src/lj_cparse.c:1787). Returns winhttp and kernel32, or nil.
+local function _bind_winhttp()
+    _ffi.cdef(WINHTTP_CDEF)
+    _ffi.cdef(KERNEL32_CDEF)
+    local kernel32 = _ffi.load("kernel32")
+    local buffer = _ffi.new("char[?]", SYSTEM_DIR_CHARS)
+    local size = kernel32.xnet_get_system_dir(buffer, SYSTEM_DIR_CHARS)
+    if size == 0 or size >= SYSTEM_DIR_CHARS then return nil end
+    return _ffi.load(_ffi.string(buffer, size) .. "\\winhttp.dll"), kernel32
+end
+
+--- The winhttp namespace through LuaJIT ffi, bound once with kernel32 and held so both libraries stay loaded; nil where ffi or winhttp.dll is absent.
+--- @src xray/xrServerEntities/script_storage.cpp:409,424 (ffi opened)
+--- @safety pcall: ffi.load raises on a missing dll and ffi.cdef on a malformed declaration (xray/3rd party/luajit-2/src/lj_clib.c:203)
+--- @novalidate(xray.unapproved_pcall, reason:"ffi.load raises on a missing dll; the failure leaves xnet inert instead of raising into a callback")
+--- @novalidate(security.dynamic_code, reason:"ffi.load opens winhttp.dll and kernel32.dll; it runs no Lua code")
+--- @cost 0 after the first call | first call: 2 cdef + 2 library loads + 1 kernel32 call
+local function _get_winhttp()
+    if _winhttp ~= nil then return _winhttp or nil end
+    if not _ffi then _winhttp = false; return nil end
+    local bound, winhttp, kernel32 = pcall(_bind_winhttp)
+    if not (bound and winhttp) then _winhttp = false; return nil end
+    _winhttp, _kernel32 = winhttp, kernel32
+    return _winhttp
+end
+
+-- A UTF-8 string as the NUL-terminated UTF-16 buffer winhttp takes; a UTF-16 count never exceeds the UTF-8 byte count.
+local function _build_wide(text)
+    local size = #text
+    local buffer = _ffi.new("uint16_t[?]", size + 1)
+    if size > 0 then _kernel32.xnet_widen(CP_UTF8, 0, text, size, buffer, size) end
+    return buffer
+end
+
+local function _format_failure(step)
+    return string_format("%s failed, GetLastError=%d", step, tonumber(_kernel32.xnet_get_last_error()))
+end
+
+-- The cap for the next blocking step: the per-step timeout, cut to the time left before the deadline; nil once the deadline has passed.
+-- os.clock is the CRT clock() (xray/3rd party/luajit-2/src/lib_os.c:124), wall time since process start on Windows.
+local function _get_step_ms(timeout_ms, deadline)
+    local left = math_floor((deadline - os_clock()) * 1000)
+    if left <= 0 then return nil end
+    return math_min(timeout_ms, left)
+end
+
+-- Apply the next step's cap to a handle; a request handle also caps the wait for the response headers.
+local function _set_step_timeout(handle, step_ms, is_request)
+    _winhttp.xnet_set_timeouts(handle, step_ms, step_ms, step_ms, step_ms)
+    if is_request then
+        _winhttp.xnet_set_option(handle, OPTION_RECEIVE_RESPONSE_TIMEOUT, _ffi.new("uint32_t[1]", step_ms), 4)
+    end
+end
+
+-- scheme://host[:port][/path] into (secure, host, port, path); nil host on a malformed url.
+local function _parse_url(url)
+    local scheme, host, port, path = url:match("^(https?)://([^/:@]+):?(%d*)(.*)$")
+    if not scheme then return nil end
+    local secure = scheme == SCHEME_SECURE
+    local default_port = PORT_PLAIN
+    if secure then default_port = PORT_SECURE end
+    if path == "" then path = "/" end
+    port = tonumber(port) or default_port
+    if port < 1 or port > 65535 then return nil end
+    return secure, host, port, path
+end
+
+-- The header table as one CRLF-joined block; nil and false when a name or value holds a line break, which would inject a header.
+local function _format_header_block(headers)
+    if not headers then return nil, true end
+    local lines = {}
+    for key, value in pairs(headers) do lines[#lines + 1] = tostring(key) .. ": " .. tostring(value) end
+    if table_concat(lines):match("[\r\n]") then return nil, false end
+    return table_concat(lines, "\r\n"), true
+end
+
+local function _format_json_text(text)
+    return (text:gsub('[%c"\\]', function(c) return JSON_ESCAPES[c] or string_format("\\u%04x", string_byte(c)) end))
+end
+
+local function _format_base64(data)
+    local out, size = {}, #data
+    for i = 1, size - 2, 3 do
+        local a, b, c = string_byte(data, i, i + 2)
+        local v = a * 65536 + b * 256 + c
+        out[#out + 1] = string_char(BASE64_CODES[bit_rshift(v, 18) + 1], BASE64_CODES[bit_band(bit_rshift(v, 12), 63) + 1],
+            BASE64_CODES[bit_band(bit_rshift(v, 6), 63) + 1], BASE64_CODES[bit_band(v, 63) + 1])
+    end
+    local rest = size % 3
+    if rest > 0 then
+        local a, b = string_byte(data, size - rest + 1, size)
+        local v = a * 65536 + (b or 0) * 256
+        out[#out + 1] = string_char(BASE64_CODES[bit_rshift(v, 18) + 1], BASE64_CODES[bit_band(bit_rshift(v, 12), 63) + 1],
+            rest == 2 and BASE64_CODES[bit_band(bit_rshift(v, 6), 63) + 1] or PAD, PAD)
+    end
+    return table_concat(out)
+end
+
+-- The sha of one file in a GitHub folder listing: the object around its "path" field, whose own fields carry no nested object before it.
+local function _find_listing_sha(listing, path)
+    local at = listing:find('"path"%s*:%s*"' .. path:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0") .. '"')
+    local start = at and listing:sub(1, at):match(".*(){")
+    local entry = start and listing:match("%b{}", start)
+    return entry and entry:match('"sha"%s*:%s*"(%x+)"')
+end
+
+-- One request over handles the caller closes; returns (status, body) or (nil, reason). Every blocking step first checks the deadline.
+local function _run_winhttp(handles, req)
+    local method, header_block, body, timeout_ms, deadline = req.method, req.header_block, req.body, req.timeout_ms, req.deadline
+    local secure, host, port, path = _parse_url(req.url)
+    if not host then return nil, "malformed url" end
+    local winhttp = _winhttp
+    local agent = _build_wide(USER_AGENT)
+    local session = winhttp.xnet_open(agent, ACCESS_AUTOMATIC_PROXY, nil, nil, 0)
+    if session == nil then session = winhttp.xnet_open(agent, ACCESS_DEFAULT_PROXY, nil, nil, 0) end
+    if session == nil then return nil, _format_failure("WinHttpOpen") end
+    handles[#handles + 1] = session
+    local step_ms = _get_step_ms(timeout_ms, deadline)
+    if not step_ms then return nil, REASON_TIMED_OUT end
+    _set_step_timeout(session, step_ms, false)
+    local connect = winhttp.xnet_connect(session, _build_wide(host), port, 0)
+    if connect == nil then return nil, _format_failure("WinHttpConnect") end
+    handles[#handles + 1] = connect
+    local request = winhttp.xnet_open_request(connect, _build_wide(method), _build_wide(path), nil, nil, nil, secure and FLAG_SECURE or 0)
+    if request == nil then return nil, _format_failure("WinHttpOpenRequest") end
+    handles[#handles + 1] = request
+    winhttp.xnet_set_option(request, OPTION_MAX_REDIRECTS, _ffi.new("uint32_t[1]", MAX_REDIRECTS), 4)
+    local headers = header_block and _build_wide(header_block)
+    local size = body and #body or 0
+    step_ms = _get_step_ms(timeout_ms, deadline)
+    if not step_ms then return nil, REASON_TIMED_OUT end
+    _set_step_timeout(request, step_ms, true)
+    if winhttp.xnet_send_request(request, headers, headers and HEADERS_NUL_TERMINATED or 0, body, size, size, 0) == 0 then
+        return nil, _format_failure("WinHttpSendRequest")
+    end
+    step_ms = _get_step_ms(timeout_ms, deadline)
+    if not step_ms then return nil, REASON_TIMED_OUT end
+    _set_step_timeout(request, step_ms, true)
+    if winhttp.xnet_receive_response(request, nil) == 0 then return nil, _format_failure("WinHttpReceiveResponse") end
+    local status, status_len = _ffi.new("uint32_t[1]"), _ffi.new("uint32_t[1]", 4)
+    if winhttp.xnet_query_headers(request, QUERY_STATUS_NUMBER, nil, status, status_len, nil) == 0 then
+        return nil, _format_failure("WinHttpQueryHeaders")
+    end
+    local parts, available, read = {}, _ffi.new("uint32_t[1]"), _ffi.new("uint32_t[1]")
+    if winhttp.xnet_query_data(request, available) == 0 then return nil, _format_failure("WinHttpQueryDataAvailable") end
+    while available[0] > 0 do
+        local chunk = _ffi.new("uint8_t[?]", available[0])
+        if winhttp.xnet_read_data(request, chunk, available[0], read) == 0 then return nil, _format_failure("WinHttpReadData") end
+        parts[#parts + 1] = _ffi.string(chunk, read[0])
+        step_ms = _get_step_ms(timeout_ms, deadline)
+        if not step_ms then return nil, REASON_TIMED_OUT end
+        _set_step_timeout(request, step_ms, false)
+        if winhttp.xnet_query_data(request, available) == 0 then return nil, _format_failure("WinHttpQueryDataAvailable") end
+    end
+    return tonumber(status[0]), table_concat(parts)
+end
+
+--- @return boolean whether ffi and winhttp.dll are available, so a request can run.
+--- @cost 0 after the first call | first call: 2 cdef + 2 library loads
+function is_ready()
+    return _get_winhttp() ~= nil
+end
+
+--- Run one HTTP(S) request the caller composes; it blocks the game thread until the reply, a step's timeout, or the budget.
+--- The budget caps each blocking step to the time left, so a request ends about one step past it at worst; at most 3 redirects, never HTTPS to HTTP.
+--- @safety SAFE - pcall contains an ffi failure; every handle closes on every path, and a failure returns { ok = false, reason }, never raises.
+--- @novalidate(xray.unapproved_pcall, reason:"an ffi call into winhttp can raise; the request must close its handles and return")
+--- @cost 1 TLS connection + the transfer, blocking the game thread for up to budget_ms (default: each step up to timeout_ms, total unbounded)
+--- @param opts table { url (required), method ("GET"), headers ({ [name] = value }), body (string), timeout_ms (10000), budget_ms (total cap) }
+--- @return table { ok = boolean, code = number|nil, body = string|nil, reason = string|nil } - ok on a 2xx; code is the HTTP status
+function run_request(opts)
+    if not (opts and opts.url) then return { ok = false, reason = "url is required" } end
+    local method = opts.method or "GET"
+    if not method:match("^%u+$") then return { ok = false, reason = "invalid method" } end
+    local header_block, is_clean = _format_header_block(opts.headers)
+    if not is_clean then return { ok = false, reason = "invalid header" } end
+    if not _get_winhttp() then return { ok = false, reason = "winhttp unavailable" } end
+    local deadline = opts.budget_ms and (os_clock() + opts.budget_ms / 1000) or math_huge
+    local handles = {}
+    local ran, status, reply = pcall(_run_winhttp, handles, { method = method, url = opts.url, header_block = header_block, body = opts.body,
+        timeout_ms = opts.timeout_ms or DEFAULT_TIMEOUT_MS, deadline = deadline })
+    for i = #handles, 1, -1 do _winhttp.xnet_close_handle(handles[i]) end
+    if not ran then return { ok = false, reason = tostring(status) } end
+    if not status then return { ok = false, reason = reply } end
+    return { ok = status >= 200 and status < 300, code = status, body = reply }
+end
+
+--- Commit one file to a GitHub repo through the Contents API; the token stays in memory and never reaches a file or a log.
+--- The current sha comes from the folder listing, which works for files of any size; a failed listing stops before the write.
+--- @safety SAFE - both requests run through run_request; a failure returns { ok = false, reason }, never raises.
+--- @cost 2 requests (list the folder, then write), blocking the game thread for up to budget_ms in total
+--- @param opts table { repo ("owner/name"), path, content, token (all required), branch, message, timeout_ms, budget_ms }
+--- @return table { ok = boolean, code = number|nil, reason = string|nil } - reason carries the start of GitHub's reply on a refused request
+function push_github(opts)
+    if not (opts and opts.repo and opts.path and opts.content and opts.token) then
+        return { ok = false, reason = "repo, path, content and token are required" }
+    end
+    if not (opts.repo:match("^[%w%-%._]+/[%w%-%._]+$") and opts.path:match("^[%w%-%._/]+$")) then return { ok = false, reason = "invalid repo or path" } end
+    if opts.branch and not opts.branch:match("^[%w%-%._/]+$") then return { ok = false, reason = "invalid branch" } end
+    local deadline = opts.budget_ms and (os_clock() + opts.budget_ms / 1000)
+    local function get_budget_ms()
+        return deadline and math_max(0, math_floor((deadline - os_clock()) * 1000)) or nil
+    end
+    local headers = { Authorization = "Bearer " .. opts.token, Accept = "application/vnd.github+json",
+        ["X-GitHub-Api-Version"] = GITHUB_API_VERSION, ["User-Agent"] = USER_AGENT }
+    local ref = opts.branch and ("?ref=" .. opts.branch) or ""
+    local folder = opts.path:match("^(.*)/[^/]+$") or ""
+    local listing = run_request({ url = GITHUB_API .. opts.repo .. "/contents/" .. folder .. ref, headers = headers,
+        timeout_ms = opts.timeout_ms, budget_ms = get_budget_ms() })
+    if not listing.ok and listing.code ~= HTTP_NOT_FOUND then
+        return { ok = false, code = listing.code, reason = listing.reason or (listing.body or ""):sub(1, REASON_BODY_CHARS) }
+    end
+    local sha = listing.ok and _find_listing_sha(listing.body, opts.path)
+    local fields = { '"message":"' .. _format_json_text(opts.message or "update") .. '"', '"content":"' .. _format_base64(opts.content) .. '"' }
+    if sha then fields[#fields + 1] = '"sha":"' .. sha .. '"' end
+    if opts.branch then fields[#fields + 1] = '"branch":"' .. _format_json_text(opts.branch) .. '"' end
+    headers["Content-Type"] = "application/json"
+    local result = run_request({ url = GITHUB_API .. opts.repo .. "/contents/" .. opts.path, method = "PUT", headers = headers,
+        body = "{" .. table_concat(fields, ",") .. "}", timeout_ms = opts.timeout_ms, budget_ms = get_budget_ms() })
+    if result.code and not result.ok then result.reason = (result.body or ""):sub(1, REASON_BODY_CHARS) end
+    result.body = nil
+    return result
+end

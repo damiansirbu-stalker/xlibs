@@ -1,6 +1,6 @@
 --- xlibs_mcm: MCM info page for xlibs
 
-local type, tostring, math_floor = type, tostring, math.floor
+local type, tostring, math_floor, string_format = type, tostring, math.floor, string.format
 
 -- Latest demonized build this release is verified against; drives the MCM verdict only, never a floor.
 local LATEST_DEMONIZED_VERSION = 20260912
@@ -30,6 +30,8 @@ local function _get_platform_status()
 end
 
 local _footer_clr = nil
+-- MCM footer functor: the platform line plus xlibs's update notice, verdict-colored; colors build lazily (GetARGB absent under the validator).
+-- @cost 1 small file read (the stored update check) + 1 luabind (translate_string) when an update is stored
 local function _get_platform_functor()
     return function(_anchor, handlers)
         if not _footer_clr then
@@ -40,6 +42,8 @@ local function _get_platform_functor()
             }
         end
         local line, level = _get_platform_status()
+        local newer = xlibs.find_update(xlibs.get_manifest())
+        if newer then line = line .. string_format(game.translate_string("st_xlibs_update_footer"), newer) end
         handlers.desc:SetText(line)
         handlers.desc:SetTextColor(_footer_clr[level])
     end

@@ -95,17 +95,20 @@ Framework:
   xmcm         MCM config bundle (pre-seeded table, getter, loader)
   xcui         Game UI building blocks: a window built from its layout, colors, line lists, and the true box shape on any screen
   xchange      Liquibase-style save data migration registry, each changeset runs once per save
+  xnet         HTTP(S) requests from Lua through the winhttp.dll that Windows and Wine carry, no exe and no dll shipped
 
 Requirements:
 Anomaly 1.5.3
 Modded exes: themrdemonized 20250908 or newer, or AOEngine v0.5.2 or newer. The full feature set needs the latest demonized build. A feature needing a newer one is inactive or reduced on older exes.
 
 Configuration:
-No configuration needed. xlibs is a passive library loaded on demand by other mods.
+No configuration needed. On the first save load of each game launch, each of my mods asks GitHub during the loading screen whether a newer release is out.
+A newer version shows at the foot of that mod's MCM page, and in a PDA message once a day. Check for update in a mod's Development tab asks right away.
+GitHub sees your IP address and the names of the mods it checks. Each request carries only the mod's name and the word xlibs, with no save data, settings or player name.
 
 Compatibility:
 Coexists with everything. A pure library with no gameplay of its own.
-Only xlog is active at game start (save and level-change flush callbacks plus a periodic flush timer), and everything else stays dormant until a mod calls it.
+At game start only xlog (save and level-change flush callbacks plus a periodic flush timer) and the update check run, and everything else stays dormant until a mod calls it.
 
 How It's Built:
 
