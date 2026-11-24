@@ -14,10 +14,30 @@ local LOUDNESS_CULL = 0.01
 local _register
 
 local sound_object_t = sound_object
-local time_global = time_global
+local time_global, GetEvent = time_global, GetEvent
 local pairs, next = pairs, next
-local math_abs, math_log10 = math.abs, math.log10
-local assert, type = assert, type
+local math_abs, math_log10, math_floor, math_ldexp = math.abs, math.log10, math.floor, math.ldexp
+local math_random, math_rad, math_cos, math_sin, math_huge = math.random, math.rad, math.cos, math.sin, math.huge
+local assert, type, string_format = assert, type, string.format
+
+-- The one channel file the engine and vanilla open; its #includes merge into it, and a DLTX overlay applies only through it.
+-- @src xray/xrEngine/Environment.cpp:131-136, anomaly/sound_ambient.script:47, xray/xrCore/Xr_ini.cpp:530-567 (overlays gathered for the root only)
+local CHANNELS_FILE = "environment\\sound_channels.ltx"
+local LEVEL_AMBIENT = "environment\\ambients\\%s.ltx"
+local NO_SOUND = "ambient\\no_sound"
+-- The fields a channel section may omit, filled so a bad config never breaks a caller; a channel that sets its keys is unchanged.
+local CHANNEL_DEFAULTS = { min_dist = 1, max_dist = 100, height = 0, periods = { 10, 15, 20, 25 } }
+-- The delivered-dB a play sits at or under when xray culls it (compute_delivered_loudness returns -120).
+local SILENT_DB = -119
+-- The X-Ray ogg comment blob: a u32 version, then min, max, base_volume, game_type and max_ai_dist by version.
+-- @src xray/xrSound/SoundRender_Source_loader.cpp:117-135, SoundRender_Source.cpp:9-12 (no blob: 1, 300, 1.0)
+local VORBIS_COMMENT = "\3vorbis"
+-- The comment bytes each blob version needs, its u32 version included.
+local BLOB_SIZE = { 16, 20, 24 }
+
+-- The channel index, built on the first get_channel_index call and kept for the Lua state, and the ini its walk reads.
+local _channel_index = nil
+local _walk_ini = nil
 
 --- Verified-safe sound paths, sourced from vanilla scripts and configs/misc/sound/*.ltx.
 --- A missing path logs a Lua "File not found" and falls back to $no_sound (no crash), but wastes a handle slot.
@@ -58,6 +78,7 @@ local SEAM_PROBE = {
     on_before_play_ambient_effect = "COnAmbientEffectSound",
     on_before_play_thunderbolt    = "COnThunderboltSound",
     on_before_play_rain           = "COnRainSound",
+    on_before_play_hud_sound      = "COnBeforePlayHudSound",
 }
 
 -- Step current toward target by smoothing per second.
@@ -155,11 +176,74 @@ local function _unregister_listener(callback_name, fn)
     end
 end
 
---- Canonical sound-path key so the config, disk, and code forms of one path resolve to the same entry.
---- Lowercase, backslashes, no .ogg, trimmed.
+-- A little-endian u32 at byte i of a string.
+-- @cost O(1) | 0 luabind
+local function _read_u32(bytes, i)
+    local b1, b2, b3, b4 = bytes:byte(i, i + 3)
+    return b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+end
+
+-- A little-endian IEEE 754 single at byte i of a string; Lua 5.1 has no unpack, so the bits are decoded by hand.
+-- @cost O(1) | 0 luabind
+local function _read_f32(bytes, i)
+    local b1, b2, b3, b4 = bytes:byte(i, i + 3)
+    local sign = b4 >= 128 and -1 or 1
+    local exponent = (b4 % 128) * 2 + math_floor(b3 / 128)
+    local mantissa = (b3 % 128) * 65536 + b2 * 256 + b1
+    if exponent == 0 then return sign * math_ldexp(mantissa, -149) end
+    if exponent == 255 then return mantissa == 0 and sign * math_huge or 0 / 0 end
+    return sign * math_ldexp(mantissa + 8388608, exponent - 150)
+end
+
+-- A rounded number for a trace field, or "-" when absent.
+local function _format_num(value)
+    return value and string_format("%.0f", value) or "-"
+end
+
+-- One channel section into the index: its record, and its files in the owner map, ambient\no_sound left out since it is no file.
+-- Section-walk handler, so it reads the walk's ini through an upvalue set by _build_channel_index.
+local function _add_channel(section)
+    if not _walk_ini:line_exist(section, "sounds") then return end
+    local pool = xltx.read_list(_walk_ini, section, "sounds")
+    if #pool == 0 then return end
+    local defaults = CHANNEL_DEFAULTS
+    local periods = {}
+    for i = 1, 4 do periods[i] = xltx.read_num(_walk_ini, section, "period" .. (i - 1)) or defaults.periods[i] end
+    local channel = { name = section, pool = pool, periods = periods,
+        min_dist = xltx.read_num(_walk_ini, section, "min_distance") or defaults.min_dist,
+        max_dist = xltx.read_num(_walk_ini, section, "max_distance") or defaults.max_dist,
+        height = xltx.read_num(_walk_ini, section, "height") or defaults.height,
+        indoor = xltx.read_bool(_walk_ini, section, "indoor") or false }
+    _channel_index.channels[section] = channel
+    local owners_of = _channel_index.owners
+    for i = 1, #pool do
+        local key = format_key(pool[i])
+        if not (key and key ~= "" and key ~= NO_SOUND) then goto continue end
+        local owners = owners_of[key] or {}
+        owners_of[key] = owners
+        if owners[#owners] ~= section then owners[#owners + 1] = section end
+        ::continue::
+    end
+end
+
+-- Walk the channel root once into channels by name and the owner channels of every file.
+-- @cost 1 ini walk | about 8 luabind reads per channel
+local function _build_channel_index()
+    _channel_index = { channels = {}, owners = {} }
+    local ini = xltx.resolve_handle(CHANNELS_FILE)
+    if not (ini and ini.section_for_each) then return end
+    _walk_ini = ini
+    ini:section_for_each(_add_channel)
+    _walk_ini = nil
+end
+
+--- Canonical sound-path key, so the config, disk and code forms of one path resolve to the same entry: lowercase, backslashes, no .ogg, trimmed.
+--- @safety SAFE - nil for a non-string, so a caller bug reads as no key instead of a key nothing matches
 --- @cost O(1) | 0 luabind
-local function _format_meta_key(path)
-    if type(path) ~= "string" then return "" end
+--- @param path string|nil A sound path in any form
+--- @return string|nil The key
+function format_key(path)
+    if type(path) ~= "string" then return nil end
     local key = path:lower():gsub("/", "\\")
     key = key:gsub("%.ogg$", "")
     return key:match("^%s*(.-)%s*$")
@@ -188,22 +272,27 @@ end
 
 --- Play a one-shot with a RETAINED handle (the vanilla ambient call shape) so the sound CAN be stopped, unlike play().
 --- The object is held in the module until it finishes (swept on the shared tick), so the GC never cuts it mid-play.
---- @safety SAFE - nil-guarded on db.actor and the sound_object constructor; never reads volume back, the getter crashes on a voiceless sound
---- @cost O(1) | 3-4 luabind heavy (ctor + play_at_pos + volume, s2d flag optional)
---- @src anomaly/sound_ambient.script:144-165 (call shape); xray script_sound.cpp:30-37 (GC cut); script_sound_inline.h:67-71 (GetVolume NULL deref)
+--- @safety SAFE - nil-guarded; never reads a getter back, and writes a falloff only once playing() holds (xray Sound.h:521-525)
+--- @cost O(1) | 3-4 luabind heavy (ctor + play_at_pos + volume, s2d flag optional), 2 more with a falloff override
+--- @src anomaly/sound_ambient.script:144-165 (call shape); xray script_sound.cpp:62-69 (GC cut); script_sound_script.cpp:40 (the typed constructor)
+--- @src xray/xrSound/SoundRender_Emitter_StartStop.cpp:8-23 (start copies the blob once, so a range set right after a delayed start holds)
 --- @param snd_path string Sound path (backslashes, no .ogg)
---- @param opts table|nil { position (vector; required for 3D), volume (default 1.0), s2d (true = at-ear 2D) }
+--- @param opts table|nil { position, volume (1.0), s2d, delay (s), type (snd_type), min_distance + max_distance (falloff override) }
 --- @return number|nil Handle for stop_shot/stop_shots, nil when not playable
 function play_at(snd_path, opts)
     local actor = db.actor
     if not actor then return nil end
     opts = opts or {}
-    local snd = sound_object_t(snd_path)
+    local snd = opts.type and sound_object_t(snd_path, opts.type) or sound_object_t(snd_path)
     if not snd then return nil end
     local flags = opts.s2d and sound_object_t.s2d or sound_object_t.s3d
-    snd:play_at_pos(actor, opts.position or vector():set(0, 0, 0), 0, flags)
+    snd:play_at_pos(actor, opts.position or vector():set(0, 0, 0), opts.delay or 0, flags)
     local volume = opts.volume or 1.0
     snd.volume = volume
+    if opts.min_distance and opts.max_distance and snd:playing() then
+        snd.min_distance = opts.min_distance
+        snd.max_distance = opts.max_distance
+    end
     local handle = _NEXT_HANDLE
     _NEXT_HANDLE = _NEXT_HANDLE + 1
     _active[handle] = {
@@ -366,6 +455,7 @@ SEAM = {
     EFFECT       = "on_before_play_ambient_effect",
     THUNDER      = "on_before_play_thunderbolt",
     RAIN         = "on_before_play_rain",
+    HUD          = "on_before_play_hud_sound",
 }
 
 --- Enter a listener into a seam's registry: fn(seam args) -> nil | { volume_mult = number }, any 0 vetoes the play.
@@ -394,7 +484,7 @@ end
 function load_meta(rows)
     if type(rows) ~= "table" then return end
     for path, profile in pairs(rows) do
-        _meta[_format_meta_key(path)] = profile
+        _meta[format_key(path)] = profile
     end
 end
 
@@ -403,7 +493,8 @@ end
 --- @param path string A sound path in any form
 --- @return table|nil The profile table, or nil when unknown
 function get_meta(path)
-    return _meta[_format_meta_key(path)]
+    local key = format_key(path)
+    return key and _meta[key]
 end
 
 --- The delivered loudness in dB of one play, the xray gain chain at effects slider 1.0 (doc/architecture.md, Sound metadata).
@@ -445,6 +536,152 @@ function get_output_loudness()
     local read = level.get_output_loudness
     if type(read) ~= "function" then return nil, -70, -70, -70 end
     return read()
+end
+
+--- Audibility of one play from its delivered loudness: SILENT where xray culls it, FAINT under the floor, AUD at or over it, ? unknown.
+--- The floor is the caller's: each mod masters against its own.
+--- @safety SAFE - "?" for a nil loudness
+--- @cost O(1) | 0 luabind
+--- @param dlv number|nil Delivered dB, from compute_delivered_loudness
+--- @param floor number The delivered dB a play must reach to count as audible
+--- @return string SILENT, FAINT, AUD or ?
+function compute_verdict(dlv, floor)
+    if not dlv then return "?" end
+    if dlv <= SILENT_DB then return "SILENT" end
+    if dlv < floor then return "FAINT" end
+    return "AUD"
+end
+
+--- The acoustic tail of a trace line for one play: distance, delivered dB, verdict and the measured profile; the caller appends its own fields.
+--- @safety SAFE - "" for a path with no profile
+--- @cost O(1) | 0 luabind
+--- @param path string A sound path in any form
+--- @param dist number|nil 3D distance in metres, or nil for at-ear
+--- @param volume number|nil The play's script volume, default 1.0
+--- @param floor number The delivered dB a play must reach to count as audible
+--- @return string The tail, leading space included, or ""
+function format_play_detail(path, dist, volume, floor)
+    local profile = get_meta(path)
+    if not profile then return "" end
+    local dlv = compute_delivered_loudness(profile, dist, volume)
+    return string_format(" dist=%s dlv=%s vd=%s lufs=%.0f crest=%.0f peak=%s bv=%.2f", _format_num(dist), _format_num(dlv),
+        compute_verdict(dlv, floor), profile.lufs or 0, profile.crest or 0, _format_num(profile.peak), profile.bv or 1.0)
+end
+
+--- The spawn distance vanilla's Lua channel loop rolls: the band's middle as the low end above ground, its min underground, halved.
+--- A min over the max clamps to the max, so a bad config never raises math.random's empty interval.
+--- @src anomaly/sound_ambient.script:127-129
+--- @safety SAFE  @cost O(1) | 1 luabind (GetEvent)
+--- @param min_dist number The channel's min_distance
+--- @param max_dist number The channel's max_distance
+--- @return number The flat distance from the actor, metres
+function compute_spawn_dist(min_dist, max_dist)
+    local spawn_min = GetEvent("underground") and min_dist or ((max_dist + min_dist) / 2)
+    if spawn_min > max_dist then spawn_min = max_dist end
+    return math_random(spawn_min, max_dist) / 2
+end
+
+--- The point vanilla's Lua channel loop plays at, the distance from the actor on a random bearing.
+--- The bearing is a whole degree from math.random(0, 359), and the height lifts the point from the actor's feet.
+--- @src anomaly/sound_ambient.script:136-141
+--- @safety SAFE - nil without an actor
+--- @cost O(1) | 2 luabind (position, vector)
+--- @param dist number The flat distance, from compute_spawn_dist or the caller
+--- @param height number Metres above the actor's feet
+--- @return vector|nil The play position
+function compute_spawn_pos(dist, height)
+    local actor = db.actor
+    if not actor then return nil end
+    local pos = actor:position()
+    local angle = math_rad(math_random(0, 359))
+    return vector():set(pos.x + math_cos(angle) * dist, pos.y + height, pos.z + math_sin(angle) * dist)
+end
+
+--- The volume vanilla's Lua channel loop gives a channel's play now, the indoor table times the ambient slider.
+--- Under cover or underground an indoor channel plays at 1 and another at 0.3, in the open at 0 and 1; the caller passes the slider and keeps its cache.
+--- @src anomaly/sound_ambient.script:147-165
+--- @safety SAFE  @cost O(1) | 2 luabind (GetEvent)
+--- @param channel table A channel record from get_channel_index, or any table with indoor
+--- @param ambient_volume number The sound/environment/ambient_volume option
+--- @return number The play volume, 0 where vanilla silences the channel
+function compute_channel_volume(channel, ambient_volume)
+    local is_inside = GetEvent("underground") or GetEvent("current_safe_cover")
+    local volume
+    if is_inside then volume = channel.indoor and 1 or 0.3
+    else volume = channel.indoor and 0 or 1 end
+    return volume * ambient_volume
+end
+
+--- Every channel of the merged channel config, read once from its root and kept for the Lua state, which a level change rebuilds.
+--- channels[name] holds the pool as listed, min_dist, max_dist, height, indoor and periods, and owners[key] the channels that list each file.
+--- @src anomaly/sound_ambient.script:47-64 (the fields vanilla reads), xray/xrCore/Xr_ini.cpp:669-709 (the includes merge)
+--- @safety SAFE - empty maps when the root is missing; the caller must not change the tables
+--- @cost the first call walks the root, about 8 luabind reads per channel | 0 after
+--- @return table { channels, owners }
+function get_channel_index()
+    if not _channel_index then _build_channel_index() end
+    return _channel_index
+end
+
+--- The ambient state the current weather and hour select, as vanilla's channel loop reads it, or nil.
+--- @src anomaly/level_weathers.script:554-575 (get_curr_ambient)
+--- @safety SAFE - nil without a weather manager or a state
+--- @cost O(1) | the weather manager's own cache
+--- @return string|nil The ambient section name
+function get_ambient_state()
+    local manager = level_weathers and level_weathers.get_weather_manager and level_weathers.get_weather_manager()
+    local state = manager and manager:get_curr_ambient()
+    return (state and state ~= "") and state or nil
+end
+
+--- The channels vanilla's Lua loop rotates for a level and state: its sound_channels_dynamic in file order, repeats dropped.
+--- A name the channel config lacks is dropped too, compared with the preset's own spelling, so a capitalised name never plays, as in vanilla.
+--- @src anomaly/sound_ambient.script:34-51 (reset_settings), xray/xrCore/Xr_ini.cpp:750-754 (section names stored lowercase), :1563-1567 (exact compare)
+--- @safety SAFE - an empty list for a missing level file or state
+--- @cost 2 ini opens + 1 luabind per listed channel
+--- @param level_name string The level, as level.name()
+--- @param state string The ambient state, as get_ambient_state()
+--- @return table The channel names
+function read_active_channels(level_name, state)
+    local names = {}
+    if not (level_name and state) then return names end
+    local listed = xltx.read_list(LEVEL_AMBIENT:format(level_name), state, "sound_channels_dynamic")
+    local ini_snd = xltx.resolve_handle(CHANNELS_FILE)
+    local seen = {}
+    for i = 1, #listed do
+        local name = listed[i]
+        if not seen[name] and xltx.has(ini_snd, name) then
+            seen[name] = true
+            names[#names + 1] = name
+        end
+    end
+    return names
+end
+
+--- The X-Ray falloff blob of an ogg, from the file's first bytes: the comment header's first comment, read as the loader reads it.
+--- Versions 0x0001 to 0x0003; 0x0001 has no base_volume (1.0), and before 0x0003 max_ai equals max.
+--- @src xray/xrSound/SoundRender_Source_loader.cpp:117-135
+--- @safety SAFE - nil for a file with no blob, which xray plays at min 1, max 300, base_volume 1.0 (SoundRender_Source.cpp:9-12)
+--- @cost O(bytes) | 0 luabind
+--- @param bytes string The file's first bytes, from xfs.read_bytes; 4096 cover the first two pages
+--- @return table|nil { mn, mx, bv, game_type, max_ai }, the profile field names get_meta uses
+function parse_blob(bytes)
+    local at = bytes and bytes:find(VORBIS_COMMENT, 1, true)
+    if not at then return nil end
+    local cursor = at + #VORBIS_COMMENT
+    if #bytes < cursor + 3 then return nil end
+    cursor = cursor + 4 + _read_u32(bytes, cursor)
+    if #bytes < cursor + 7 or _read_u32(bytes, cursor) == 0 then return nil end
+    local size = _read_u32(bytes, cursor + 4)
+    cursor = cursor + 8
+    if size < 4 or #bytes < cursor + size - 1 then return nil end
+    local version = _read_u32(bytes, cursor)
+    if not (BLOB_SIZE[version] and size >= BLOB_SIZE[version]) then return nil end
+    local mn, mx = _read_f32(bytes, cursor + 4), _read_f32(bytes, cursor + 8)
+    if version == 1 then return { mn = mn, mx = mx, bv = 1.0, game_type = _read_u32(bytes, cursor + 12), max_ai = mx } end
+    local blob = { mn = mn, mx = mx, bv = _read_f32(bytes, cursor + 12), game_type = _read_u32(bytes, cursor + 16), max_ai = mx }
+    if version == 3 then blob.max_ai = _read_f32(bytes, cursor + 20) end
+    return blob
 end
 
 --- Reset all state on save load, stopping any playing sounds still held.

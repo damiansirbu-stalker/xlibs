@@ -1,7 +1,8 @@
 --- xprops: spawn and remove ground-snapped, collision-checked dynamic_objects physic props (level must be online)
 
 local ipairs = ipairs
-local ray_pick, alife, alife_create, alife_object = ray_pick, alife, alife_create, alife_object
+local alife, alife_create, alife_object = alife, alife_create, alife_object
+local find_ray_hit = xlevel.find_ray_hit
 
 -- Physic-object classes safe to alife_create as a standalone world object; any other class HARD-CTDs inside alife_create.
 local _SAFE_CLASS = { O_PHYSIC = true, O_PHYS_S = true, P_DSTRBL = true, O_DSTR_S = true }
@@ -28,28 +29,6 @@ local PAIRS = {
 -- Float the box off the ground so a flat floor is not read as a collision; only walls and objects.
 local BASE_LIFT = 0.08
 
--- One shared ray, lazily created; the single-threaded engine finishes each cast before the next, so reuse avoids a CRayPick alloc per edge.
-local _ray
-local function _get_ray()
-    if not _ray then _ray = ray_pick() end
-    return _ray
-end
-
--- Cast from pos along dir for range against the flagged collision set; returns (distance, normal, object) on a hit within range, else nil.
--- A zero/negative distance is treated as no hit, so a box edge resting on the floor does not self-trigger.
--- @cost O(1) | 6 luabind (set_flags/range/position/direction + query spatial scan + get_distance)
-local function _get_ray_hit(pos, dir, range, flags)
-    local ray = _get_ray()
-    ray:set_flags(flags)
-    ray:set_range(range)
-    ray:set_position(pos)
-    ray:set_direction(dir)
-    if not ray:query() then return nil end
-    local dist = ray:get_distance()
-    if not dist or dist <= 0.001 or dist > range then return nil end
-    return dist, ray:get_normal(), ray:get_object()
-end
-
 -- Scratch reused across a clearance check (8 box corners + 2 edge directions), lazily created so module load touches no vector ctor.
 local _verts, _fwd, _rev
 local function _init_scratch()
@@ -62,7 +41,7 @@ end
 --- Resolve the ground surface below a position: cast a ray straight down and report where it hits.
 --- @scope global - reads the loaded collision DB via ray_pick; level must be online
 --- @safety SAFE - returns nil when nothing is hit (off-navmesh, offline level, void)
---- @cost O(1) | one _get_ray_hit
+--- @cost O(1) | one xlevel.find_ray_hit
 --- @src xray/xrGame/level_script.cpp(2643-2653) CRayPick binding
 --- @param pos vector Position to drop a ray from (its y is the ceiling of the search)
 --- @param opts table|nil { up (start height above pos, default 1.5), depth (search below, default 5), flags (default Statics) }
@@ -73,7 +52,7 @@ function find_ground(pos, opts)
     local up = opts.up or DEFAULT_PROBE_UP_M
     local depth = opts.depth or DEFAULT_PROBE_DEPTH_M
     local start = vector():set(pos.x, pos.y + up, pos.z)
-    local dist, normal, obj = _get_ray_hit(start, vector():set(0, -1, 0), up + depth, opts.flags or F_STATICS)
+    local dist, normal, obj = find_ray_hit(start, vector():set(0, -1, 0), up + depth, opts.flags or F_STATICS)
     if not dist then return nil end
     return { pos = vector():set(start.x, start.y - dist, start.z), normal = normal, object = obj }
 end
@@ -82,7 +61,7 @@ end
 --- Each edge is cast from both ends (a ray registers only a front-facing normal) and the box floats BASE_LIFT so a flat floor never counts.
 --- @scope global - reads the loaded collision DB; level must be online
 --- @safety SAFE - nil-guarded; degenerate (zero) edges are skipped
---- @cost O(1) | up to 48 _get_ray_hit (24 edges x 2 directions), early-out on the first contact
+--- @cost O(1) | up to 48 xlevel.find_ray_hit (24 edges x 2 directions), early-out on the first contact
 --- @src xray/xrGame/level_script.cpp(2643-2653) CRayPick
 --- @param pos vector Ground point the box rests on
 --- @param dims table|nil { w, l, h } box size in meters (default 0.5 each)
@@ -106,10 +85,10 @@ function is_clear(pos, dims, opts)
         local edge_dist = a:distance_to(b)
         if edge_dist > 0.001 then
             _fwd:set((b.x - a.x) / edge_dist, (b.y - a.y) / edge_dist, (b.z - a.z) / edge_dist)
-            local hit_a, _, blocker_a = _get_ray_hit(a, _fwd, edge_dist, flags)
+            local hit_a, _, blocker_a = find_ray_hit(a, _fwd, edge_dist, flags)
             if hit_a then return false, blocker_a end
             _rev:set(-_fwd.x, -_fwd.y, -_fwd.z)
-            local hit_b, _, blocker_b = _get_ray_hit(b, _rev, edge_dist, flags)
+            local hit_b, _, blocker_b = find_ray_hit(b, _rev, edge_dist, flags)
             if hit_b then return false, blocker_b end
         end
     end

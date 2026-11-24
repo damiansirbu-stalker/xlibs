@@ -113,6 +113,8 @@ local function create_facade(logger)
 
         flush = function() logger:flush_buffer() end,
         set_level = function(lvl) logger:set_level(lvl) end,
+        set_flush_level = function(lvl) logger.flush_on_level = lvl end,
+        apply_options = function(getter, level_key, flush_key) return logger:apply_options(getter, level_key, flush_key) end,
         get_level = function() return logger:get_level() end,
         get_level_name = function() return logger:get_level_name() end,
 
@@ -309,6 +311,16 @@ function Logger:set_level(lvl)
 end
 
 function Logger:get_level()
+    return self.level
+end
+
+--- Take the level and the flush threshold from a mod's options through its getter, which keeps xlog free of MCM.
+--- The level comes from getter(level_key), kept when nil, and every line flushes while getter(flush_key) is on.
+--- @return number The level now in force
+function Logger:apply_options(getter, level_key, flush_key)
+    local level = getter(level_key)
+    if level ~= nil then self:set_level(level) end
+    self.flush_on_level = getter(flush_key) and LEVELS.TRACE or defaults.flush_on_level
     return self.level
 end
 

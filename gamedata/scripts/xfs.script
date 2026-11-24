@@ -121,6 +121,21 @@ function read_file(path)
     return data
 end
 
+--- Read the first bytes of a file on disk in binary mode, or nil if unreadable. read_file is text mode, which stops a Windows read at a 0x1A byte.
+--- @safety SAFE - nil on a missing or unreadable file, never raises.
+--- @novalidate(security.fs_access, reason:"xfs is the single sanctioned filesystem home; consumers route here instead of raw io")
+--- @cost 1 libc open + O(count)
+--- @param path string The file path
+--- @param count number How many bytes, at most
+--- @return string|nil The bytes, shorter than count for a shorter file, or nil
+function read_bytes(path, count)
+    local file = io.open(path, "rb")
+    if not file then return nil end
+    local data = file:read(count)
+    file:close()
+    return data
+end
+
 --- Write text to a file on disk (libc io on a real path). append=true adds to the end, else overwrites.
 --- The sanctioned filesystem home: consumers route here instead of raw io so the fs surface stays in one place.
 --- @safety SAFE - false on an open or write failure, never raises.

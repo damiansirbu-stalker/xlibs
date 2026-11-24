@@ -420,16 +420,9 @@ local function _find_lane_offset(npc, own_lvid, npc_pos, away_dir, offset_deg, d
 end
 
 -- Distance to the first static-mesh hit from pos along dir within range, or nil.
--- @cost O(1) | 1 luabind (ray_pick ctor + query spatial scan + get_distance)
+-- @cost O(1) | one xlevel.find_ray_hit
 local function _get_static_dist(pos, dir, range)
-    local ray = ray_pick()
-    ray:set_flags(RQ_STATIC)
-    ray:set_position(pos)
-    ray:set_direction(dir)
-    ray:set_range(range)
-    ray:query()
-    local hit = ray:get_distance()
-    return (hit > 0 and hit <= range) and hit or nil
+    return (xlevel.find_ray_hit(pos, dir, range, RQ_STATIC))
 end
 
 local _weapon_kind_cache = {}

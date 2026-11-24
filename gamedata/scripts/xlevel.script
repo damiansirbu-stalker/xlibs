@@ -1,9 +1,11 @@
 --- xlevel: Level/map and time queries
 
-local pairs, type = pairs, type
+local pairs, type, ray_pick = pairs, type, ray_pick
 local math_floor, xmath = math.floor, xmath
 
 local gg = nil
+-- One shared ray, made on the first cast; Lua runs each cast to its end before the next, so reuse saves a CRayPick per cast.
+local _ray = nil
 local _vertex_level = {}
 local _level_id_by_name = nil
 local _neighbors_cache = {}
@@ -88,6 +90,32 @@ local function _get_next_frontier(frontier, visited)
         _collect_unvisited_neighbors(level_id, next_frontier, visited)
     end
     return next_frontier
+end
+
+--- Cast one ray against the level's collision set: the distance, normal and object of the first hit within range, or nil.
+--- A hit at or under 1 mm counts as none, so a ray starting on a surface never hits that surface.
+--- @src xray/xrGame/level_script.cpp(2643-2653) CRayPick binding; xray/xrCDB/xr_collide_defs.h:72-76 (flags: objects 1, statics 2, shapes 4, obstacles 8)
+--- @scope global - reads the loaded collision DB; the level must be online
+--- @safety SAFE - nil on a miss
+--- @cost O(1) | 6 luabind (4 setters + query + get_distance), 2 more on a hit
+--- @param pos vector The ray start
+--- @param dir vector The ray direction, normalized
+--- @param range number Metres to search
+--- @param flags number The collision set, the sum of the flags above
+--- @return number|nil The hit distance
+--- @return vector|nil The hit surface normal
+--- @return userdata|nil The hit game object, nil for level geometry
+function find_ray_hit(pos, dir, range, flags)
+    if not _ray then _ray = ray_pick() end
+    local ray = _ray
+    ray:set_flags(flags)
+    ray:set_range(range)
+    ray:set_position(pos)
+    ray:set_direction(dir)
+    if not ray:query() then return nil end
+    local dist = ray:get_distance()
+    if not dist or dist <= 0.001 or dist > range then return nil end
+    return dist, ray:get_normal(), ray:get_object()
 end
 
 --- True while a surge (emission) is underway. Wraps the vanilla xr_conditions.surge_started gate so callers avoid the raw module reference.

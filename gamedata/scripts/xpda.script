@@ -148,6 +148,21 @@ function show_npc_tip(npc, msg, opts)
     return true
 end
 
+--- Show a plain tip on the HUD, the sink every console bench and reset message uses.
+--- It goes through news_manager.send_tip, so with the news hook started it stamps the last-news clock too.
+--- @safety SAFE - returns false without an actor or a message
+--- @cost O(1) | 1 luabind heavy (news_manager.send_tip -> give_game_news)
+--- @src anomaly/news_manager.script send_tip
+--- @param msg string The text, already translated
+--- @param ms number How long it stays, in milliseconds
+--- @return boolean True when it was sent
+function show_tip(msg, ms)
+    local actor = db and db.actor
+    if not (actor and msg) then return false end
+    news_manager.send_tip(actor, msg, nil, nil, ms)
+    return true
+end
+
 --- Install the PDA-activity hook (idempotent): wrap the vanilla send_tip sinks so every drawn PDA line stamps the last-news clock.
 --- Dormant until a consumer calls it at on_game_start. xevent refuses a second wrap, so two consumers sharing it are safe.
 --- @safety SAFE - xevent.register_hook is idempotent and type-checks the target before replacing; a missing sink is a silent no-op

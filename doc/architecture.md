@@ -71,6 +71,9 @@ log.error("Error")  -includes stack trace
 - `get_levels()` - Available log level names
 - `init(bindings)` - Initialize logging subsystem
 - Logger methods: `write(lvl, fmt, ...)`, `set_level(lvl)`, `get_level()`, `get_level_name()`, `get_outfile()`, `check_rotation()`, `flush_buffer()`
+- Facade option setters: `set_flush_level(lvl)` sets the level at or under which every line flushes at once.
+  `apply_options(getter, level_key, flush_key)` takes the level and the flush switch from a mod's options through the getter the mod passes, so xlog never reads MCM, and returns the level in force.
+  A mod calls it from the option callbacks it registers itself.
 
 ### xbus.script - Event Bus
 
@@ -415,6 +418,8 @@ local valid = xlevel.is_valid_lvid(se_obj)
 - `is_valid_lvid(se_obj)` - Check level vertex validity (0xFFFFFFFF = invalid)
 - `is_surge()` - True while a surge or psi-storm is underway (pure Lua module reads via xr_conditions.surge_started)
 
+- `find_ray_hit(pos, dir, range, flags)` - One ray against the level's collision set through one shared `ray_pick`: distance, normal and object of the first hit, or nil. A hit at or under 1 mm counts as none.
+  `xcombat` and `xprops` cast through it.
 ### xsmart.script - Smart Terrain Queries
 
 ```lua
@@ -517,6 +522,21 @@ Sound wrap:
 - a per-sound metadata registry plus a delivered-loudness model (`load_meta`, `get_meta`, `compute_delivered_loudness`)
 - the measured loudness of the final mix (`get_output_loudness`)
 
+- the trace tail of one play (`compute_verdict`, `format_play_detail`)
+- vanilla's Lua channel play and channel config (`compute_spawn_dist`, `compute_spawn_pos`, `compute_channel_volume`, `get_channel_index`, `get_ambient_state`, `read_active_channels`)
+- the falloff blob of an ogg read from its bytes (`parse_blob`), and the canonical path key (`format_key`)
+
+`play_at` opts: `position`, `volume`, `s2d`, `delay` in seconds, `type` (an `snd_type` value, the typed constructor; untyped plays as `no_sound`, which walls occlude), and `min_distance` with `max_distance` to override the file's falloff.
+The override is written only once the play has a voice, since `set_range` does nothing without one and builds before release 2026.11.21 crash on the distance setters then.
+
+Vanilla's Lua channel loop (`sound_ambient.script:119-165`) keeps its math inside `update_ambient` with no callable form, so xsound holds the one cited copy that DiegeticDread, DiegeticAmbience and TestZone call.
+`compute_spawn_dist(min_dist, max_dist)` rolls `math.random(spawn_min, max_dist) / 2`, spawn_min the band's middle above ground and its min underground, clamped to the max.
+`compute_spawn_pos(dist, height)` places it on a random whole-degree bearing from the actor, and `compute_channel_volume(channel, ambient_volume)` is the indoor table times the slider the caller passes.
+`get_channel_index()` walks `environment\sound_channels.ltx` once per Lua state, the root the engine opens, so the includes merge and a DLTX overlay applies (`dltx.md`, the root-file rule).
+It holds `channels[name]` (the raw pool, `ambient\no_sound` kept as vanilla picks it, min, max, height, indoor, periods, with defaults for a missing key) and `owners[key]`, the channels that list each file.
+`read_active_channels(level, state)` is the channel list vanilla's loop rotates, repeats and undefined names dropped. A per-hour cache stays with the caller.
+`format_play_detail(path, dist, volume, floor)` is the shared trace tail, distance, delivered dB, verdict and profile, and the floor is the caller's.
+`parse_blob(bytes)` reads the comment header's first comment, versions 0x0001 to 0x0003, from `xfs.read_bytes`. A sound's falloff is never read from a `sound_object`.
 Sound metadata is a write-once registry feeding a pure loudness model.
 A mod's build emits a table of per-sound measured facts, and the mod loads it once with `load_meta(rows)` (path -> `{ lufs, crest, peak, bv, mn, mx }`, keys lowercase with backslashes, no .ogg).
 Any consumer reads a profile with `get_meta(path)`, a plain table lookup that makes no bridge call.
@@ -542,7 +562,10 @@ The seams (`xsound.SEAM.*`), each `fn(...) -> nil | { volume_mult }`:
 - `SCRIPT_SOUND` - every sound_object play (CScriptSound). fn(file, pos, obj), pos/obj nil where the call site has none
 - `EFFECT` - the weather-effect recording (WeathersUpdate effect block). fn(file, pos), the particle burst and wind blast play regardless
 - `THUNDER` - the lightning-strike clap (CEffect_Thunderbolt). fn(file, distance)
-- `RAIN` - the looped rain ambient (CEffect_Rain). fn(file), sampled at rain onset
+- `RAIN` - the looped rain ambient (CEffect_Rain). fn(file), sampled at rain onset, so a veto reaches the next rain, never the rain already falling
+- `HUD` - every weapon's layered sound, the player's and every NPC's (HUD_SOUND_COLLECTION_LAYERED::PlaySound, xray HudSound.cpp:317). fn(alias, parent), 0 skips the play (:398)
+
+Every seam is asked as a play starts. A sound already playing, a bed mid-file, the rain loop or a looped wind, plays on until it ends.
 
 ### xtable.script - Table Utilities
 
@@ -631,7 +654,8 @@ It runs O(step) per frame and O(n) per pass, with no per-item `table.remove`.
 
 ### xmcm.script - MCM Config
 
-- `create_config(mod_id, defaults, path_builder)` - Pre-seeded cfg table + per-key getter + load() refresher (every mod's mcm file uses this)
+- `create_config(mod_id, defaults, path_builder)` - Pre-seeded cfg table + per-key getter + load() refresher + reset(gui, msg) (every mod's mcm file uses this).
+  The reset writes every default, saves, reloads, fires `mcm_option_restore_default` so the mod's own listeners follow, closes the page and shows the message as a tip.
 
 ### xprofiler.script - Code Profiling
 
@@ -674,6 +698,7 @@ end)
 ### xpda.script - PDA/Map
 
 - `send(caption, msg, icon)` - PDA message
+- `show_tip(msg, ms)` - A plain HUD tip through `news_manager.send_tip`, false without an actor
 - `npc_tip(npc, msg, opts)` - NPC-attributed tip
 - `mark_squad(id, opts)`, `unmark_squad(id)`, `clear_squad_markers()`
 - `mark_entity(id, opts)`, `unmark_entity(id, type)`
@@ -698,6 +723,7 @@ The single sanctioned filesystem home. Consumers call xfs for file io, so the fs
 - `read_files_deep(mount, dir, ext)` - The recursive file list, subpath-qualified names
 - `read_file(path)` - Whole file as a string, nil when unreadable (libc io on a real path)
 - `write_file(path, text, append)` - Write or append, false on an open failure or a failed write
+- `read_bytes(path, count)` - The first bytes of a file in binary mode. `read_file` is text mode, and a Windows text read stops at a 0x1A byte
 - `remove_file(path)` - Delete through the engine FS, or through kernel32 when the index does not know the file (os.remove is absent in the game's Lua sandbox), true when the file is gone
 - `resolve_path(mount, rel)` - Mount-relative path to the full VFS path (wraps getFS():update_path)
 - `has_file(mount, rel)` / `update_index(mount)` - Whether the engine's file index knows a file, and a rescan of a mount's loose files so it sees new ones

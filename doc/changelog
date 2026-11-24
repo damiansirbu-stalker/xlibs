@@ -9,6 +9,7 @@
       format_dir and get_parent_dir give a folder path the form these take and step up a folder, which a disk browser needs.
     - Added has_file, which tells whether the engine knows a file, and update_index, which rescans a mount after a mod writes one.
     - Changed remove_file to delete a file the engine has not indexed yet.
+    - Added read_bytes, which reads the start of a file in binary mode.
 
   xsound
     - Added get_output_loudness, the loudness of the final mix the player hears, on modded exes that carry the mix meter. On other exes it reports the meter absent.
@@ -16,6 +17,23 @@
 1.10.0
   The xmonster mutant surface, cover finders, attachments and truer sight reads
     The new xmonster module covers mutant combat. It reads a mutant's state and memory, fires the jumps and attacks X-Ray validates, and sets its combat numbers.
+    - Added compute_spawn_dist, compute_spawn_pos and compute_channel_volume, vanilla's Lua channel placement and volume in one home.
+    - Added get_channel_index, read_active_channels and get_ambient_state, which read the channel config and the channels in play the way vanilla does.
+    - Added compute_verdict and format_play_detail, the audible-or-faint verdict and the acoustic tail of a trace line.
+    - Added parse_blob, which reads an ogg's falloff from its bytes, and format_key, the canonical sound path key.
+    - play_at takes a delay, a sound type and a falloff override.
+
+  xlevel
+    - Added find_ray_hit, one ray against the level's collision set. xcombat and xprops cast through it.
+
+  xmcm
+    - create_config returns a reset that puts every option back to its default and tells the mod's listeners.
+
+  xlog
+    - Added set_flush_level and apply_options to the logger, which take the log level and flush from a mod's options.
+
+  xpda
+    - Added show_tip, a plain tip on the HUD.
     The xcombat cover finders pick a node by the score X-Ray's cover graph gives it, and reserve each pick in the vanilla cover ledger.
     get_facing reads the player's camera and a stalker's head, xinventory mounts attachments, and has_anomaly splits into hazard and artefact.
 

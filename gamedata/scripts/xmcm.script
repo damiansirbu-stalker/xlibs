@@ -1,6 +1,9 @@
 --- xmcm: MCM helpers (create_config)
 
-local pairs = pairs
+local pairs, SendScriptCallback = pairs, SendScriptCallback
+
+-- How long a reset's message stays on the HUD, the time every mod's reset used (da_mcm, dd_mcm, tz_mcm).
+local RESET_TIP_MS = 5000
 
 -- Config getter closure: reads ui_mcm.get(path) with a fallback to the defaults table; snapshot into cfg for hot paths.
 -- @safety SAFE - ui_mcm.get returns nil for missing keys, defaults table is fallback
@@ -16,20 +19,35 @@ local function create_getter(mod_id, defaults, path_builder)
     end
 end
 
---- Create a complete MCM config: pre-seeded table, getter, and loader. Seeds cfg from defaults at creation (no ui_mcm call); loader reads MCM when called.
---- @safety SAFE - creation is pure Lua table copy, loader delegates to create_getter
---- @cost O(n) defaults at creation, O(n) per load() call | 0 luabind (pure Lua throughout)
+--- Create a complete MCM config: pre-seeded table, getter, loader and reset, the table seeded from defaults with no ui_mcm call.
+--- The reset writes every default, saves, reloads, fires mcm_option_restore_default so the mod's listeners follow, closes the page and shows the message.
+--- @safety SAFE - creation is pure Lua table copy, loader delegates to create_getter; reset guards a missing gui
+--- @cost O(n) defaults at creation, O(n) per load() call | 0 luabind (pure Lua throughout); reset: 1 write per key + 1 save
+--- @src anomaly/ui_mcm.script:1435 (functor_ui passes the UI_MCM instance a reset closes)
 --- @param mod_id string MCM mod identifier
 --- @param defaults table Default values {key = value}
 --- @param path_builder function|nil Optional function(key) -> mcm_path
 --- @return table cfg Pre-seeded config table
 --- @return function getter Per-key getter function(key) -> value
 --- @return function load Loader that refreshes all cfg values from MCM
+--- @return function reset function(gui, msg): every option back to its default, for a reset button's functor_ui
 function create_config(mod_id, defaults, path_builder)
     local getter = create_getter(mod_id, defaults, path_builder)
     local cfg = xtable.clone(defaults)
     local function load()
         for k in pairs(defaults) do cfg[k] = getter(k) end
     end
-    return cfg, getter, load
+    local function reset(gui, msg)
+        local config = axr_main.config
+        for key, value in pairs(defaults) do
+            config:w_value("mcm", path_builder and path_builder(key) or (mod_id .. "/" .. key), value)
+        end
+        config:save()
+        load()
+        SendScriptCallback("mcm_option_restore_default")
+        if gui and gui.owner and gui.owner.SetMsg then gui.owner:SetMsg(msg, 5) end
+        if gui and gui.On_Cancel then gui:On_Cancel() end
+        xpda.show_tip(msg, RESET_TIP_MS)
+    end
+    return cfg, getter, load, reset
 end
