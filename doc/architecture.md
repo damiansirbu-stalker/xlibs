@@ -11,9 +11,8 @@ Shared utility library for STALKER Anomaly Lua modding. It is pure Lua and uses 
   We never place our code on a path the engine runs every frame (a visibility or fire functor).
   Frame-spreading a bounded one-off batch (xslice, 1 item per frame) to avoid a single-frame spike is the one allowed use of the frame. It completes and stops.
   Full rule and rationale: `doc/standards/stalker-code.md` "No Per-Frame Work".
-- **Steady-state silence.** xlibs modules do not log during normal operation. Instrumentation runs only through a consumer-created xlog logger in the consumer's own code.
-  The one permitted logging class is a load-time caller-misuse warning, a boundary diagnostic surfacing a caller bug before it becomes silent data loss.
-  xchange warns on a bad or duplicate changeset registration because a silently skipped migration is a data hazard nobody would hear.
+- **Steady-state silence.** xlibs modules never log. Instrumentation runs only through a consumer-created xlog logger in the consumer's own code.
+  xchange rejects a bad or duplicate changeset registration silently. The registering mod checks the ids it passes.
 - **Passive library, no self-registration.** xlibs is a library, not a framework. The caller owns control flow.
   This is inversion of control: a library is called by your code, a framework calls yours.
   No module registers an engine callback, starts a re-arming timer, or hooks a game function on its own initiative or inside its own `on_game_start`.
@@ -578,7 +577,7 @@ Every seam is asked as a play starts. A sound already playing, a bed mid-file, t
 ### xttltable.script - TTL Data Structures
 
 All three time-based structures support clock injection via `opts.clock`. Default is `os.clock` (0 luabind, wall time).
-Pass `xtime.game_sec` for game-time expiry (2 luabind per clock call).
+Pass `xtime.get_game_sec` for game-time expiry (2 luabind per clock call).
 Use wall time for internal rate limiting and dedup guards.
 Use game time for gameplay-facing timers (decay windows, cooldowns) so they respect time acceleration, sleep, and realism mods.
 
@@ -712,9 +711,9 @@ end)
 
 ### xtime.script - Game Time
 
-- `game_sec()` - Game-seconds since epoch (cached start_time, invalidated on on_game_start)
-- `game_time()` - Engine CTime for the current in-game moment (nil when no level)
-- `hms()` - Current in-game hour and minute via CTime:get() (nil, nil when no level)
+- `get_game_sec()` - Game-seconds since epoch (cached start_time, invalidated on on_game_start)
+- `get_game_time()` - Engine CTime for the current in-game moment (nil when no level)
+- `get_time_hm()` - Current in-game hour and minute via CTime:get() (nil, nil when no level)
 
 ### xfs.script - Filesystem
 
