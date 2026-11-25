@@ -196,16 +196,14 @@ function Logger.new(name, cfg)
     return self
 end
 
+-- The log file's full path. Without start_flush_hook (a mod that has no gate) it still resolves, so the lines reach the file.
 function Logger:get_outfile()
     if self.outfile and (self.outfile:find("[\\/]") or self.outfile:find(":")) then
         return self.outfile
     end
 
-    if platform and platform.get_logs_path then
-        local logs_path = platform.get_logs_path()
-        local filename = self.outfile or "script.log"
-        self.outfile = logs_path .. filename
-    end
+    local logs_path = platform and platform.get_logs_path and platform.get_logs_path() or getFS():update_path("$logs$", "")
+    self.outfile = logs_path .. (self.outfile or "script.log")
 
     return self.outfile
 end
