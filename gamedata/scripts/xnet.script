@@ -68,7 +68,6 @@ end
 --- @src xray/xrServerEntities/script_storage.cpp:409,424 (ffi opened)
 --- @safety pcall: ffi.load raises on a missing dll and ffi.cdef on a malformed declaration (xray/3rd party/luajit-2/src/lj_clib.c:203)
 --- @novalidate(xray.unapproved_pcall, reason:"ffi.load raises on a missing dll; the failure leaves xnet inert instead of raising into a callback")
---- @novalidate(security.dynamic_code, reason:"ffi.load opens winhttp.dll and kernel32.dll; it runs no Lua code")
 --- @cost 0 after the first call | first call: 2 cdef + 2 library loads + 1 kernel32 call
 local function _get_winhttp()
     if _winhttp ~= nil then return _winhttp or nil end

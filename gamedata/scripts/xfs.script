@@ -26,7 +26,6 @@ local _kernel32 = nil
 --- @src xray/3rd party/lua-extensions/lfs.c:82 (the long hFile), xray/xrServerEntities/script_storage.cpp:409,424 (ffi opened)
 --- @safety pcall: ffi.cdef ignores a redeclared name (xray/3rd party/luajit-2/src/lj_cparse.c:1787) and raises only on a malformed declaration
 --- @novalidate(xray.unapproved_pcall, reason:"ffi.cdef raises only on a malformed declaration; xfs then stays without kernel32 instead of raising")
---- @novalidate(security.dynamic_code, reason:"ffi.load opens kernel32.dll; it runs no Lua code")
 --- @cost 0 after the first call | first call: 1 cdef + 1 library load
 local function _get_kernel32()
     if _kernel32 ~= nil then return _kernel32 or nil end
