@@ -386,12 +386,13 @@ function get_levels()
     return LEVELS
 end
 
---- Initialize the logging system with game-specific callbacks.
+--- Start the periodic flush and the lifecycle flushes (idempotent); dormant until a mod calls it at on_game_start, as the shared _init gate does.
 --- Wires getFS():update_path for the path, CreateTimeEvent + ResetTimeEvent for the periodic flush, and RegisterScriptCallback for lifecycle.
---- @safety SAFE - all bindings are nil-checked in init(); getFS/update_path deferred to first flush
+--- @safety SAFE - a second call returns at once; getFS/update_path deferred to first flush
 --- @cost O(1) at startup | 0 luabind here (closures defer); first flush triggers 2 luabind heavy (getFS singleton + update_path concat)
 --- @src xray/xrGame/fs_registrator_script.cpp(9,289), anomaly/_g.script(339,104), RavenAscendant/mcm_log.script(52)
-function on_game_start()
+function start_flush_hook()
+    if platform then return end
     init({
         get_logs_path = function()
             return getFS():update_path("$logs$", "")

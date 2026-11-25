@@ -69,6 +69,7 @@ log.error("Error")  -includes stack trace
 - `get_session_id()` - Current session identifier
 - `get_levels()` - Available log level names
 - `init(bindings)` - Initialize logging subsystem
+- `start_flush_hook()` - Start the 60 s periodic flush and the flushes on save, level change and actor destroy. The shared `_init` gate calls it at `on_game_start`, and a second call returns at once
 - Logger methods: `write(lvl, fmt, ...)`, `set_level(lvl)`, `get_level()`, `get_level_name()`, `get_outfile()`, `check_rotation()`, `flush_buffer()`
 - Facade option setters: `set_flush_level(lvl)` sets the level at or under which every line flushes at once.
   `apply_options(getter, level_key, flush_key)` takes the level and the flush switch from a mod's options through the getter the mod passes, so xlog never reads MCM, and returns the level in force.
@@ -834,7 +835,7 @@ The one home for aliases that keep a released mod running across an xlibs API ch
 - **Time slicing**: spread O(n) iteration across frames via `AddUniqueCall` + step index. Deferred compaction between passes.
 - **Dormant start function**: when an xlibs feature needs a hook on a vanilla function or a callback, xlibs ships a `start_*` function and never installs the hook itself.
   The function installs the hook through `xevent.register_hook`, which refuses a second wrap. Any number of consumers can call it.
-  Each mod that uses the feature calls it from the mod's `on_game_start`. `xpda.start_news_hook` and `xcreature.start_trader_hook` are the models.
+  Each mod that uses the feature calls it from the mod's `on_game_start`. `xpda.start_news_hook`, `xcreature.start_trader_hook` and `xlog.start_flush_hook` are the models.
   A wrapper installed in an xlibs `on_game_start` breaks the Passive library invariant, and every player of every mod pays for it.
 
 ---
