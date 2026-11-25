@@ -1,4 +1,9 @@
 1.10.1-snapshot
+  The xnet HTTP client, the update check, game windows and hooks a mod starts
+    The xnet module sends HTTP(S) requests through the winhttp.dll that Windows and Wine carry, and the update check uses it to find newer releases.
+    A new module, xcui, builds X-Ray game windows from a layout, and xfs reaches real folders and files on disk.
+    xlog's flush and xcreature's trader list start from the mod that uses them, xsound reads the mix loudness, and xlevel casts rays.
+
   xcui
     - Added the xcui module for X-Ray's game UI. build makes every control a layout lists, in draw order, and returns them by name.
       get_color, get_clipped, push_line, set_lines and is_close_key cover the colors, line lists and Esc that every window needs.
@@ -21,14 +26,6 @@
       A newer version shows at the foot of that mod's MCM page, and in a PDA message once a day on entering the game, both naming moddb.
       Check for update in a mod's Development tab runs the same check right away.
 
-  xlog
-    - Changed the periodic flush and the lifecycle flushes to start from start_flush_hook, which each mod's dependency gate calls.
-      xlog no longer registers a timer and callbacks by itself when a game loads.
-
-  xcreature
-    - Changed iterate_online_traders to need start_trader_hook, which a mod calls from the mod's on_game_start.
-      xlibs no longer wraps db.add_obj on every load for every player, only when a mod uses the trader list.
-
   xsound
     - Added get_output_loudness, the loudness of the final mix the player hears, on modded exes that carry the mix meter. On other exes it reports the meter absent.
     - Added compute_spawn_dist, compute_spawn_pos and compute_channel_volume, vanilla's Lua channel placement and volume in one home.
@@ -45,6 +42,9 @@
 
   xlog
     - Added set_flush_level and apply_options to the logger, which take the log level and flush from a mod's options.
+    - Changed the periodic flush and the lifecycle flushes to start from start_flush_hook, which each mod's dependency gate calls.
+      xlog no longer registers a timer and callbacks by itself when a game loads.
+      A mod without the gate still writes its log, and calls start_flush_hook from its on_game_start for the timed flushes.
 
   xpda
     - Added show_tip, a plain tip on the HUD.
@@ -52,6 +52,8 @@
   xcreature
     - Fixed iterate_online_monsters stopping after 400 objects, which skipped any monster past that point on a busy level.
     - Changed iterate_online to always walk db.storage, which every stalker and monster binder fills. The table no longer depends on load order, and a walk never visits inventory items.
+    - Changed iterate_online_traders to need start_trader_hook, which a mod calls from the mod's on_game_start.
+      xlibs no longer wraps db.add_obj on every load for every player, only when a mod uses the trader list.
 
 1.10.0
   The xmonster mutant surface, cover finders, attachments and truer sight reads
