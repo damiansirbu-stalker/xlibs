@@ -12,8 +12,20 @@
     <string id="ui_mcm_xmcm_footer">
         <text>Detecting platform...</text>
     </string>
-    <string id="st_xlibs_update_footer">
-        <text>, update %s on moddb</text>
+    <string id="ui_mcm_xlibs_update_row">
+        <text>Reading the update check...</text>
+    </string>
+    <string id="st_xlibs_update_status_newer">
+        <text>Update: %s is out on moddb, %s</text>
+    </string>
+    <string id="st_xlibs_update_status_current">
+        <text>Update: up to date, %s installed, latest release %s</text>
+    </string>
+    <string id="st_xlibs_update_status_unchecked">
+        <text>Update: not checked yet, the next save load checks it</text>
+    </string>
+    <string id="st_xlibs_update_status_offline">
+        <text>Update: no network this launch</text>
     </string>
     <string id="st_xlibs_update_news_caption">
         <text>Mod updates</text>

@@ -33,6 +33,12 @@ local ST_NO_RELEASE = "st_xlibs_update_no_release"
 local ST_UNAVAILABLE = "st_xlibs_update_unavailable"
 local ST_OUT_OF_TIME = "st_xlibs_update_out_of_time"
 local ST_NO_NETWORK = "st_xlibs_update_no_network"
+local ST_STATUS_NEWER = "st_xlibs_update_status_newer"
+local ST_STATUS_CURRENT = "st_xlibs_update_status_current"
+local ST_STATUS_UNCHECKED = "st_xlibs_update_status_unchecked"
+local ST_STATUS_OFFLINE = "st_xlibs_update_status_offline"
+-- What one update check did, returned for the caller's trace: it asked GitHub, this launch already had, or the network is out.
+local OUTCOME_CHECKED, OUTCOME_SAME_LAUNCH, OUTCOME_OFFLINE, OUTCOME_NO_NETWORK = "checked", "same_launch", "offline", "no_network"
 
 -- The end of this load's shared budget, in os.clock seconds; each load builds a fresh Lua VM, so it starts unset on every load.
 local _load_deadline = nil
@@ -92,18 +98,19 @@ local function _write_update_file(name, state)
     xfs.write_file(_get_update_path(name), table_concat(lines, "\n"))
 end
 
--- One GitHub request for a mod's latest release tag within budget_ms; nil and a reason id when it fails.
+-- One GitHub request for a mod's latest release tag within budget_ms: the tag, or nil and a reason id, then the HTTP code.
 -- No status code means the network is unusable, which the caller records so the rest of the launch's automatic checks skip the request.
 local function _read_release_tag(manifest, budget_ms)
     local reply = xnet.run_request({ url = string_format(RELEASE_API, manifest.name), timeout_ms = STEP_TIMEOUT_MS, budget_ms = budget_ms,
         headers = { Accept = "application/vnd.github+json", ["User-Agent"] = "xlibs" } })
-    if not reply.code then return nil, ST_OFFLINE end
-    if HTTP_LIMITED[reply.code] then return nil, ST_LIMITED end
-    if reply.code == HTTP_NOT_FOUND then return nil, ST_NO_RELEASE end
-    if not reply.ok then return nil, ST_UNAVAILABLE end
+    local code = reply.code
+    if not code then return nil, ST_OFFLINE end
+    if HTTP_LIMITED[code] then return nil, ST_LIMITED, code end
+    if code == HTTP_NOT_FOUND then return nil, ST_NO_RELEASE, code end
+    if not reply.ok then return nil, ST_UNAVAILABLE, code end
     local tag = reply.body:match('"tag_name"%s*:%s*"(%d+%.%d+%.%d+)"')
-    if not tag then return nil, ST_NO_RELEASE end
-    return tag
+    if not tag then return nil, ST_NO_RELEASE, code end
+    return tag, nil, code
 end
 
 -- xlibs plus every published mod whose manifest is already loaded. rawget never loads a script, so no other author's code runs here.
@@ -125,17 +132,17 @@ local function _get_check_budget_ms(force)
     return math_floor((_load_deadline - os_clock()) * 1000)
 end
 
--- Ask GitHub for one mod and store the answer in its own file, and the launch's network mark in xlibs's; the reason id on failure.
+-- Ask GitHub for one mod and store the answer in its own file, and the launch's network mark in xlibs's; the reason id on failure, then the HTTP code.
 local function _save_release_check(manifest, state, shared, budget_ms)
-    local tag, reason = nil, ST_OUT_OF_TIME
-    if budget_ms > 0 then tag, reason = _read_release_tag(manifest, budget_ms) end
+    local tag, reason, code = nil, ST_OUT_OF_TIME, nil
+    if budget_ms > 0 then tag, reason, code = _read_release_tag(manifest, budget_ms) end
     if tag then state.tag = tag end
     state.checked = _get_launch()
     local was_offline = shared.offline
     if reason == ST_OFFLINE then shared.offline = _get_launch() elseif tag then shared.offline = nil end
     if shared ~= state and shared.offline ~= was_offline then _write_update_file(XLIBS_MANIFEST.name, shared) end
     _write_update_file(manifest.name, state)
-    return reason
+    return reason, code
 end
 
 --- Get the xlibs package version string (the module-local _VERSION literal set at file load).
@@ -189,20 +196,29 @@ end
 --- @param manifest table { name, version, moddb } - a manifest without moddb is never checked
 --- @param force boolean|nil true to ask even when this launch already did
 --- @return string|nil the result for the player, nil for a mod with no moddb page
+--- @return string|nil the outcome for a trace: checked, same_launch, offline or no_network
+--- @return number|nil the HTTP status when it asked GitHub
+--- @return string|nil the failure's string id
 function run_update_check(manifest, force)
     if not (manifest and manifest.name and manifest.version and manifest.moddb) then return nil end
-    if not (xnet and xnet.is_ready and xnet.is_ready()) then return _format_text(ST_FAILED, game.translate_string(ST_NO_NETWORK)) end
+    if not (xnet and xnet.is_ready and xnet.is_ready()) then
+        return _format_text(ST_FAILED, game.translate_string(ST_NO_NETWORK)), OUTCOME_NO_NETWORK, nil, ST_NO_NETWORK
+    end
     local state = _read_update_file(manifest.name)
     local is_xlibs = manifest.name == XLIBS_MANIFEST.name
     local shared = is_xlibs and state or _read_update_file(XLIBS_MANIFEST.name)
+    local outcome = OUTCOME_SAME_LAUNCH
+    local reason, code
+    if not force and _is_same_launch(shared.offline) and not _is_same_launch(state.checked) then outcome = OUTCOME_OFFLINE end
     if force or not (_is_same_launch(state.checked) or _is_same_launch(shared.offline)) then
-        local reason = _save_release_check(manifest, state, shared, _get_check_budget_ms(force))
-        if reason then return _format_text(ST_FAILED, game.translate_string(reason)) end
+        outcome = OUTCOME_CHECKED
+        reason, code = _save_release_check(manifest, state, shared, _get_check_budget_ms(force))
+        if reason then return _format_text(ST_FAILED, game.translate_string(reason)), outcome, code, reason end
     end
     if state.tag and _is_newer(state.tag, manifest.version) then
-        return _format_text(ST_NEWER, manifest.name, state.tag, MODDB_ADDON_URL .. manifest.moddb)
+        return _format_text(ST_NEWER, manifest.name, state.tag, MODDB_ADDON_URL .. manifest.moddb), outcome, code
     end
-    return _format_text(ST_CURRENT, manifest.name)
+    return _format_text(ST_CURRENT, manifest.name), outcome, code
 end
 
 --- The Check for update button of a mod: run its check now, close MCM, then show the answer on the menu's message line and as a tip in game.
@@ -211,12 +227,36 @@ end
 --- @cost 1 blocking HTTPS request within a 5 s budget, through run_update_check
 --- @param manifest table the mod's MANIFEST
 --- @param gui userdata|nil the UI_MCM instance the button passes
+--- @return string|nil, string|nil, number|nil, string|nil what run_update_check returned, for the caller's trace
 function show_update_check(manifest, gui)
-    local msg = run_update_check(manifest, true)
+    local msg, outcome, code, reason = run_update_check(manifest, true)
     if not msg then return end
     if gui and gui.owner and gui.owner.SetMsg then gui.owner:SetMsg(msg, TIP_MS / 1000) end
     if gui and gui.On_Cancel then gui:On_Cancel() end
     xpda.show_tip(msg, TIP_MS)
+    return msg, outcome, code, reason
+end
+
+--- The update status of one mod for its MCM row, from its stored check; it never makes a request.
+--- Newer on moddb, up to date with both versions, no network this launch, or not checked yet.
+--- @safety SAFE - a mod without a moddb page returns nil; a missing state file reads as not checked
+--- @cost 2 small file reads + 1 translate_string
+--- @src xray/xrGame/level_script.cpp:3356 (game.translate_string)
+--- @param manifest table the mod's MANIFEST
+--- @return string|nil the row's text
+--- @return string|nil the state for its color: newer, current, offline or unchecked
+function get_update_status(manifest)
+    if not (manifest and manifest.name and manifest.version and manifest.moddb) then return nil end
+    local state = _read_update_file(manifest.name)
+    if state.tag and _is_newer(state.tag, manifest.version) then
+        return _format_text(ST_STATUS_NEWER, state.tag, MODDB_ADDON_URL .. manifest.moddb), "newer"
+    end
+    local shared = manifest.name == XLIBS_MANIFEST.name and state or _read_update_file(XLIBS_MANIFEST.name)
+    if _is_same_launch(shared.offline) and not _is_same_launch(state.checked) then
+        return game.translate_string(ST_STATUS_OFFLINE), "offline"
+    end
+    if state.tag then return _format_text(ST_STATUS_CURRENT, manifest.version, state.tag), "current" end
+    return game.translate_string(ST_STATUS_UNCHECKED), "unchecked"
 end
 
 --- Post the day's PDA message listing every mod with a newer release; nothing when all are current or today's message is out.
@@ -224,17 +264,20 @@ end
 --- @src xlibs/xpda.script publish_news (xray/xrGame/script_game_object_script3.cpp give_game_news)
 --- @safety SAFE - a missing state file reads as empty, and publish_news returns false without an actor.
 --- @cost 1 script listing + 1 small file read per published mod + 1 news on a day with an update
+--- @return number how many mods have a newer release, 0 when today's message is already out
+--- @return boolean whether it posted the message
 function show_update_news()
     local shared = _read_update_file(XLIBS_MANIFEST.name)
     local today = os_date("%Y%m%d")
-    if shared.notified == today then return end
+    if shared.notified == today then return 0, false end
     local newer = {}
     for _, manifest in ipairs(_collect_manifests()) do
         local tag = _read_update_file(manifest.name).tag
         if tag and _is_newer(tag, manifest.version) then newer[#newer + 1] = manifest.name .. " " .. tag end
     end
-    if #newer == 0 then return end
+    if #newer == 0 then return 0, false end
     shared.notified = today
     _write_update_file(XLIBS_MANIFEST.name, shared)
-    xpda.publish_news(game.translate_string(ST_NEWS_CAPTION), _format_text(ST_NEWS, table_concat(newer, ", ")))
+    local posted = xpda.publish_news(game.translate_string(ST_NEWS_CAPTION), _format_text(ST_NEWS, table_concat(newer, ", ")))
+    return #newer, posted == true
 end

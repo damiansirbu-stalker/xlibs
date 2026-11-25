@@ -796,6 +796,8 @@ Unscriptable NPC/squad tables used by `xcreature.is_unscriptable` and `xsquad.is
 - `show_update_check(manifest, gui)` - The Check for update button: runs the check with `force`, closes MCM, and shows the answer on the menu's message line and as a tip in game
 - `get_manifest()` - The xlibs manifest, which lets xlibs check itself like a mod
 - `show_update_news()` - The day's PDA message listing every mod with a newer release, posted once a day
+- `get_update_status(manifest)` - The text and state (newer, current, offline, unchecked) of a mod's stored check, for the update line in its MCM. It never makes a request
+- `run_update_check`, `show_update_check` and `show_update_news` return what they did after their message: the outcome, the HTTP code and the failure, or the count and whether it posted. xlibs logs nothing, so the caller traces them
 
 Each published mod checks itself. The shared `_init` gate calls `run_update_check(manifest)` in `on_game_start`, during the loading screen, and writes the answer to the mod's log.
 The gate's `show_update_check` forwards the Check for update button in the mod's Development tab.
@@ -807,7 +809,8 @@ Each mod keeps its state in a separate file on the appdata root, `<name>_update.
 `offline` is the launch that found no network, and `notified` is the day of the last PDA message.
 A reply with no status code marks the launch offline and skips the rest of its automatic checks. A forced check that succeeds clears the mark.
 403 or 429 reads as GitHub's limit, 404 or a tag that is not x.y.z as no release, and any other failure as GitHub unavailable.
-The compatibility line at the foot of the mod's MCM page names the newer version. A PDA message on entering the game, once a day, lists every mod with a newer release.
+The update line under the compatibility line at the foot of the mod's MCM page shows the stored check. A PDA message on entering the game, once a day, lists every mod with a newer release.
+The gate writes its lines through the mod's own logger, named like the mod, one tick after the first frame, once the mod has applied its MCM log level. The checks' traces are DEBUG lines.
 Each gate also runs the check for xlibs, whose launch mark lets only the first gate ask, and arms `show_update_news` for the first frame.
 xlibs itself registers no callback, as the xlibs Rules require, and its day mark keeps the PDA message to one.
 The list comes from manifests already loaded, read with `rawget(_G, name)`. The check never loads another author's script.

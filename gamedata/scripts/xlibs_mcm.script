@@ -1,6 +1,6 @@
 --- xlibs_mcm: MCM info page for xlibs
 
-local type, tostring, math_floor, string_format = type, tostring, math.floor, string.format
+local type, tostring, math_floor = type, tostring, math.floor
 
 -- Latest demonized build this release is verified against; drives the MCM verdict only, never a floor.
 local LATEST_DEMONIZED_VERSION = 20260912
@@ -30,8 +30,8 @@ local function _get_platform_status()
 end
 
 local _footer_clr = nil
--- MCM footer functor: the platform line plus xlibs's update notice, verdict-colored; colors build lazily (GetARGB absent under the validator).
--- @cost 1 small file read (the stored update check) + 1 luabind (translate_string) when an update is stored
+-- MCM footer functor: the platform line, verdict-colored; colors build lazily (GetARGB absent under the validator).
+-- @cost 0 luabind beyond the platform reads
 local function _get_platform_functor()
     return function(_anchor, handlers)
         if not _footer_clr then
@@ -42,10 +42,28 @@ local function _get_platform_functor()
             }
         end
         local line, level = _get_platform_status()
-        local newer = xlibs.find_update(xlibs.get_manifest())
-        if newer then line = line .. string_format(game.translate_string("st_xlibs_update_footer"), newer) end
         handlers.desc:SetText(line)
         handlers.desc:SetTextColor(_footer_clr[level])
+    end
+end
+
+local _update_clr = nil
+-- MCM update row functor, under the footer: xlibs's stored update check, colored by its state, as each mod's gate shows its own.
+-- @cost 2 small file reads + 1 luabind (translate_string)
+local function _get_update_functor()
+    return function(_anchor, handlers)
+        local text, state = xlibs.get_update_status(xlibs.get_manifest())
+        if not text then return end
+        if not _update_clr then
+            _update_clr = {
+                newer     = GetARGB(255, 230, 210, 120),
+                current   = GetARGB(255, 170, 220, 170),
+                offline   = GetARGB(255, 180, 180, 180),
+                unchecked = GetARGB(255, 180, 180, 180),
+            }
+        end
+        handlers.desc:SetText(text)
+        handlers.desc:SetTextColor(_update_clr[state])
     end
 end
 
@@ -59,6 +77,8 @@ function on_mcm_load()
             { id = "desc", type = "desc", text = "ui_mcm_xlibs_desc" },
             { id = "div_footer", type = "line" },
             { id = "platform", type = "desc", text = "ui_mcm_xmcm_footer",
-                ui_hook_functor = { _get_platform_functor() }, clr = {255, 212, 201, 168} },        },
+                ui_hook_functor = { _get_platform_functor() }, clr = {255, 212, 201, 168} },
+            { id = "update", type = "desc", text = "ui_mcm_xlibs_update_row", ui_hook_functor = { _get_update_functor() } },
+        },
     }
 end
