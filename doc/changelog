@@ -21,6 +21,10 @@
       A newer version shows at the foot of that mod's MCM page, and in a PDA message once a day on entering the game, both naming moddb.
       Check for update in a mod's Development tab runs the same check right away.
 
+  xcreature
+    - Changed iterate_online_traders to need start_trader_hook, which a mod calls from the mod's on_game_start.
+      xlibs no longer wraps db.add_obj on every load for every player, only when a mod uses the trader list.
+
   xsound
     - Added get_output_loudness, the loudness of the final mix the player hears, on modded exes that carry the mix meter. On other exes it reports the meter absent.
     - Added compute_spawn_dist, compute_spawn_pos and compute_channel_volume, vanilla's Lua channel placement and volume in one home.

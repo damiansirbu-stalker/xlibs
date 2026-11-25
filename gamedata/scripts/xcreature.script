@@ -81,7 +81,7 @@ local _ambiguous_clsids = {}
 local _ambiguous_prefixes = {}
 -- Online trader-class objects by id: Sidorovich and the Forester, never in db.OnlineStalkers (db.script:73).
 local _online_traders = {}
-local _orig_add_obj, _orig_del_obj = nil, nil
+local _trader_hooked = false
 if not clsid.lurker_s then
     _ambiguous_clsids[clsid.chimera_s] = true
     _ambiguous_prefixes.lurker = "lurker"
@@ -205,26 +205,18 @@ local function _check_unscriptable(obj)
     return false
 end
 
--- db.add_obj wrapper: the vanilla body, then a trader-class object joins _online_traders.
+-- db.add_obj hook: the vanilla body, then a trader-class object joins _online_traders.
 -- @cost O(1) | the original + 1 clsid luabind
-local function _add_db_obj(obj)
-    _orig_add_obj(obj)
+local function _add_db_obj(original, obj)
+    original(obj)
     if IsTrader(obj) then _online_traders[obj:id()] = true end
 end
 
--- db.del_obj wrapper: the object leaves _online_traders, then the vanilla body.
+-- db.del_obj hook: the object leaves _online_traders, then the vanilla body.
 -- @cost O(1) | 1 id luabind + the original
-local function _remove_db_obj(obj)
+local function _remove_db_obj(original, obj)
     _online_traders[obj:id()] = nil
-    _orig_del_obj(obj)
-end
-
--- Wrap db.add_obj / db.del_obj, which every binder calls on net_spawn / net_destroy, to keep _online_traders current.
--- on_game_start runs in a fresh lua state before the simulator loads any object (xray/alife_simulator.cpp:50,77,79 mt, :48,75,77 dev).
-local function _register_db_wrappers()
-    if _orig_add_obj then return end
-    _orig_add_obj, _orig_del_obj = db.add_obj, db.del_obj
-    db.add_obj, db.del_obj = _add_db_obj, _remove_db_obj
+    original(obj)
 end
 
 --- Check if an entity is a stalker (get_clsid + IsStalker(nil, cls) fast path).
@@ -573,8 +565,21 @@ function iterate_online_monsters()
     end
 end
 
+--- Install the trader hook (idempotent): wrap db.add_obj and db.del_obj, which every binder calls on net_spawn and net_destroy, to keep the online trader set.
+--- Dormant until a mod calls it at on_game_start, before any object loads (xray/alife_simulator.cpp:50,77,79 mt, :48,75,77 dev); a second call is a no-op.
+--- @safety SAFE - db is touched first so xevent.register_hook can rawget it; register_hook type-checks the target before replacing
+--- @cost O(1) | 2 register_hook at call, 1 clsid luabind per object spawn after
+--- @src anomaly/db.script(70-83) add_obj/del_obj, anomaly/bind_trader.script(56-65,96)
+function start_trader_hook()
+    if _trader_hooked then return end
+    _trader_hooked = true
+    local _ = db
+    xevent.register_hook("db", "add_obj", _add_db_obj)
+    xevent.register_hook("db", "del_obj", _remove_db_obj)
+end
+
 --- Iterator over online trader-class objects (clsid trader / script_trader) yielding (id, obj) pairs.
---- db.OnlineStalkers never lists them, so a walk over it alone misses Sidorovich; the db.add_obj wrapper keeps the set.
+--- db.OnlineStalkers never lists them, so a walk over it alone misses Sidorovich; start_trader_hook keeps the set.
 --- @safety SAFE - obj resolved through db.storage, a nil obj is yielded not raised
 --- @cost O(k) k online trader-class objects, 2 in the whole game | 0 luabind
 --- @src anomaly/db.script(70-83) add_obj/del_obj, anomaly/bind_trader.script(56-65,96)
@@ -698,8 +703,4 @@ function start_particle(obj, name, bone)
     if obj:get_bone_id(bone) == BI_NONE then return false end
     obj:start_particles(name, bone)
     return true
-end
-
-function on_game_start()
-    _register_db_wrappers()
 end

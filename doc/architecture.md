@@ -103,7 +103,7 @@ local name = xcreature.get_name(entity_id)
 - `iterate_online()` - Iterator over online objects with a script binder (`db.storage`), yielding (id, obj) pairs. Every stalker and monster binder registers there, so it covers all online creatures at about a third of the size of `gameobjects_registry`, which also holds every inventory item
 - `iterate_online_monsters()` - The same walk filtered to mutants, uncapped
 - `iterate_online_traders()` - Iterator over the online trader-class NPCs, Sidorovich and the Forester, which `db.OnlineStalkers` never lists (`db.script:73`).
-  A wrapper on `db.add_obj` and `db.del_obj`, installed at `on_game_start` before any object spawns, keeps the set current.
+- `start_trader_hook()` - Wraps `db.add_obj` and `db.del_obj` to keep that set current. A consumer calls it at `on_game_start`, before any object spawns.
 - `get_mutant_species(input)` - Base species string from any entity ("bloodsucker", "dog"). Handles modded exe clsid reuse via section prefix, with a player_id fast reject for stalkers.
 - `get_mutant_variant(input)` - Full NPC variant section ("bloodsucker_red_strong", "dog_weak_brown")
 - `is_companion(input)` - The player's companion now: vanilla's `npcx_is_companion` flag read through `alife():has_info`, so it holds online and offline (`xr_motivator.script:152-156` rebuilds it on every spawn). The squad form is `xsquad.is_companion`.
@@ -832,6 +832,10 @@ The one home for aliases that keep a released mod running across an xlibs API ch
 - **Local caching**: `local time_global = time_global` for hot paths.
 - **Guard clauses**: early return on nil/invalid, max 2 nesting levels.
 - **Time slicing**: spread O(n) iteration across frames via `AddUniqueCall` + step index. Deferred compaction between passes.
+- **Dormant start function**: when an xlibs feature needs a hook on a vanilla function or a callback, xlibs ships a `start_*` function and never installs the hook itself.
+  The function installs the hook through `xevent.register_hook`, which refuses a second wrap. Any number of consumers can call it.
+  Each mod that uses the feature calls it from the mod's `on_game_start`. `xpda.start_news_hook` and `xcreature.start_trader_hook` are the models.
+  A wrapper installed in an xlibs `on_game_start` breaks the Passive library invariant, and every player of every mod pays for it.
 
 ---
 
