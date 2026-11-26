@@ -10,7 +10,7 @@ Shared utility library for STALKER Anomaly Lua modding. It is pure Lua and uses 
   A per-frame engine callback (`npc_on_update`) is only a carrier that throttles before doing anything.
   We never place our code on a path the engine runs every frame (a visibility or fire functor).
   Frame-spreading a bounded one-off batch (xslice, 1 item per frame) to avoid a single-frame spike is the one allowed use of the frame. It completes and stops.
-  Full rule and rationale: `doc/standards/stalker-code.md` "No Per-Frame Work".
+  Full rule and rationale: `doc/standards/stalker-code.md`, Performance.
 - **Steady-state silence.** xlibs modules never log. Instrumentation runs only through a consumer-created xlog logger in the consumer's own code.
   xchange rejects a bad or duplicate changeset registration silently. The registering mod checks the ids it passes.
 - **Passive library, no self-registration.** xlibs is a library, not a framework. The caller owns control flow.
@@ -22,10 +22,10 @@ Shared utility library for STALKER Anomaly Lua modding. It is pure Lua and uses 
   A persistent or hidden self-subscription is forbidden: a per-frame handler behind a getter, or a lifecycle callback or periodic timer registered in on_game_start.
 - **Performance first.** Performance is the top priority and outranks features.
   A wrapper adds no overhead beyond the bridge call it wraps. One that cannot stay within budget moves its cost into the engine where the engine can carry it, otherwise we rework it.
-  See `doc/standards/stalker-code.md` "Performance is the priority".
+  See `doc/standards/stalker-code.md`, Performance.
 - **Use the engine, don't work around it.** xlibs is the release-safe wrapper over the engine's and Anomaly layer's native mechanisms. It never reimplements what they already do.
   Callers escalate through the wrapper: use it, then nudge or correct it. We fix a defect in the engine or a performance cost in the engine, seam first. A full-file override is the last resort.
-  See `doc/standards/stalker-code.md` "Use the engine, don't work around it".
+  See `doc/standards/stalker-code.md`, Engine use.
 
 ---
 
@@ -195,7 +195,7 @@ Consumers call unconditionally, and the engine geometry switches on by itself wh
 
 - `set_aim_params(npc, max_angle, min_angle, min_speed, predict_time)` - Per-NPC sight swing/lead. Negative component reverts to the global ai_aim_* cvar. Floor: no-op, vanilla aim is the fallback
 - `set_vision_speed(npc, factor)` - Per-NPC vision acquisition factor composing with g_ai_vision_speed_boost.
-  Floor: no-op by design. The only script substitute is a per-frame functor wrap, banned by code-standards "No Per-Frame Work"
+  Floor: no-op by design. The only script substitute is a per-frame functor wrap, banned by `stalker-code.md`, Performance
 - `set_fire_queue_scale(npc, size_k, interval_k)` - Per-NPC combat-planner burst-size and inter-burst-interval scale (PR #603), applied in select_queue_params.
   Vanilla-planner fire only (state_mgr fire states bypass it). Floor: no-op, vanilla queues are the fallback
 - `set_view_distance_factor(npc, factor)` - Per-NPC view-DISTANCE multiplier (PR #627) on object_visible_distance's return, the RANGE twin of set_vision_speed.
