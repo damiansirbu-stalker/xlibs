@@ -7,7 +7,7 @@ local RESET_TIP_MS = 5000
 
 -- Config getter closure: reads ui_mcm.get(path) with a fallback to the defaults table; snapshot into cfg for hot paths.
 -- @safety SAFE - ui_mcm.get returns nil for missing keys, defaults table is fallback
--- @cost O(1) per call | 0 luabind cached (axr_main.config cache hit + 2 string concats), ini luabind on first read per key
+-- @cost O(1) per call | 2 luabind per read (line_exist, r_string): modded exes since 2025.12.30 disable the axr_main.config cache (_g_patches.script:550)
 local function create_getter(mod_id, defaults, path_builder)
     return function(key)
         if ui_mcm and not (ui_mcm.is_gathering and ui_mcm.is_gathering()) then
@@ -22,7 +22,7 @@ end
 --- Create a complete MCM config: pre-seeded table, getter, loader and reset, the table seeded from defaults with no ui_mcm call.
 --- The reset writes every default, saves, reloads, fires mcm_option_restore_default so the mod's listeners follow, closes the page and shows the message.
 --- @safety SAFE - creation is pure Lua table copy, loader delegates to create_getter; reset guards a missing gui
---- @cost O(n) defaults at creation, O(n) per load() call | 0 luabind (pure Lua throughout); reset: 1 write per key + 1 save
+--- @cost O(n) defaults at creation, O(n) per load() call | creation 0 luabind, load() 2 luabind per key (the getter); reset: 1 write per key + 1 save
 --- @src anomaly/ui_mcm.script:1435 (functor_ui passes the UI_MCM instance a reset closes)
 --- @param mod_id string MCM mod identifier
 --- @param defaults table Default values {key = value}
