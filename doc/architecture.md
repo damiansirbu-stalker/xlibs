@@ -825,6 +825,8 @@ MCM registration for xlibs. Banner slide, description, and dynamic version text 
 The one home for aliases that keep a released mod running across an xlibs API change. `on_game_start` installs each alias into its module, and each names the mod it serves and when it goes.
 
 - `xsmart.has_anomaly` - alias of `has_artefact_anomaly` (identical body) for AlifePlus 1.8.9. Drop once the next AlifePlus release is out.
+- `xlevel.get_actor_level_id`, `xlevel.get_smart_display_name`, `xtime.game_sec` - aliases of `get_actor_level`, `get_smart_name`, `get_game_sec` (identical bodies) for COMPASS, which calls them in `compass_station.script` behind existence checks. Drop once COMPASS moves to the new names.
+- `xcombat.find_flee_lane`, `xcombat.find_cover`, `xcombat.COVER` - for Nemesis Spawn System (`nemesis_core.script`, `nemesis_chase.script`). `find_flee_lane` aliases `find_free_lane`, and `find_cover` routes NEAREST to `get_quick_cover` and BEST to `get_best_cover`, owned by the NPC. Drop once Nemesis moves.
 
 ---
 

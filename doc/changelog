@@ -57,6 +57,9 @@
     - Changed iterate_online_traders to need start_trader_hook, which a mod calls from the mod's on_game_start.
       xlibs no longer wraps db.add_obj on every load for every player, only when a mod uses the trader list.
 
+  xcompat
+    - Added the old names COMPASS and Nemesis Spawn System still call, so their location reads, retreats and flee runs work again on this xlibs.
+
 1.10.0
   The xmonster mutant surface, cover finders, attachments and truer sight reads
     The new xmonster module covers mutant combat. It reads a mutant's state and memory, fires the jumps and attacks X-Ray validates, and sets its combat numbers.

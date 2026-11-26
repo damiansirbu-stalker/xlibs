@@ -1,7 +1,20 @@
 --- xcompat: aliases that keep released consumers running across an xlibs API change; each names its consumer and its removal
 
+--- find_cover before 6f6cc6b: NEAREST maps to get_quick_cover, BEST to get_best_cover, both owned by the npc so its own register_cover still passes.
+local function _find_cover(npc, enemy_pos, opts)
+    local args = { radius = opts.radius, search_pos = opts.search_pos, owner_id = npc:id() }
+    if opts.selection == xcombat.COVER.BEST then return xcombat.get_best_cover(npc, enemy_pos, args) end
+    return xcombat.get_quick_cover(npc, enemy_pos, args)
+end
+
 --- Install the aliases on every new game and save load, before any consumer's runtime call reaches them.
---- has_anomaly: AlifePlus 1.8.9 calls it (ap_ext_causes_needs.script:286,306); drop once the next AlifePlus release is out.
+--- Each alias's consumer, call sites and removal: doc/architecture.md, xcompat.script.
 function on_game_start()
     xsmart.has_anomaly = xsmart.has_artefact_anomaly
+    xlevel.get_actor_level_id = xlevel.get_actor_level
+    xlevel.get_smart_display_name = xlevel.get_smart_name
+    xtime.game_sec = xtime.get_game_sec
+    xcombat.find_flee_lane = xcombat.find_free_lane
+    xcombat.COVER = { NEAREST = "nearest", BEST = "best" }
+    xcombat.find_cover = _find_cover
 end
