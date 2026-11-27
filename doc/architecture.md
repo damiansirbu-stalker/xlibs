@@ -185,7 +185,7 @@ Registers no callbacks and holds no game state. Caches are transient (TTL, level
   get_best_cover is the most-hidden node (STRICT floor, escalating near->far, give-ground) for a committed hold; get_quick_cover the nearest decent one (LENIENT floor, small radius) for a brief duck; get_safe_cover an omnidirectional hide (safe_cover + an all-round floor sampled over SAFE_DIRS).
   All are claim-aware and search from the NPC's position; the directional two floor on `min(stand,crouch)` toward the threat, `opts.radius` required. find_free_lane is clear-lane fans. See `doc/library/modding/cover-and-los-queries.md`.
 - `send_to(npc, vid)`, `is_arrived(npc)` - Engine-routed movement (nearest-accessible fallback) and arrival truth
-- `is_indoor(pos)` - Indoor-level table plus surge-shelter proximity
+- `is_indoor(pos)` - Indoor-level table plus a roof-and-wall raycast
 - `register_cover(lvid, owner_id)`, `release_cover(lvid, owner_id)` - Ownership-checked reservation over the VANILLA `db.used_level_vertex_ids` ledger, so a claim coordinates with vanilla cover schemes (axr_fight_from_cover and kin) and other AT NPCs; the get_*_cover finders consult it to skip a held node.
 - `get_squad_ordinal(squad_id, npc_id)` - Stable per-member spread bucket
 
@@ -419,7 +419,7 @@ local valid = xlevel.is_valid_lvid(se_obj)
 - `is_valid_lvid(se_obj)` - Check level vertex validity (0xFFFFFFFF = invalid)
 - `is_surge()` - True while a surge or psi-storm is underway (pure Lua module reads via xr_conditions.surge_started)
 - `find_ray_hit(pos, dir, range, flags)` - One ray against the level's collision set through one shared `ray_pick`: distance, normal and object of the first hit, or nil. A hit at or under 1 mm counts as none.
-  `xcombat` and `xprops` cast through it.
+  `xcombat` and `xprops` cast through it. The normal is a zero vector for an object hit and nil on exes before 2026.4.13, where `get_normal` is probed once per Lua state.
 
 ### xsmart.script - Smart Terrain Queries
 
