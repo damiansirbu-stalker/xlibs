@@ -10,6 +10,8 @@ local _has_normal = nil
 local _vertex_level = {}
 local _level_id_by_name = nil
 local _neighbors_cache = {}
+local _level_links = {}
+local _has_graph_links = nil
 
 local INVALID_LEVEL_VERTEX_ID = xconst.INVALID_LEVEL_VERTEX_ID
 local INVALID_GAME_VERTEX_ID = xconst.INVALID_GAME_VERTEX_ID
@@ -70,10 +72,28 @@ local function _get_stripped_name(text)
     return text
 end
 
+-- One level's neighbour set: the game graph's on exes from 2026.10.11, else vanilla level_links.
+-- Cached per level once the graph has loaded, so the fallback is never frozen in before it.
+-- @src xray/xrGame/game_graph_script.cpp(56-75,112) level_neighbours; anomaly/level_targets.script(39-74) level_links
+-- @cost O(1) cached | 1 luabind heavy on a miss (a walk over every graph vertex, 5-28 us measured)
+local function _get_level_links(lvl)
+    local links = _level_links[lvl]
+    if links then return links end
+    local graph = get_game_graph()
+    if graph and _has_graph_links == nil then _has_graph_links = type(graph.level_neighbours) == "function" end
+    if _has_graph_links then
+        links = graph:level_neighbours(lvl)
+    else
+        links = level_targets and level_targets.level_links and level_targets.level_links[lvl]
+    end
+    if graph then _level_links[lvl] = links end
+    return links
+end
+
 -- Walk one BFS frontier hop, marking newly-reached levels in visited.
--- @cost O(k) k=neighbors of lvl | 0 luabind (pure Lua pairs over level_links sub-table)
+-- @cost O(k) k=neighbors of lvl | 0 luabind once each level's set is cached
 local function _collect_unvisited_neighbors(lvl, next_frontier, visited)
-    local links = level_targets and level_targets.level_links and level_targets.level_links[lvl]
+    local links = _get_level_links(lvl)
     if not links then return end
     for neighbor in pairs(links) do
         if visited[neighbor] then goto continue end
@@ -309,11 +329,11 @@ function get_danger_tier(level)
 end
 
 --- Get level_ids reachable within `hops` BFS hops from source_id (excluding source itself).
---- BFS over the directed, parse-time-static level_targets.level_links adjacency graph; cached per (source, hops) for the session.
---- @scope global - level_targets is parse-time data, available from on_game_start onward
---- @safety SAFE - nil-guarded on level_targets / source_id / hops; returns empty set on invalid input
---- @cost O(hops * sum(degree)) on miss, O(1) on hit | 0 luabind (pure Lua table ops)
---- @src anomaly/level_targets.script(39-74) level_links graph; anomaly/sim_squad_warfare.script(731-733) precedent consumer
+--- BFS over the directed level links (see _get_level_links); cached per (source, hops) for the session once the graph has loaded.
+--- @scope global - the game graph loads with A-Life, and level_targets is parse-time data
+--- @safety SAFE - nil-guarded on source_id / hops; returns empty set on invalid input or with neither graph nor level_links
+--- @cost O(hops * sum(degree)) on miss, O(1) on hit | 1 luabind heavy per level not yet cached, 0 after
+--- @src xray/xrGame/game_graph_script.cpp(56-75) level_neighbours; anomaly/level_targets.script(39-74); anomaly/sim_squad_warfare.script(731-733) precedent
 --- @param source_id number Engine level_id of the source level
 --- @param hops number BFS depth (1 = direct neighbors only, 2 = direct + neighbors-of-neighbors, etc.)
 --- @return table Set { [level_id]=true } excluding source_id (empty when unreachable/invalid); returned BY REFERENCE, treat as read-only
@@ -322,13 +342,14 @@ function get_neighbor_levels(source_id, hops)
     local key = source_id * 100 + hops
     local cached = _neighbors_cache[key]
     if cached then return cached end
-    if not level_targets or not level_targets.level_links then return {} end
+    local graph = get_game_graph()
+    if not graph and not (level_targets and level_targets.level_links) then return {} end
     local visited = { [source_id] = true }
     local frontier = { [source_id] = true }
     for _ = 1, hops do
         frontier = _get_next_frontier(frontier, visited)
     end
     visited[source_id] = nil
-    _neighbors_cache[key] = visited
+    if graph then _neighbors_cache[key] = visited end
     return visited
 end

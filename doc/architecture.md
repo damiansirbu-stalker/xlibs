@@ -416,7 +416,9 @@ local valid = xlevel.is_valid_lvid(se_obj)
 - `get_actor_level()` - Actor's current level ID
 - `get_level_name(level_id)`, `resolve_level_id(name)` - Level id <-> name resolution (session-cached)
 - `get_smart_name(smart)` - Translated smart terrain name
-- `get_neighbor_levels(source_id, hops)` - Level-id set within N graph hops. Returns the cached set BY REFERENCE: read-only, never mutate or hold across sessions
+- `get_neighbor_levels(source_id, hops)` - Level-id set within N graph hops. Returns the cached set BY REFERENCE: read-only, never mutate or hold across sessions.
+  The links come from the game graph (`game_graph():level_neighbours`, probed once) on exes from 2026.10.11, so Meadow and added maps join, and from vanilla `level_targets.level_links` before.
+  Each level's set is read once per session, at 5 to 28 us, and nothing is cached before the graph loads
 - `is_valid_lvid(se_obj)` - Check level vertex validity (0xFFFFFFFF = invalid)
 - `is_surge()` - True while a surge or psi-storm is underway (pure Lua module reads via xr_conditions.surge_started)
 - `find_ray_hit(pos, dir, range, flags)` - One ray against the level's collision set through one shared `ray_pick`: distance, normal and object of the first hit, or nil. A hit at or under 1 mm counts as none.

@@ -39,6 +39,7 @@
   xlevel
     - Added find_ray_hit, one ray against the level's collision set. xcombat and xprops cast through it.
       It returns no surface normal on exes before 2026.4.13.
+    - Changed get_neighbor_levels to follow the game graph on exes from 2026.10.11, so Meadow and added maps count. Older exes keep vanilla's level_links.
 
   xinventory
     - Changed the create_item docs to say that a requested cond, uses or condition range applies only to an item spawned online.
