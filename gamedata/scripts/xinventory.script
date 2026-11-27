@@ -835,7 +835,8 @@ end
 --- @src xray/xrGame/alife_simulator_script.cpp(175,232)
 --- @param section string Item section to create
 --- @param npc_id number NPC ID (online or offline)
---- @param t table|nil { ammo, cond, uses, cond_r, cond_ct, cond_cr } forwarded to itms_manager
+--- @param t table|nil { ammo, cond, uses, cond_r, cond_ct, cond_cr } forwarded to itms_manager. All but ammo apply only to an item spawned online
+--- @src anomaly/itms_manager.script(1189-1190,1420-1430) the game-object queue that drops an offline item
 --- @return cse_alife_object|table|nil Created entity or table of ammo entities, or nil
 function create_item(section, npc_id, t)
     if not section or not npc_id then return nil end

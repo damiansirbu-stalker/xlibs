@@ -350,7 +350,8 @@ Lifecycle: `parse_list ammo_class`, `alife_create_item`, `alife_release_id`, `tr
 - `iterate_inventory(npc_id, callback, max_items)` - online-only inventory walk (engine has no offline iteration API).
   Optional `max_items` stops the walk after that many items and returns `true` as a second value on truncation (nil = unbounded). It replaces `xobject.iterate_online_inventory`.
 - `create_item(section, npc_id, t)` - spawn item on any NPC (online / offline / cross-map via smart-terrain fallback).
-  A requested `cond` is applied even on non-degradable sections (weapons, outfits) that itms_manager skips. It replaces `xobject.create_item`.
+  A requested `cond` is applied even on non-degradable sections (weapons, outfits) that itms_manager skips, and only when the item spawns online.
+  itms_manager queues it for the item's game object, and an item spawned offline drops from the queue (`itms_manager.script:1189-1190,1420-1430`). It replaces `xobject.create_item`.
 - `transfer_item(from_npc, item, to_npc)` - move item between owners.
 - `release_item(item)` - alife_release_id wrapper (needs a live game_object).
 - `release_item_id(id)` - id-based release sibling. Works offline (no game_object required).

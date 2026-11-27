@@ -40,6 +40,9 @@
     - Added find_ray_hit, one ray against the level's collision set. xcombat and xprops cast through it.
       It returns no surface normal on exes before 2026.4.13.
 
+  xinventory
+    - Changed the create_item docs to say that a requested cond, uses or condition range applies only to an item spawned online.
+
   xmcm
     - create_config returns a reset that puts every option back to its default and tells the mod's listeners.
 
