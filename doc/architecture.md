@@ -260,12 +260,12 @@ Dormant at load; a consumer activates it per NPC and owns all policy through the
 ### xobject.script - Generic Object Lookup
 
 ```lua
-local se = xobject.se(any_input)  -ID, game object, or server object
-local npc = xobject.go(npc_id)  -online game object or nil
+local se = xobject.get_se(any_input)  -ID, game object, or server object
+local npc = xobject.get_go(npc_id)  -online game object or nil
 ```
 
-- `se(input)` - Get server object from any input type
-- `go(id)` - Get online game object by ID (nil if offline)
+- `get_se(input)` - Get server object from any input type
+- `get_go(id)` - Get online game object by ID (nil if offline)
 - `is_story(se_obj)` - True when the entity carries a story id (pure Lua STORY_PAIRS lookup, 0 luabind)
 
 Inventory-domain methods (item categorization, slot accessors, item lifecycle, ammo config) live in `xinventory.script` per the boundary.
